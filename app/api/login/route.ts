@@ -20,11 +20,12 @@ export async function POST(req: Request) {
       LIMIT 1
     `;
     const r = await query(sql, [body.username]);
+
     if (r.rows.length === 0) {
       return NextResponse.json({ ok: false, error: "invalid_user" }, { status: 403 });
     }
 
-    // ✅ 안전한 캐스팅 (unknown → 명시 타입)
+    // ✅ 안전한 캐스팅
     const u = (r.rows[0] as unknown) as {
       username: string;
       password_hash: string;
@@ -58,9 +59,9 @@ export async function POST(req: Request) {
     res.cookies.set("token", token, {
       httpOnly: true,
       path: "/",
-      sameSite: "none", // ✅ 모든 브라우저·시크릿 모드 호환
-      secure: true,     // ✅ HTTPS 전용
-      domain: ".moulab.kr", // ✅ 서브도메인 포함 전체 공유
+      sameSite: "none",  // 시크릿모드 포함 공유
+      secure: true,      // HTTPS 전용
+      // ❌ domain 삭제됨 (Render에서는 필요 없음)
       maxAge: 7 * 24 * 60 * 60,
     });
 
@@ -69,9 +70,7 @@ export async function POST(req: Request) {
     console.error("login error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
-
 }
 
-// 아무 파일의 맨 아래에 공백 한 줄 추가
 
 
