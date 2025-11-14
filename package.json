@@ -31,5 +31,6 @@
   "devDependencies": {
     "@types/node": "24.9.1"
   }
+
 }
 
