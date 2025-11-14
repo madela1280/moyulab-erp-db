@@ -5,7 +5,7 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 
 // ✅ UnifiedManagement는 반드시 동적 import로 불러오기 (빌드러의 모듈 파싱 오류 방지)
-const UnifiedManagement = dynamic(() => import('@/components/UnifiedManagement'), { ssr: false });
+const UnifiedManagement = dynamic(() => import('./UnifiedManagement'), { ssr: false });
 
 /**
  * ✅ 메뉴 정의
