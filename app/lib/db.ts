@@ -1,15 +1,11 @@
-import pkg from "pg";
-const { Pool } = pkg;
+import { Pool } from "pg";
 
-export const pool = new Pool({
-  host: "localhost",
-  user: "postgres",
-  password: "StrongPassword123!",
-  database: "erp",
-  port: 5432,
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: false
 });
 
-export async function query(text: string, params: any[]): Promise<any> {
+export async function query(text: string, params?: any[]) {
   const client = await pool.connect();
   try {
     const res = await client.query(text, params);
