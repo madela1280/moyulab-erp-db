@@ -14,14 +14,13 @@ function initSocket() {
   if (typeof window === 'undefined') return null;
   if (socket) return socket;
 
-  socket = io("wss://moulab.kr:4001", {
-    transports: ["websocket"],
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 2000,
-    withCredentials: false,
-    secure: true,
-  });
+  socket = io("ws://moulab.kr:4001", {
+  transports: ["websocket"],
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000,
+  withCredentials: false,
+});
 
   socket.on("connect", () => {
   console.log("🔥 WebSocket 연결 성공:", socket?.id);
