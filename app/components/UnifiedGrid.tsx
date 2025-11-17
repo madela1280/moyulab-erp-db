@@ -12,13 +12,24 @@ import ExtensionModal from './ExtensionModal';
 /** ✅ Socket.IO 전역 연결 (중복 방지) */
 let socket: Socket | null = null;
 
-if (typeof window !== "undefined" && !socket) {
-  socket = io("wss://moulab.kr:4001", {
-    transports: ["websocket"],
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 2000,
-    withCredentials: false,
+if (typeof window !== "undefined") {
+  if (!socket) {
+    socket = io("wss://moulab.kr:4001", {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      withCredentials: false,
+      secure: true,
+    });
+  }
+
+  socket.on("connect", () => {
+    console.log("🔥 WebSocket 연결 성공:", socket?.id);
+  });
+
+  socket.on("unified:update", (data: any) => {
+    console.log("📡 통합 브로드캐스트 수신(unified:update):", data);
   });
 }
 
