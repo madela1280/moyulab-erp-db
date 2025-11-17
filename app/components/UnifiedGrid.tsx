@@ -11,14 +11,16 @@ import ExtensionModal from './ExtensionModal';
 
 /** ✅ Socket.IO 전역 연결 (중복 방지) */
 let socket: Socket | null = null;
+
 if (typeof window !== "undefined" && !socket) {
-  socket = io("https://moulab.kr:4001", {
+  socket = io("wss://moulab.kr:4001", {
     transports: ["websocket"],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 2000,
     withCredentials: false,
   });
+}
 
   // ✅ 서버의 'global' 룸에 참가 → 일반/시크릿/다른 브라우저 전부 같은 세션 공유
   socket.on("connect", () => {
