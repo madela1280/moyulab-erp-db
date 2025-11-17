@@ -1,7 +1,5 @@
 'use client';
 
-// force-refresh-v3
-
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { type Category } from '../lib/rules';
@@ -9,28 +7,28 @@ import { GuideRuleModal, CategoryRuleModal } from './RuleModals';
 import FindPanel from './FindPanel';
 import ExtensionModal from './ExtensionModal';
 
-/** ✅ Socket.IO 전역 연결 (중복 방지) */
 let socket: Socket | null = null;
 
-if (typeof window !== "undefined") {
-  if (!socket) {
-    socket = io("wss://moulab.kr:4001", {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-      withCredentials: false,
-      secure: true,
-    });
-  }
+/** 🔥 소켓 연결을 단 1번만 생성 (중복 방지) */
+function initSocket() {
+  if (typeof window === 'undefined') return null;
+  if (socket) return socket;
+
+  socket = io("wss://moulab.kr:4001", {
+    transports: ["websocket"],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 2000,
+    withCredentials: false,
+    secure: true,
+  });
 
   socket.on("connect", () => {
-    console.log("🔥 WebSocket 연결 성공:", socket?.id);
+    console.log("🔥 WebSocket 연결 성공:", socket.id);
+    socket.emit("join", "global");
   });
 
-  socket.on("unified:update", (data: any) => {
-    console.log("📡 통합 브로드캐스트 수신(unified:update):", data);
-  });
+  return socket;
 }
 
 type Row = Record<string, string>;
@@ -44,10 +42,8 @@ const FALLBACK_COLUMNS: string[] = [
 
 const LABELS: Record<string, string> = { 계약자주소: '주소', 특이사항1: '특이사항' };
 const label = (k: string) => LABELS[k] ?? k;
-const DEFAULT_W = 120;
-const BASE_WIDTHS: Record<string, number> = { 계약자주소: 360 };
+
 const BLANK_ROWS = 20;
-const CHECKBOX_W = 28;
 
 export default function UnifiedGrid({ viewId = '통합관리' }: { viewId?: '통합관리'|'온라인'|'보건소'|'조리원' }) {
   const [columns, setColumns] = useState<string[]>(FALLBACK_COLUMNS);
@@ -56,69 +52,75 @@ export default function UnifiedGrid({ viewId = '통합관리' }: { viewId?: '통
   const [loading, setLoading] = useState(true);
   const savingRef = useRef(false);
 
-  /** 🔹 DB 데이터 불러오기 + 실시간 소켓 업데이트 */
-useEffect(() => {
-  const fetchRows = async () => {
-    try {
-      const res = await fetch(`/api/unified?view=${encodeURIComponent(viewId)}`);
-      const data = await res.json();
+  /** 🔥 소켓 초기화 (렌더 시 단 한 번만 실행) */
+  useEffect(() => {
+    initSocket();
+  }, []);
 
-      if (Array.isArray(data) && data.length > 0) {
-        setRows(data);
-      } else {
-        setRows(
-          Array.from({ length: BLANK_ROWS }, () =>
-            Object.fromEntries(colsRender.map((c) => [c, '']))
-          )
-        );
+  /** 🔹 DB 데이터 불러오기 + 소켓 실시간 반영 */
+  useEffect(() => {
+    const fetchRows = async () => {
+      try {
+        const res = await fetch(`/api/unified?view=${encodeURIComponent(viewId)}`);
+        const data = await res.json();
+
+        if (Array.isArray(data) && data.length > 0) {
+          setRows(data);
+        } else {
+          setRows(
+            Array.from({ length: BLANK_ROWS }, () =>
+              Object.fromEntries(colsRender.map((c) => [c, '']))
+            )
+          );
+        }
+      } catch (err) {
+        console.error('❌ 데이터 불러오기 실패:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('❌ 데이터 불러오기 실패:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  fetchRows();
+    fetchRows();
 
-  if (socket) {
-    socket.on('connect', () => console.log('⚡ 실시간 연결됨:', socket?.id));
-
-    // 기존 실시간 이벤트
-    socket.on('update', (data: Row[]) => {
-      console.log('📡 실시간 데이터 수신됨(update):', data);
-      setRows(data);
-    });
-
-    // 🔹 Redis 브로드캐스트 이벤트 추가
-    socket.on('unified:update', (data: Row[]) => {
-      console.log('📡 Redis 브로드캐스트 수신됨(unified:update):', data);
-      setRows(data);
-    });
-  }
-
-  return () => {
     if (socket) {
-      socket.off('update');
-      socket.off('unified:update');
-    }
-  };
-}, [viewId]);
+      const s = socket;
 
-  /** 🔹 자동 저장 */
+      const onUpdate = (data: Row[]) => {
+        console.log("📡 update 수신:", data);
+        setRows(data);
+      };
+
+      const onUnifiedUpdate = (data: Row[]) => {
+        console.log("📡 unified:update 수신:", data);
+        setRows(data);
+      };
+
+      s.on("update", onUpdate);
+      s.on("unified:update", onUnifiedUpdate);
+
+      return () => {
+        s.off("update", onUpdate);
+        s.off("unified:update", onUnifiedUpdate);
+      };
+    }
+  }, [viewId, colsRender]);
+
+  /** 🔹 자동 저장 (DB + 소켓 브로드캐스트) */
   const autoSave = async (next: Row[]) => {
     if (savingRef.current) return;
     savingRef.current = true;
+
     try {
       await fetch('/api/unified', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ viewId, rows: next }),
       });
-      socket?.emit('update', next);
-      console.log('✅ DB 자동저장 완료');
+
+      socket?.emit("unified:update", next);
+      console.log("✅ DB 자동저장 + 실시간 브로드캐스트 완료");
     } catch (err) {
-      console.error('❌ 자동저장 실패:', err);
+      console.error("❌ 자동저장 실패:", err);
     } finally {
       savingRef.current = false;
     }
@@ -157,33 +159,11 @@ useEffect(() => {
     setChecked({});
   };
 
-  /** 🔹 셀 색상 (DB 반영용 구조로 수정) */
-  const [cellStyles, setCellStyles] = useState<Record<string, { bg?: string; color?: string }>>({});
-  const keyOf = (r: number, c: number) => `${r}:${c}`;
-
-  const applyColor = (mode: 'bg' | 'text', color?: string) => {
-    setCellStyles((prev) => {
-      const next = { ...prev };
-      Object.keys(checked).forEach((k) => {
-        if (!checked[+k]) return;
-        for (let c = 0; c < colsRender.length; c++) {
-          const key = keyOf(+k, c);
-          const cur = { ...(next[key] || {}) };
-          if (mode === 'bg') color ? (cur.bg = color) : delete cur.bg;
-          else color ? (cur.color = color) : delete cur.color;
-          if (!cur.bg && !cur.color) delete next[key];
-          else next[key] = cur;
-        }
-      });
-      return next;
-    });
-  };
-
   if (loading) return <div className="p-6 text-gray-500">데이터 불러오는 중...</div>;
 
   return (
     <>
-      {/* 🔥 버전 표시 (이 줄만 새로 추가됨) */}
+
       <div style={{ position:'fixed', top:0, right:0, background:'red', color:'white', padding:'2px 6px', fontSize:'11px', zIndex:9999 }}>
         GRID-V1
       </div>
@@ -193,7 +173,6 @@ useEffect(() => {
           <div className="flex gap-2">
             <button className="px-2 py-1 text-xs border rounded hover:bg-gray-50" onClick={addRow}>행 추가</button>
             <button className="px-2 py-1 text-xs border rounded hover:bg-gray-50" onClick={deleteSelected}>선택 삭제</button>
-            <ColorMenu onApply={applyColor} />
           </div>
           <div className="text-sm text-gray-600">총 {rows.length}행</div>
         </div>
@@ -214,9 +193,8 @@ useEffect(() => {
                   </td>
                   {colsRender.map((c, ci) => {
                     const v = r[c] ?? '';
-                    const style = cellStyles[keyOf(ri, ci)] || {};
                     return (
-                      <td key={ci} className="border px-1 py-[2px]" style={{ background: style.bg, color: style.color }}>
+                      <td key={ci} className="border px-1 py-[2px]">
                         <input
                           value={v}
                           onChange={(e) => handleChange(ri, c, e.target.value)}
@@ -235,30 +213,5 @@ useEffect(() => {
   );
 }
 
-/** 색상 메뉴 */
-function ColorMenu({ onApply }: { onApply: (mode: 'bg' | 'text', color?: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const colors = ['#fef08a','#fca5a5','#86efac','#93c5fd','#c7d2fe','#f9a8d4','#f5f5f5','#ffffff'];
-  return (
-    <div className="relative inline-block">
-      <button className="px-2 py-1 text-xs border rounded hover:bg-gray-50" onClick={() => setOpen(o => !o)}>색상</button>
-      {open && (
-        <div className="absolute left-0 mt-1 bg-white border rounded shadow p-2 z-30">
-          <div className="grid grid-cols-4 gap-1 mb-2">
-            {colors.map(c => (
-              <button key={c} className="w-5 h-5 border rounded" style={{ background: c }}
-                onClick={() => { onApply('bg', c); setOpen(false); }} />
-            ))}
-          </div>
-          <div className="flex gap-1">
-            <button className="px-2 py-1 border rounded text-xs" onClick={() => onApply('bg')}>배경지우기</button>
-            <button className="px-2 py-1 border rounded text-xs" onClick={() => onApply('text','red')}>빨강글씨</button>
-            <button className="px-2 py-1 border rounded text-xs" onClick={() => onApply('text')}>글자색지우기</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 
