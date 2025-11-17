@@ -1,0 +1,16 @@
+{
+  "name": "socket-server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "socket-server.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node socket-server.cjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
+}
+
+
