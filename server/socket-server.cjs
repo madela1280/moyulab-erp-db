@@ -44,6 +44,6 @@ io.on("connection", (socket) => {
 
 // --- 서버 실행 ---
 const PORT = 4001;
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Socket.IO 서버 실행중 → http://localhost:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Socket.IO 서버 실행중 → http://0.0.0.0:${PORT}`);
 });
