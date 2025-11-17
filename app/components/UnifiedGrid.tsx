@@ -1,5 +1,7 @@
 'use client';
 
+// force-refresh-v3
+
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { type Category } from '../lib/rules';
