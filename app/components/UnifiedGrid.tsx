@@ -24,9 +24,9 @@ function initSocket() {
   });
 
   socket.on("connect", () => {
-    console.log("🔥 WebSocket 연결 성공:", socket.id);
-    socket.emit("join", "global");
-  });
+  console.log("🔥 WebSocket 연결 성공:", socket?.id);
+  socket?.emit("join", "global");
+});
 
   return socket;
 }
