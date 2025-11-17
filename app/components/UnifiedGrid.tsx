@@ -14,8 +14,7 @@ function initSocket() {
   if (typeof window === 'undefined') return null;
   if (socket) return socket;
 
-  socket = io("/", {
-  path: "/socket",
+  socket = io("wss://moulab.kr:4001", {
   transports: ["websocket"],
   reconnection: true,
   reconnectionAttempts: 10,
