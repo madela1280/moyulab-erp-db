@@ -1,12 +1,40 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-
-// AppShell = 전체 ERP 레이아웃 (통합관리 화면 포함)
-const AppShell = dynamic(() => import('./components/AppShell'), {
-  ssr: false,
-});
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Page() {
-  return <AppShell />;
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function check() {
+      try {
+        const r = await fetch('/api/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        const data = await r.json();
+
+        // 로그인 안됨 → 로그인 페이지로 이동
+        if (!data.ok) {
+          router.replace('/login');
+          return;
+        }
+
+        // 로그인 성공 → 통합관리(AppShell) 페이지로 이동
+        router.replace('/main');
+      } catch {
+        router.replace('/login');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    check();
+  }, [router]);
+
+  return null;
 }
+
