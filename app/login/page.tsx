@@ -68,23 +68,23 @@ export default function LoginPage() {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#eef0f4]">
       <div className="w-full max-w-sm p-6 bg-[#eef0f4]">
 
-        {/* 로고 + 타이틀 */}
-        <div className="flex items-center gap-3 mb-6 mt-3">
+        {/* 로고 + 타이틀 (간격 줄임 / 글자 한 칸 이동 / 로고 10% 축소) */}
+        <div className="flex items-center gap-4 mb-2">
           <Image
             src="/logo.png"
             alt="moulab logo"
-            width={54}       // 로고 크기 15% 축소
-            height={54}
+            width={50}    // 로고 10% 축소
+            height={50}
             priority
             className="rounded-sm"
           />
-          <h1 className="text-[2.16rem] font-bold text-gray-500 leading-tight">
+          <h1 className="text-[2.16rem] font-bold text-gray-500 leading-tight ml-1">
             moulab ERP
           </h1>
         </div>
 
         {/* 아이디 입력 */}
-        <div className="mb-3">
+        <div className="mb-3 mt-2">
           <input
             type="text"
             placeholder="아이디"
@@ -129,6 +129,7 @@ export default function LoginPage() {
     </div>
   );
 }
+
 
 
 
