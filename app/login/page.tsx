@@ -11,13 +11,13 @@ type ApiResp =
 export default function LoginPage() {
   const router = useRouter();
 
-  // 입력값
-  const [userId, setUserId] = useState('');
-  const [password, setPassword] = useState('');
+  // ✅ 과거 UI 흐름 그대로 유지
+  const [userId, setUserId] = useState('medela1280');   // 요청 1: 기본 입력값
+  const [password, setPassword] = useState('12345');     // 요청 2: 기본 입력값
   const [rememberId, setRememberId] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // 과거 UI에서 사용하던: ID 저장 기능(localStorage, 임시용)
+  // ✅ 기존 코드 흐름 유지(localStorage는 ID 저장용으로만 사용)
   useEffect(() => {
     try {
       const saved = localStorage.getItem('erp_user');
@@ -40,7 +40,7 @@ export default function LoginPage() {
       const resp = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // 쿠키세션 필수
+        credentials: 'include', // 쿠키 기반 인증 그대로 유지
         body: JSON.stringify({ username: userId.trim(), password }),
       });
 
@@ -51,10 +51,11 @@ export default function LoginPage() {
         return;
       }
 
-      // 임시 ID 저장 기능(허용된 범위)
+      // ID 저장
       if (rememberId) localStorage.setItem('erp_user', userId.trim());
       else localStorage.removeItem('erp_user');
 
+      // 기존 흐름 그대로 유지
       router.replace('/');
     } catch (e) {
       console.error(e);
@@ -67,10 +68,11 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#eef0f4]">
       <div className="w-full max-w-sm p-6 bg-[#eef0f4]">
-        {/* 로고 & 타이틀 */}
+        
+        {/* 로고 + 타이틀 */}
         <div className="flex items-center gap-3 mb-6">
           <Image
-            src="/moyulogo.jpg"
+            src="/logo.png"   // ✔ 요청 3: public/logo.png 경로 정확히 반영
             alt="moulab logo"
             width={63}
             height={63}
@@ -82,7 +84,7 @@ export default function LoginPage() {
           </h1>
         </div>
 
-        {/* ID */}
+        {/* 아이디 입력 */}
         <div className="mb-3">
           <input
             type="text"
@@ -93,7 +95,7 @@ export default function LoginPage() {
           />
         </div>
 
-        {/* PW */}
+        {/* 비밀번호 입력 */}
         <div className="mb-3">
           <input
             type="password"
