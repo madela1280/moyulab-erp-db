@@ -11,11 +11,14 @@ type ApiResp =
 export default function LoginPage() {
   const router = useRouter();
 
+  // 기본값 자동 입력 (너 요청)
   const [userId, setUserId] = useState('medela1280');
   const [password, setPassword] = useState('12345');
+
   const [rememberId, setRememberId] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // 기존 흐름 그대로 유지 (아이디 기억 기능)
   useEffect(() => {
     try {
       const saved = localStorage.getItem('erp_user');
@@ -39,7 +42,10 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ username: userId.trim(), password }),
+        body: JSON.stringify({
+          username: userId.trim(),
+          password: password
+        }),
       });
 
       const data: ApiResp = await resp.json();
@@ -49,6 +55,7 @@ export default function LoginPage() {
         return;
       }
 
+      // 기존 흐름 — 아이디 저장
       if (rememberId) localStorage.setItem('erp_user', userId.trim());
       else localStorage.removeItem('erp_user');
 
@@ -64,6 +71,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#eef0f4]">
       <div className="w-full max-w-sm p-6 bg-[#eef0f4]">
+
+        {/* 로고 + 타이틀 */}
         <div className="flex items-center gap-3 mb-6">
           <Image
             src="/logo.png"
@@ -78,6 +87,7 @@ export default function LoginPage() {
           </h1>
         </div>
 
+        {/* 아이디 */}
         <div className="mb-3">
           <input
             type="text"
@@ -88,19 +98,19 @@ export default function LoginPage() {
           />
         </div>
 
+        {/* 비밀번호 */}
         <div className="mb-3">
           <input
             type="password"
             placeholder="비밀번호"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleLogin();
-            }}
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
             className="w-full border border-gray-300 rounded px-3 py-2 bg-white"
           />
         </div>
 
+        {/* 아이디 저장 */}
         <label className="flex items-center text-sm mb-4 select-none text-gray-700">
           <input
             type="checkbox"
@@ -111,6 +121,7 @@ export default function LoginPage() {
           아이디 저장
         </label>
 
+        {/* 로그인 버튼 */}
         <button
           onClick={handleLogin}
           disabled={busy}
@@ -122,6 +133,7 @@ export default function LoginPage() {
     </div>
   );
 }
+
 
 
 
