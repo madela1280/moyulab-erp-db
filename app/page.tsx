@@ -1,16 +1,15 @@
 'use client';
-import dynamic from 'next/dynamic';
-
-const Home = dynamic(() => import('./Home'), { ssr: false });
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Page() {
-  return (
-    <>
-      <div style={{ color: 'red', fontWeight: 'bold', padding: '4px' }}>
-        build-test-v1
-      </div>
-      <Home />
-    </>
-  );
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace('/login');   // ← ERP 접근 시 /login 으로 이동
+  }, [router]);
+
+  return null;
 }
+
 
