@@ -63,7 +63,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-start justify-center bg-gray-100 pt-24">
+    <div className="min-h-screen w-full flex items-start justify-center bg-gray-100">
       {/* 로그인 박스 */}
       <div className="w-full max-w-sm rounded-lg p-6 bg-gray-100">
 

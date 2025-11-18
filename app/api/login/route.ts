@@ -13,6 +13,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "missing" }, { status: 400 });
     }
 
+    // 🟦 임시 관리자 계정 (DB 없이 로그인 허용)
+    if (body.username === "medela1280" && body.password === "12345") {
+      const token = createToken({
+        username: "medela1280",
+        role: "admin",
+        name: "관리자",
+        phone: "01000000000",
+      });
+
+      const res = NextResponse.json({
+        ok: true,
+        username: "medela1280",
+        name: "관리자",
+        role: "admin",
+        phone: "01000000000",
+      });
+
+      res.cookies.set("token", token, {
+        httpOnly: true,
+        path: "/",
+        sameSite: "none",
+        secure: true,
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return res;
+    }
+
     const sql = `
       SELECT username, password_hash, salt, role, name, phone
       FROM users
@@ -59,9 +87,8 @@ export async function POST(req: Request) {
     res.cookies.set("token", token, {
       httpOnly: true,
       path: "/",
-      sameSite: "none",  // 시크릿모드 포함 공유
-      secure: true,      // HTTPS 전용
-      // ❌ domain 삭제됨 (Render에서는 필요 없음)
+      sameSite: "none",
+      secure: true,
       maxAge: 7 * 24 * 60 * 60,
     });
 
@@ -71,6 +98,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
 }
+
 
 
 
