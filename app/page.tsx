@@ -7,6 +7,13 @@ export default function Page() {
   const router = useRouter();
 
   useEffect(() => {
+
+    // ✅ NEW: 먼저 로그인 페이지로 강제 이동 (ERP 처음 접근 시)
+    if (window.location.pathname === '/') {
+      router.replace('/login');
+      return;
+    }
+
     async function check() {
       try {
         const r = await fetch('/api/auth/me', {
@@ -34,5 +41,6 @@ export default function Page() {
 
   return null;
 }
+
 
 
