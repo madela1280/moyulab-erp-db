@@ -24,8 +24,8 @@ export async function GET(req: Request) {
         user: {
           username: "medela1280",
           role: "admin",
-          name: "장대윤",
-          phone: "01077011280",
+          name: "관리자",
+          phone: "01000000000",
         },
       });
     }
