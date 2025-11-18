@@ -11,14 +11,11 @@ type ApiResp =
 export default function LoginPage() {
   const router = useRouter();
 
-  // 기본값 자동 입력 (너 요청)
   const [userId, setUserId] = useState('medela1280');
   const [password, setPassword] = useState('12345');
-
   const [rememberId, setRememberId] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // 기존 흐름 그대로 유지 (아이디 기억 기능)
   useEffect(() => {
     try {
       const saved = localStorage.getItem('erp_user');
@@ -55,7 +52,6 @@ export default function LoginPage() {
         return;
       }
 
-      // 기존 흐름 — 아이디 저장
       if (rememberId) localStorage.setItem('erp_user', userId.trim());
       else localStorage.removeItem('erp_user');
 
@@ -73,12 +69,12 @@ export default function LoginPage() {
       <div className="w-full max-w-sm p-6 bg-[#eef0f4]">
 
         {/* 로고 + 타이틀 */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-6 mt-3">
           <Image
             src="/logo.png"
             alt="moulab logo"
-            width={63}
-            height={63}
+            width={54}       // 로고 크기 15% 축소
+            height={54}
             priority
             className="rounded-sm"
           />
@@ -87,7 +83,7 @@ export default function LoginPage() {
           </h1>
         </div>
 
-        {/* 아이디 */}
+        {/* 아이디 입력 */}
         <div className="mb-3">
           <input
             type="text"
@@ -98,7 +94,7 @@ export default function LoginPage() {
           />
         </div>
 
-        {/* 비밀번호 */}
+        {/* 비밀번호 입력 */}
         <div className="mb-3">
           <input
             type="password"
@@ -133,6 +129,8 @@ export default function LoginPage() {
     </div>
   );
 }
+
+
 
 
 
