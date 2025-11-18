@@ -1,9 +1,14 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function Page() {
+const AppShell = dynamic(() => import('@/app/components/AppShell'), {
+  ssr: false,
+});
+
+export default function MainPage() {
   const router = useRouter();
 
   useEffect(() => {
@@ -16,14 +21,11 @@ export default function Page() {
 
         const data = await r.json();
 
+        // 🔥 로그인 안 됨 → 로그인 페이지
         if (!data.ok) {
-          // 🔥 로그인 안 됨 → 로그인 페이지
           router.replace('/login');
           return;
         }
-
-        // 🔥 로그인 OK → 메인(AppShell)으로 이동
-        router.replace('/main');
       } catch {
         router.replace('/login');
       }
@@ -32,7 +34,6 @@ export default function Page() {
     check();
   }, [router]);
 
-  return null;
+  // 🔥 로그인 되어 있으면 AppShell 전체 표시 → 통합관리 자동 출력
+  return <AppShell />;
 }
-
-
