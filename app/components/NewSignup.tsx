@@ -2,6 +2,9 @@
 
 import React, { useState } from 'react';
 
+/**
+ * ✅ DB 전용 신규가입 폼 (통합관리 자동전송 포함)
+ */
 export default function NewSignup() {
   const [form, setForm] = useState({
     name: '',
@@ -28,6 +31,7 @@ export default function NewSignup() {
     try {
       setLoading(true);
 
+      // 1️⃣ 신규가입 DB 저장
       const res = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,6 +41,7 @@ export default function NewSignup() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || '등록 실패');
 
+      // 2️⃣ 통합관리로 자동 전송
       const res2 = await fetch('/api/upsert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -78,4 +83,79 @@ export default function NewSignup() {
   };
 
   return (
-    <div className="bg-white border rounded sh
+    <div className="bg-white border rounded shadow p-6 max-w-[480px] mx-auto mt-8">
+      <h2 className="text-lg font-semibold mb-4">신규 가입 등록</h2>
+      <div className="space-y-3 text-sm">
+        <input
+          className="w-full border rounded px-3 py-2"
+          placeholder="이름"
+          value={form.name}
+          onChange={(e) => handleChange('name', e.target.value)}
+        />
+        <input
+          className="w-full border rounded px-3 py-2"
+          placeholder="전화번호"
+          value={form.phone}
+          onChange={(e) => handleChange('phone', e.target.value)}
+        />
+        <input
+          className="w-full border rounded px-3 py-2"
+          placeholder="거래처명"
+          value={form.vendor}
+          onChange={(e) => handleChange('vendor', e.target.value)}
+        />
+        <input
+          className="w-full border rounded px-3 py-2"
+          placeholder="제품명"
+          value={form.product}
+          onChange={(e) => handleChange('product', e.target.value)}
+        />
+        <input
+          className="w-full border rounded px-3 py-2"
+          placeholder="기기번호"
+          value={form.serial}
+          onChange={(e) => handleChange('serial', e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <input
+            type="date"
+            className="w-1/2 border rounded px-3 py-2"
+            value={form.startDate}
+            onChange={(e) => handleChange('startDate', e.target.value)}
+          />
+          <input
+            type="date"
+            className="w-1/2 border rounded px-3 py-2"
+            value={form.endDate}
+            onChange={(e) => handleChange('endDate', e.target.value)}
+          />
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className={`w-full py-2 rounded text-white ${
+            loading ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {loading ? '저장 중…' : '등록 및 전송'}
+        </button>
+
+        {msg && (
+          <p
+            className={`text-center mt-2 text-sm ${
+              msg.includes('✅')
+                ? 'text-green-600'
+                : msg.includes('⚠️')
+                ? 'text-orange-600'
+                : 'text-red-600'
+            }`}
+          >
+            {msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
