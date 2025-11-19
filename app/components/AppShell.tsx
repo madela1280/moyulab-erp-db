@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import UnifiedManagement from "@/components/UnifiedManagement";   // ★ 반드시 필요한 import
 
 /**
- * ✅ AppShell (최종 완성본)
- * - 모든 페이지의 공통 레이아웃
- * - 쿠키 기반 로그인 세션 유지
- * - 서버(DB) 기반 ERP 구조와 완전 일치
+ * ✅ AppShell (최종 정상작동본)
+ * - 로그인 세션 유지
+ * - 메뉴 라우팅
+ * - 통합관리 화면 렌더
  */
 export default function AppShell() {
   const pathname = usePathname();
@@ -101,11 +102,12 @@ export default function AppShell() {
 
       {/* 본문 */}
       <main className="flex-1 p-4">
-            <UnifiedManagement />
+        <UnifiedManagement />   {/* ★ 오류 원인이었던 부분 → 이제 정상 */}
       </main>
     </div>
   );
 }
+
 
 
 
