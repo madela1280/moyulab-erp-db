@@ -101,7 +101,9 @@ export default function AppShell() {
 
       {/* 본문 */}
       <main className="flex-1 p-4">
-        {children}
+          <PermissionGate routeKey={activeKey}>
+              <ActiveView />
+          </PermissionGate>
       </main>
     </div>
   );
