@@ -3,23 +3,7 @@
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import UserAdd from '@/app/components/UserManagement/UserAdd';
-import AdminSettingCentered from '@/app/components/UserManagement/AdminSettingCentered';
 import UnifiedManagement from '@/app/components/UnifiedManagement';
-import NewSignup from '@/app/components/NewSignup';
-import OnlineManagement from '@/app/components/OnlineManagement';
-import HealthCenterManagement from '@/app/components/HealthCenterManagement';
-import PostpartumManagement from '@/app/components/PostpartumManagement';
-import DeviceSymphony from '@/app/components/DeviceSymphony';
-import DeviceLactina from '@/app/components/DeviceLactina';
-import DeviceSwing from '@/app/components/DeviceSwing';
-import DeviceSwingMaxi from '@/app/components/DeviceSwingMaxi';
-import DeviceFreestyle from '@/app/components/DeviceFreestyle';
-import DeviceSirilac from '@/app/components/DeviceSirilac';
-import DeviceGaksimil from '@/app/components/DeviceGaksimil';
-import PermissionSetting from '@/app/components/UserManagement/PermissionSetting';
-import LockScreen from '@/app/components/UserManagement/LockScreen';
-import { canRead, getCurrentUser, ADMIN_ONLY_KEYS, isAdmin } from '@/app/lib/permissions';
 
 /* ----------------------------------------------
    1) 메뉴 구조
