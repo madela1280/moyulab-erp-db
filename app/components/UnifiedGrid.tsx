@@ -30,6 +30,7 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [col]: value })
     });
+    load();
   }
 
   async function addRow() {
@@ -39,13 +40,13 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(empty)
     });
-    const data = await r.json();
-    setRows(prev => [...prev, data]);
+    await r.json();
+    load();
   }
 
   async function deleteRow(id: number) {
     await fetch(`/api/unified/${id}`, { method: 'DELETE' });
-    setRows(prev => prev.filter(r => r.id !== id));
+    load();
   }
 
   if (loading) {
@@ -53,6 +54,7 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       <div className="p-4 text-gray-500">불러오는 중...</div>
     );
   }
+
   return (
     <div className="bg-white border rounded shadow-sm">
       <div className="px-4 py-3 border-b font-semibold flex items-center gap-3">
@@ -116,4 +118,5 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
     </div>
   );
 }
+
 
