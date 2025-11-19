@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db'; // ⬅️ PostgreSQL 연결 (너가 사용 중인 prisma or pg client)
+import { prisma } from "@/lib/db";
 
 //
 //  GET  → 통합관리 전체 데이터 불러오기

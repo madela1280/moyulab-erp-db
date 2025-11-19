@@ -10,7 +10,7 @@ import { usePathname } from 'next/navigation';
  * - 쿠키 기반 로그인 세션 유지
  * - 서버(DB) 기반 ERP 구조와 완전 일치
  */
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell() {
   const pathname = usePathname();
   const [authorized, setAuthorized] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
