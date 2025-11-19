@@ -1,46 +1,51 @@
-import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/db'; // ⬅️ PostgreSQL 연결 (너가 사용 중인 prisma or pg client)
 
-/** 🔹 GET: DB 불러오기 */
+//
+//  GET  → 통합관리 전체 데이터 불러오기
+//
 export async function GET() {
   try {
-    const result = (await query(
-      "SELECT data FROM unified WHERE id = 1",
-      []
-    )) as unknown as {
-      rows: { data: any }[];
-    };
+    const rows = await db.unified.findMany({
+      orderBy: { id: 'asc' }, // 필요 시 정렬 기준 변경 가능
+    });
 
-    const rows = result.rows.length ? result.rows[0].data : [];
-    return NextResponse.json(rows);
+    return NextResponse.json(rows, { status: 200 });
   } catch (err) {
-    console.error("❌ GET unified error:", err);
+    console.error('❌ /api/unified GET 오류:', err);
     return NextResponse.json(
-      { ok: false, error: "db_error" },
+      { ok: false, error: 'DB read failed' },
       { status: 500 }
     );
   }
 }
 
-/** 🔹 POST: DB 저장 */
+//
+//  POST  → 통합관리 전체 저장 (전체 overwrite 방식)
+//
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { rows } = body;
+    const rows = Array.isArray(body.rows) ? body.rows : [];
 
-    await query("UPDATE unified SET data = $1 WHERE id = 1", [
-      JSON.stringify(rows),
+    // ❗ 전체 삭제 후 bulk insert → 항상 DB = UI
+    await db.$transaction([
+      db.unified.deleteMany({}),
+      ...rows.map((r: any) =>
+        db.unified.create({ data: r })
+      ),
     ]);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
-    console.error("❌ POST unified error:", err);
+    console.error('❌ /api/unified POST 오류:', err);
     return NextResponse.json(
-      { ok: false, error: "db_error" },
+      { ok: false, error: 'DB write failed' },
       { status: 500 }
     );
   }
 }
+
 
 
 
