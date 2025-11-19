@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import LockScreen from './LockScreen';
-import { VIEW_MAP, MENUS } from '../../AppShell';
+import { VIEW_MAP, MENUS } from '@/app/components/AppShell';
 import { getCurrentUser, isAdmin } from '@/app/lib/permissions';
 
 type Perm = { r: boolean; w: boolean };

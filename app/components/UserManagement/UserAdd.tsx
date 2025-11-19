@@ -126,4 +126,5 @@ export default function UserAdd() {
             )}
 
             <div className="mt-4">
-              <div className="flex gap-2 sc
+              <div className="flex gap-2 scale-[0.9] origin-left">
+
