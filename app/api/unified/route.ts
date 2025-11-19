@@ -2,14 +2,19 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
 //
-// GET → 통합관리 전체 데이터 불러오기
+// GET → unified 테이블 전체 조회
 //
 export async function GET() {
   try {
-    const result = await query("SELECT * FROM unified ORDER BY id ASC");
+    const result = await query(`
+      SELECT *
+      FROM unified
+      ORDER BY id ASC
+    `);
+
     return NextResponse.json(result.rows, { status: 200 });
   } catch (err) {
-    console.error("❌ /api/unified GET 오류:", err);
+    console.error("❌ unified GET 실패:", err);
     return NextResponse.json(
       { ok: false, error: "DB read failed" },
       { status: 500 }
@@ -18,26 +23,26 @@ export async function GET() {
 }
 
 //
-// POST → 전체 덮어쓰기 방식 저장
+// POST → 테이블 전체 덮어쓰기
 //
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const rows = Array.isArray(body.rows) ? body.rows : [];
 
-    // 트랜잭션 수행
     await query("BEGIN");
 
-    // 전체 삭제
+    // 전체 지우고
     await query("DELETE FROM unified");
 
-    // insert 반복
+    // 새 데이터 insert
     for (const r of rows) {
       const keys = Object.keys(r);
-      const values = Object.values(r);
+      if (!keys.length) continue;
 
-      const cols = keys.map((k) => `"${k}"`).join(", ");
-      const params = values.map((_, i) => `$${i + 1}`).join(", ");
+      const cols = keys.map(k => `"${k}"`).join(", ");
+      const params = keys.map((_, i) => `$${i + 1}`).join(", ");
+      const values = keys.map(k => r[k]);
 
       await query(
         `INSERT INTO unified (${cols}) VALUES (${params})`,
@@ -49,7 +54,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
-    console.error("❌ /api/unified POST 오류:", err);
+    console.error("❌ unified POST 실패:", err);
     await query("ROLLBACK");
     return NextResponse.json(
       { ok: false, error: "DB write failed" },
