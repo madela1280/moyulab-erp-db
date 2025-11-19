@@ -7,25 +7,29 @@ function getId(req: Request) {
   return parts[parts.length - 1];
 }
 
+// PATCH → 기존 JSON(data)에 덮어쓰기
 export async function PATCH(req: Request) {
   const id = getId(req);
-  const body = await req.json();
-  const keys = Object.keys(body);
-  const vals = Object.values(body);
+  const body = await req.json();   // { key: value }
 
-  const sets = keys.map((k, i) => `"${k}"=$${i + 1}`).join(",");
+  // 기존 row 가져오기
+  const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
+  const merged = { ...old.rows[0].data, ...body };
 
   const r = await query(
-    `UPDATE unified SET ${sets} WHERE id=$${keys.length + 1} RETURNING *`,
-    [...vals, id]
+    `UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data`,
+    [merged, id]
   );
+
   return NextResponse.json(r.rows[0]);
 }
 
+// DELETE
 export async function DELETE(req: Request) {
   const id = getId(req);
   await query(`DELETE FROM unified WHERE id=$1`, [id]);
   return NextResponse.json({ ok: true });
 }
+
 
 
