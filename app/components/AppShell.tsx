@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import UnifiedManagement from '@/app/components/UnifiedManagement';
+import UnifiedManagement from '@/components/UnifiedManagement';
 
 /* ----------------------------------------------
    1) 메뉴 구조
