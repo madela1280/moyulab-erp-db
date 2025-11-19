@@ -114,17 +114,113 @@ export default function UserAdd() {
             <h3 className="font-semibold mb-4">{editUser ? '사용자 수정' : '사용자 추가'}</h3>
 
             <div className="space-y-3">
-              <input className="w-full border rounded px-3 py-2" placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
-              <input className="w-full border rounded px-3 py-2" placeholder="전화번호" value={phone} onChange={(e) => setPhone(e.target.value)} />
-              <input className="w-full border rounded px-3 py-2" placeholder="아이디" value={username} onChange={(e) => setUsername(e.target.value)} readOnly={!!editUser} />
-              <input type="password" className="w-full border rounded px-3 py-2" placeholder={editUser ? '새 비밀번호 (변경 시)' : '비밀번호'} value={password} onChange={(e) => setPassword(e.target.value)} />
-              <input type="password" className="w-full border rounded px-3 py-2" placeholder={editUser ? '새 비밀번호 확인' : '비밀번호 확인'} value={password2} onChange={(e) => setPassword2(e.target.value)} />
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="이름"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="전화번호"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="아이디"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                readOnly={!!editUser}
+              />
+              <input
+                type="password"
+                className="w-full border rounded px-3 py-2"
+                placeholder={editUser ? '새 비밀번호 (변경 시)' : '비밀번호'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <input
+                type="password"
+                className="w-full border rounded px-3 py-2"
+                placeholder={editUser ? '새 비밀번호 확인' : '비밀번호 확인'}
+                value={password2}
+                onChange={(e) => setPassword2(e.target.value)}
+              />
             </div>
 
             {status && (
-              <div className={`text-sm mt-3 ${status.includes('실패') || status.includes('오류') ? 'text-red-600' : 'text-green-600'}`}>{status}</div>
+              <div
+                className={`text-sm mt-3 ${
+                  status.includes('실패') || status.includes('오류')
+                    ? 'text-red-600'
+                    : 'text-green-600'
+                }`}
+              >
+                {status}
+              </div>
             )}
 
             <div className="mt-4">
               <div className="flex gap-2 scale-[0.9] origin-left">
+                <button
+                  onClick={handleSave}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  {editUser ? '수정 저장' : '추가'}
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-2 bg-gray-100 rounded border hover:bg-gray-50"
+                >
+                  삭제
+                </button>
+                <button
+                  onClick={resetForm}
+                  className="px-4 py-2 bg-gray-100 rounded border hover:bg-gray-50"
+                >
+                  새로 입력
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-5">
+            <h3 className="font-semibold mb-4">사용자 목록</h3>
+            <div className="divide-y">
+              {users.length === 0 && (
+                <div className="text-sm text-gray-500">등록된 사용자가 없습니다.</div>
+              )}
+              {users.map((u) => (
+                <button
+                  key={u.username}
+                  onClick={() => {
+                    setEditUser(u.username);
+                    setName(u.name);
+                    setPhone(u.phone);
+                    setUsername(u.username);
+                    setPassword('');
+                    setPassword2('');
+                    setStatus(null);
+                  }}
+                  className={`w-full text-left py-2 px-2 hover:bg-gray-50 ${
+                    u.username === editUser ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="font-medium">
+                    {u.name}{' '}
+                    <span className="text-gray-400 text-xs">({u.username})</span>
+                  </div>
+                  <div className="text-xs text-gray-500">{u.phone}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
