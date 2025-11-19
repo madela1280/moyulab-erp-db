@@ -12,19 +12,14 @@ const COLUMNS = [
   '0차연장','1차연장','2차연장','3차연장','4차연장','5차연장'
 ];
 
-// 🔥 Render 소켓 URL
 const SOCKET_URL = 'wss://moyulab-socket.onrender.com';
 
 export default function UnifiedGrid({ viewId }: { viewId: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // 🔥 소켓 객체
   const [socket, setSocket] = useState<Socket | null>(null);
 
-  // ============================================================
   // 1) 최초 데이터 로딩
-  // ============================================================
   async function load() {
     const r = await fetch('/api/unified', { cache: 'no-store' });
     const data = await r.json();
@@ -36,36 +31,38 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
     load();
   }, []);
 
-  // ============================================================
-  // 2) 소켓 연결 설정
-  // ============================================================
+  // 2) 소켓 연결
   useEffect(() => {
     const s = io(SOCKET_URL, { transports: ['websocket'] });
 
     s.on('connect', () => {
-      console.log('🔌 소켓 연결됨:', s.id);
-      s.emit('join', 'global'); // 🔥 모든 기기/브라우저 동기화 룸
+      console.log('소켓 연결:', s.id);
+      s.emit('join', 'global');
     });
 
-    // 🔥 다른 브라우저에서 업데이트 발생하면 실시간 적용
+    // 🔥 실시간 업데이트 적용
     s.on('unified:update', (updatedRow: Row) => {
-      console.log('📡 실시간 업데이트 수신:', updatedRow);
+      setRows(prev => {
+        // 삭제의 경우
+        if (updatedRow.deleted) {
+          return prev.filter(r => r.id !== updatedRow.id);
+        }
 
-      setRows(prev =>
-        prev.map(row => (row.id === updatedRow.id ? updatedRow : row))
-      );
+        // 수정·추가의 경우
+        const exists = prev.some(r => r.id === updatedRow.id);
+        if (!exists) return [...prev, updatedRow];
+
+        return prev.map(r =>
+          r.id === updatedRow.id ? updatedRow : r
+        );
+      });
     });
 
     setSocket(s);
-
-    return () => {
-      s.disconnect();
-    };
+    return () => s.disconnect();
   }, []);
 
-  // ============================================================
-  // 3) 셀 업데이트 (DB + 실시간 브로드캐스트)
-  // ============================================================
+  // 3) 셀 업데이트
   async function updateCell(id: number, col: string, value: string) {
     await fetch(`/api/unified/${id}`, {
       method: 'PATCH',
@@ -73,16 +70,21 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       body: JSON.stringify({ [col]: value })
     });
 
-    // 🔥 실시간으로 다른 브라우저에게 전송
-    const updatedRow = { ...rows.find(r => r.id === id)!, [col]: value };
-    socket?.emit('unified:update', updatedRow);
+    // 🔥 DB 반영 후 본인 화면 업데이트
+    setRows(prev =>
+      prev.map(r =>
+        r.id === id ? { ...r, [col]: value } : r
+      )
+    );
 
-    load(); // 최신값 다시 로딩
+    // 🔥 다른 사용자에게 실시간 전송
+    socket?.emit('unified:update', {
+      ...rows.find(r => r.id === id)!,
+      [col]: value
+    });
   }
 
-  // ============================================================
   // 4) 행 추가
-  // ============================================================
   async function addRow() {
     const empty = Object.fromEntries(COLUMNS.map(c => [c, '']));
     const r = await fetch('/api/unified', {
@@ -92,25 +94,21 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
     });
     const newRow = await r.json();
 
-    // 실시간 브로드캐스트
+    setRows(prev => [...prev, newRow]);
     socket?.emit('unified:update', newRow);
-
-    load();
   }
 
-  // ============================================================
   // 5) 행 삭제
-  // ============================================================
   async function deleteRow(id: number) {
     await fetch(`/api/unified/${id}`, { method: 'DELETE' });
-    socket?.emit('unified:update', { id, deleted: true } as any);
 
-    load();
+    setRows(prev => prev.filter(r => r.id !== id));
+
+    socket?.emit('unified:update', { id, deleted: true } as any);
   }
 
-  // ============================================================
-  // 6) UI
-  // ============================================================
+
+  // ------- UI -------
   if (loading) {
     return (
       <div className="p-4 text-gray-500">불러오는 중...</div>
@@ -160,6 +158,8 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
                         value={row[c] ?? ''}
                         onChange={e => {
                           const v = e.target.value;
+
+                          // 본인 화면 즉시 반영
                           setRows(prev =>
                             prev.map(r =>
                               r.id === row.id ? { ...r, [c]: v } : r
@@ -180,5 +180,6 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
     </div>
   );
 }
+
 
 
