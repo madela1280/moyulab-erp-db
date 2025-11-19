@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import db from "@/lib/db";
+import { query } from "@/lib/db";
 
 //
 //  GET  → 통합관리 전체 데이터 불러오기
