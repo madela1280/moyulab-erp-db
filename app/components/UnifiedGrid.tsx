@@ -1033,8 +1033,8 @@ function AddColumnModal({
                 onChange={e => setInsertTarget(e.target.value)}
               >
                 <option>(끝)</option>
-                {colsRender.map(c => (
-                  <option key={c}>{c}</option>
+                {colsRender.map((c: string) => (
+                   <option key={c}>{c}</option>
                 ))}
               </select>
             </div>
