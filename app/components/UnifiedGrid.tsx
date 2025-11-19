@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-type Row = { id: number } & Record<string, string>;
+type DataRow = Record<string, string>;
+type Row = { id: number } & DataRow;
 
 const COLUMNS = [
   '거래처분류','상태','안내분류','구매_렌탈','기기번호','기종','에러횟수','제품',
@@ -19,11 +20,19 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState<Socket | null>(null);
 
+  // 🔥 JSON → Row 형태로 변환
+  function normalize(r: any): Row {
+    return { id: r.id, ...r.data };
+  }
+
   // 1) 최초 로딩
   async function load() {
     const r = await fetch('/api/unified', { cache: 'no-store' });
     const data = await r.json();
-    setRows(data);
+
+    // 🔥 핵심: data(JSON) 을 Row 형태로 변환
+    setRows(data.map((d: any) => normalize(d)));
+
     setLoading(false);
   }
 
@@ -36,29 +45,30 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
     const s = io(SOCKET_URL, { transports: ['websocket'] });
 
     s.on('connect', () => {
-      console.log('소켓 연결:', s.id);
       s.emit('join', 'global');
     });
 
     // 실시간 수신
-    s.on('unified:update', (updatedRow: Row) => {
-      setRows(prev => {
-        if (updatedRow.deleted) {
-          return prev.filter(r => r.id !== updatedRow.id);
-        }
+    s.on('unified:update', (updated: any) => {
+      if (updated.deleted) {
+        setRows(prev => prev.filter(r => r.id !== updated.id));
+        return;
+      }
 
-        const exists = prev.some(r => r.id === updatedRow.id);
-        if (!exists) return [...prev, updatedRow];
+      const normalized = normalize(updated);
+
+      setRows(prev => {
+        const exists = prev.some(r => r.id === normalized.id);
+        if (!exists) return [...prev, normalized];
 
         return prev.map(r =>
-          r.id === updatedRow.id ? updatedRow : r
+          r.id === normalized.id ? normalized : r
         );
       });
     });
 
     setSocket(s);
 
-    // ❗ 타입오류 해결 (반환값이 void여야 함)
     return () => {
       s.disconnect();
     };
@@ -72,17 +82,16 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       body: JSON.stringify({ [col]: value })
     });
 
-    // 본인 즉시 반영
+    // 본인 반영
     setRows(prev =>
       prev.map(r =>
         r.id === id ? { ...r, [col]: value } : r
       )
     );
 
-    socket?.emit(
-      'unified:update',
-      { ...rows.find(r => r.id === id)!, [col]: value }
-    );
+    // 실시간 브로드캐스트
+    const updated = rows.find(r => r.id === id);
+    socket?.emit('unified:update', { id, data: { ...updated, [col]: value } });
   }
 
   // 4) 행 추가
@@ -93,10 +102,11 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(empty)
     });
-    const newRow = await r.json();
+
+    const newRow = normalize(await r.json());
 
     setRows(prev => [...prev, newRow]);
-    socket?.emit('unified:update', newRow);
+    socket?.emit('unified:update', { id: newRow.id, data: empty });
   }
 
   // 5) 삭제
@@ -105,10 +115,9 @@ export default function UnifiedGrid({ viewId }: { viewId: string }) {
 
     setRows(prev => prev.filter(r => r.id !== id));
 
-    socket?.emit('unified:update', { id, deleted: true } as any);
+    socket?.emit('unified:update', { id, deleted: true });
   }
 
-  // UI
   if (loading) {
     return <div className="p-4 text-gray-500">불러오는 중...</div>;
   }
