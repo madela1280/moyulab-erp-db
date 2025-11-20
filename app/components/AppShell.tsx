@@ -11,61 +11,61 @@ type TopMenu = (typeof TOP_MENUS)[number];
 type SubMenu = typeof SUB_MENUS[TopMenu][number];
 
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu | null>(null);
-  const [sub, setSub] = useState<SubMenu | null>(null);
+  const [top, setTop] = useState<TopMenu>("통합관리");
+  const [sub, setSub] = useState<SubMenu>(SUB_MENUS["통합관리"][0]);
   const [showSub, setShowSub] = useState(false);
 
-  const CurrentView =
-    top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
+  const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
 
   return (
-    <div className="min-h-screen bg-gray-50 w-full">
+    <div className="min-h-screen w-full">
 
-      {/* ---------------- 헤더 전체 영역 ---------------- */}
-      <header className="bg-gray-100 border-b w-full px-8 pt-4 pb-2">
+      {/* 상단 헤더 */}
+      <header className="bg-gray-100 border-b w-full px-8 py-3">
 
-        {/* ------- 로고 + 제목 영역 ------- */}
-        <div className="flex items-center mb-3">
+        {/* 로고 + 제목 + 대카테고리 한 줄 정렬 */}
+        <div className="flex items-center justify-between w-full">
 
-          {/* 로고 30% 축소 → 기존 52 → 36 */}
-          <Image
-            src="/logo.png"
-            alt="logo"
-            width={36}
-            height={36}
-          />
+          {/* 왼쪽 : 로고 + 제목 */}
+          <div className="flex items-center gap-3">
+            <Image
+              src="/logo.png"
+              alt="logo"
+              width={36}     // 30% 축소
+              height={36}
+            />
+            <h1 className="text-[1.2rem] font-bold text-gray-700">
+              {/* 20% 축소 */}
+              Moulab Rental ERP
+            </h1>
+          </div>
 
-          {/* 제목 20% 축소 → 기존 1.6rem → 1.28rem */}
-          <h1 className="text-[1.28rem] font-bold text-gray-700 ml-3">
-            Moulab Rental ERP
-          </h1>
+          {/* 오른쪽 : 대카테고리 */}
+          <nav className="flex items-center gap-8 text-[1rem] font-semibold text-black">
+            {TOP_MENUS.map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setTop(m);
+                  setSub(SUB_MENUS[m][0]);
+                  setShowSub(true); // 클릭 시 소카테고리 표시
+                }}
+                className={
+                  top === m
+                    ? "pb-1 border-b-2 border-black"
+                    : "text-gray-600 hover:text-black"
+                }
+              >
+                {m}
+              </button>
+            ))}
+          </nav>
+
         </div>
 
-        {/* ------- 대카테고리 메뉴 (20% 확대) ------- */}
-        {/* 기존 text-[0.82rem] → 20% 증가 → text-[0.98rem] */}
-        <nav className="flex items-center gap-10 text-[0.98rem] font-semibold text-gray-700 ml-[140px]">
-          {TOP_MENUS.map((m) => (
-            <button
-              key={m}
-              onClick={() => {
-                setTop(m);
-                setSub(SUB_MENUS[m][0]);
-                setShowSub(true);
-              }}
-              className={`pb-1 ${
-                top === m
-                  ? "border-b-2 border-black text-black"
-                  : "hover:text-black"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </nav>
-
-        {/* ------- 소카테고리 (대카테고리 바로 아래 표시) ------- */}
-        {top && showSub && (
-          <div className="flex gap-2 mt-3 ml-[140px]">
+        {/* 소카테고리 (대카테고리 바로 아래 표시) */}
+        {showSub && (
+          <div className="flex gap-2 mt-3 pl-[70px]"> 
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -73,10 +73,10 @@ export default function AppShell() {
                   setSub(s);
                   setShowSub(false);
                 }}
-                className={`px-3 py-1 text-xs rounded-full border ${
+                className={`px-4 py-1 text-sm rounded-full border ${
                   sub === s
                     ? "bg-blue-100 border-blue-300 text-blue-700"
-                    : "bg-gray-50 hover:bg-gray-200"
+                    : "bg-white hover:bg-gray-100"
                 }`}
               >
                 {s}
@@ -87,14 +87,10 @@ export default function AppShell() {
 
       </header>
 
-      {/* ---------------- 메인 화면 ---------------- */}
-      <main className="px-[0.5cm] py-4 w-full">
+      {/* 메인 화면 */}
+      <main className="px-4 py-4 w-full">
         <CurrentView />
       </main>
     </div>
   );
 }
-
-
-
-
