@@ -1,5 +1,3 @@
-"use client";
-
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -21,11 +19,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" suppressHydrationWarning>
+    <html lang="ko">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-100 min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} bg-gray-100 min-h-screen`}
       >
-        {/* 🔥 중앙정렬 삭제 — 전체 레이아웃 정상화 */}
         <main className="w-full min-h-screen">
           {children}
         </main>
@@ -33,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
 
 
 
