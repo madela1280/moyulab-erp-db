@@ -2,10 +2,10 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
-import { TOP_MENUS } from '@/app/menus/topMenus';
-import { SUB_MENUS } from '@/app/menus/subMenus';
-import { makeRouteKey } from '@/app/menus/menuRouter';
-import { VIEW_MAP } from '@/app/menus/viewMap';
+import { TOP_MENUS } from '@/menus/topMenus';
+import { SUB_MENUS } from '@/menus/subMenus';
+import { makeRouteKey } from '@/menus/menuRouter';
+import { VIEW_MAP } from '@/menus/viewMap';
 
 export default function AppShell() {
   const [top, setTop] = useState('통합관리');
@@ -15,7 +15,7 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* HEADER */}
+
       <header className="bg-gray-100 border-b px-6 pt-3 pb-2">
         <div className="flex items-center">
           <Image src="/moyulogo.jpg" alt="Logo" width={36} height={36} />
@@ -42,9 +42,8 @@ export default function AppShell() {
         </div>
       </header>
 
-      {/* SUB NAV */}
       <div className="bg-white border-b px-6 py-2 flex items-center gap-2">
-        {(SUB_MENUS[top] || []).map((item) => (
+        {SUB_MENUS[top].map((item) => (
           <button
             key={item}
             onClick={() => setSub(item)}
@@ -59,10 +58,10 @@ export default function AppShell() {
         ))}
       </div>
 
-      {/* CONTENT */}
       <main className="p-6">
         {CurrentView ? <CurrentView /> : '페이지 준비 중'}
       </main>
     </div>
   );
 }
+
