@@ -7,19 +7,18 @@ import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
-export default function AppShell() {
-  
-  const [showSub, setShowSub] = useState(false); // 소카테고리 표시 여부
-  type TopMenu = (typeof TOP_MENUS)[number];
-  type SubMenu = typeof SUB_MENUS[TopMenu][number];
+type TopMenu = (typeof TOP_MENUS)[number];
+type SubMenu = typeof SUB_MENUS[TopMenu][number];
 
+export default function AppShell() {
   const [top, setTop] = useState<TopMenu | null>(null);
   const [sub, setSub] = useState<SubMenu | null>(null);
+  const [showSub, setShowSub] = useState(false);
 
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
 
-  // ⏱ 소카테고리 자동 숨김 타이머
+  // 소카테고리 자동 숨김
   useEffect(() => {
     if (showSub) {
       const t = setTimeout(() => setShowSub(false), 3000);
@@ -28,30 +27,32 @@ export default function AppShell() {
   }, [showSub]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 w-full">
 
-      {/* 상단 헤더 */}
-      <header className="bg-gray-100 border-b px-6 pt-3 pb-2">
-        <div className="flex items-center">
-          <Image src="/logo.png" alt="logo" width={36} height={36} />
+      {/* 상단 헤더 (가득 채움) */}
+      <header className="bg-gray-100 border-b px-10 pt-4 pb-2 w-full">
+        <div className="flex items-center justify-between">
 
-          <h1 className="text-xl font-bold text-gray-700 ml-3 mr-10">
-            Moulab Rental ERP
-          </h1>
+          {/* 로고 + 제목 */}
+          <div className="flex items-center">
+            <Image src="/logo.png" alt="logo" width={40} height={40} />
+
+            <h1 className="text-2xl font-bold text-gray-700 ml-4">
+              Moulab Rental ERP
+            </h1>
+          </div>
 
           {/* 대카테고리 */}
-          <nav className="hidden md:flex items-center gap-[2.4rem]">
+          <nav className="flex items-center gap-10 text-lg font-semibold">
             {TOP_MENUS.map((m) => (
               <button
                 key={m}
                 onClick={() => {
                   setTop(m);
-                  setShowSub(true);      // 클릭하면 소카테고리 보임
-                  setSub(null);          // 아직 소카테고리 선택 안됨
+                  setSub(SUB_MENUS[m][0]);
+                  setShowSub(true);
                 }}
-                className={`text-[0.95rem] font-semibold ${
-                  top === m ? "text-black" : "text-gray-700 hover:text-black"
-                }`}
+                className={top === m ? "text-black" : "text-gray-600 hover:text-black"}
               >
                 {m}
               </button>
@@ -59,17 +60,17 @@ export default function AppShell() {
           </nav>
         </div>
 
-        {/* 소카테고리 → 대카테고리 아래에 위치 + 클릭/시간 지나면 사라짐 */}
+        {/* ⛔ 로고 아래가 아니라 → 대카테고리 바로 아래에 표시되는 소카테고리 */}
         {top && showSub && (
-          <div className="mt-3 flex items-center gap-1">
+          <div className="mt-3 flex gap-2 px-44">
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
                 onClick={() => {
                   setSub(s);
-                  setShowSub(false);   // 소카테고리 클릭하면 바로 숨김
+                  setShowSub(false);
                 }}
-                className={`px-2 py-0.5 text-xs rounded-full border ${
+                className={`px-3 py-1 text-sm rounded-full border ${
                   sub === s
                     ? "bg-blue-100 border-blue-300 text-blue-700"
                     : "bg-gray-50 hover:bg-gray-100"
@@ -82,14 +83,14 @@ export default function AppShell() {
         )}
       </header>
 
-      {/* 메인 화면 */}
-      <main className="p-6">
+      {/* 전체 페이지 화면 꽉 채우기 + 좌우 0.5cm 여백 */}
+      <main className="px-[0.5cm] py-4 w-full">
         <CurrentView />
       </main>
+
     </div>
   );
 }
-
 
 
 
