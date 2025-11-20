@@ -8,9 +8,13 @@ import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
 export default function AppShell() {
-  const [top, setTop] = useState<string | null>(null);
-  const [sub, setSub] = useState<string | null>(null);
+  
   const [showSub, setShowSub] = useState(false); // 소카테고리 표시 여부
+  type TopMenu = (typeof TOP_MENUS)[number];
+  type SubMenu = typeof SUB_MENUS[TopMenu][number];
+
+  const [top, setTop] = useState<TopMenu | null>(null);
+  const [sub, setSub] = useState<SubMenu | null>(null);
 
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
