@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import LockScreen from './LockScreen';
-import { getCurrentUser, isAdmin } from '@/app/lib/permissions';
+import { getCurrentUser, isAdmin } from '@/lib/permissions';
 
 type User = { username: string; name: string; phone: string; role: string };
 
