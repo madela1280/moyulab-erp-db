@@ -2,13 +2,13 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
-import { TOP_MENUS } from '@/menus/topMenus';
+import { TOP_MENUS, TopMenu } from '@/menus/topMenus';
 import { SUB_MENUS } from '@/menus/subMenus';
 import { makeRouteKey } from '@/menus/menuRouter';
 import { VIEW_MAP } from '@/menus/viewMap';
 
 export default function AppShell() {
-  const [top, setTop] = useState('통합관리');
+  const [top, setTop] = useState<TopMenu>('통합관리');
   const [sub, setSub] = useState(SUB_MENUS['통합관리'][0]);
 
   const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
@@ -64,5 +64,6 @@ export default function AppShell() {
     </div>
   );
 }
+
 
 
