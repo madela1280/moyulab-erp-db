@@ -32,7 +32,7 @@ async function savePermissions(username: string, perms: Record<string, Perm>) {
 }
 
 function extractTopLevelKeys(): string[] {
-  return MENUS.map(m => m.label).filter(l => l !== '사용자 관리');
+  return MENUS.filter(m => !m.startsWith('사용자관리'));
 }
 
 export default function PermissionSetting() {
