@@ -145,27 +145,24 @@ export default function AppShell() {
       </header>
 
       {/* SUB 메뉴 */}
-      <div className="bg-white border-b px-6 py-2 flex items-center gap-2">
-        {SUB_MENUS[openTop].map((s) => (
-          <button
-            key={s}
-            onClick={() => setActiveSub(s)}
-            className={`px-3 py-1 text-sm rounded-full border ${
-              activeSub === s
-                ? 'bg-blue-100 border-blue-300 text-blue-700'
-                : 'bg-gray-50 hover:bg-gray-100'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+<div className="bg-white border-b px-6 py-2 flex items-center gap-2">
+  {SUB_MENUS[openTop].map((s) => (
+    <button
+      key={s}
+      onClick={() => setActiveSub(s)}
+      className={`px-3 py-1 text-sm rounded-full border ${
+        activeSub === s
+          ? 'bg-blue-100 border-blue-300 text-blue-700'
+          : 'bg-gray-50 hover:bg-gray-100'
+      }`}
+    >
+      {s}
+    </button>
+  ))}
+</div>
 
-      <main className="p-6">
-        <PermissionGate routeKey={currentKey}>
-          <ActiveView />
-        </PermissionGate>
-      </main>
-    </div>
-  );
-}
+{/* 콘텐츠 영역 */}
+<main className="p-6">
+  <ActiveView />
+</main>
+
