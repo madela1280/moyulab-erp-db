@@ -2,10 +2,10 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { TOP_MENUS } from "@/app/menus/topMenus";
-import { SUB_MENUS } from "@/app/menus/subMenus";
-import { makeRouteKey } from "@/app/menus/menuRouter";
-import { VIEW_MAP } from "@/app/menus/viewMap";
+import { TOP_MENUS } from "@/menus/topMenus";
+import { SUB_MENUS } from "@/menus/subMenus";
+import { makeRouteKey } from "@/menus/menuRouter";
+import { VIEW_MAP } from "@/menus/viewMap";
 
 export default function AppShell() {
   const [top, setTop] = useState<keyof typeof TOP_MENUS>("통합관리");
