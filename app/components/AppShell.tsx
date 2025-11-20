@@ -48,8 +48,8 @@ export default function AppShell() {
             </h1>
           </div>
 
-          {/* 대카테고리 */}
-          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700 ml-[10cm]">
+          {/* 대카테고리 (← 15cm 왼쪽 이동) */}
+          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700 ml-[1cm]">
             {TOP_MENUS.map((m) => (
               <button
                 key={m}
@@ -71,9 +71,9 @@ export default function AppShell() {
 
         </div>
 
-        {/* 소카테고리 */}
+        {/* 소카테고리 → 대카테고리 바로 아래에서 표시 + 모든 버튼 컬러 스타일 적용 */}
         {top && showSub && (
-          <div className="flex gap-2 mt-2 ml-[10cm]">
+          <div className="flex gap-2 mt-2 ml-[1cm]">
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -81,10 +81,11 @@ export default function AppShell() {
                   setSub(s);
                   setShowSub(false);
                 }}
-                className={`px-3 py-1 text-xs rounded-full border
-                 ${sub === s
-                    ? "bg-blue-100 border-blue-300 text-blue-700"
-                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                className={`px-3 py-1 text-sm rounded-full border
+                 ${
+                   sub === s
+                     ? "bg-blue-100 border-blue-300 text-blue-700"
+                     : "bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200"
                  }`}
               >
                 {s}
