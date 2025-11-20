@@ -81,11 +81,11 @@ export default function AppShell() {
                   setSub(s);
                   setShowSub(false);
                 }}
-                className={`px-3 py-1 rounded-full border text-xs ${
-                  sub === s
+                className={`px-3 py-1 text-xs rounded-full border
+                 ${sub === s
                     ? "bg-blue-100 border-blue-300 text-blue-700"
-                    : "bg-gray-50 hover:bg-gray-200"
-                }`}
+                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                 }`}
               >
                 {s}
               </button>
