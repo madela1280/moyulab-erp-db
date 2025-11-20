@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const AppShell = dynamic(() => import('@/app/components/AppShell'), {
+const AppShell = dynamic(() => import('@/components/AppShell'), {
   ssr: false,
 });
 
