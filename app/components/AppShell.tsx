@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TOP_MENUS } from "@/menus/topMenus";
 import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
@@ -11,49 +11,58 @@ type TopMenu = (typeof TOP_MENUS)[number];
 type SubMenu = typeof SUB_MENUS[TopMenu][number];
 
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu>("통합관리");
-  const [sub, setSub] = useState<SubMenu>(SUB_MENUS["통합관리"][0]);
+  const [top, setTop] = useState<TopMenu | null>(null);
+  const [sub, setSub] = useState<SubMenu | null>(null);
   const [showSub, setShowSub] = useState(false);
 
-  const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
+  const CurrentView =
+    top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
+
+  // 소카테고리 자동 숨김 (5초)
+  useEffect(() => {
+    if (showSub) {
+      const t = setTimeout(() => setShowSub(false), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [showSub]);
 
   return (
-    <div className="min-h-screen w-full">
+    <div className="min-h-screen bg-gray-50 w-full">
 
-      {/* 상단 헤더 */}
-      <header className="bg-gray-100 border-b w-full px-8 py-3">
+      {/* 헤더 전체 영역 */}
+      <header className="bg-gray-100 border-b w-full px-10 py-4">
 
-        {/* 로고 + 제목 + 대카테고리 한 줄 정렬 */}
+        {/* 1) 로고 + 제목 + 대카테고리  (한 줄) */}
         <div className="flex items-center justify-between w-full">
 
-          {/* 왼쪽 : 로고 + 제목 */}
-          <div className="flex items-center gap-3">
+          {/* 로고 + 제목 */}
+          <div className="flex items-center">
             <Image
               src="/logo.png"
               alt="logo"
-              width={36}     // 30% 축소
-              height={36}
+              width={38}   // 30% 축소
+              height={38}
             />
-            <h1 className="text-[1.2rem] font-bold text-gray-700">
-              {/* 20% 축소 */}
+            <h1 className="text-[1.55rem] font-bold text-gray-700 ml-4">
+              {/* 5% 확대 */}
               Moulab Rental ERP
             </h1>
           </div>
 
-          {/* 오른쪽 : 대카테고리 */}
-          <nav className="flex items-center gap-8 text-[1rem] font-semibold text-black">
+          {/* 대카테고리 */}
+          <nav className="flex items-center gap-10 text-[0.92rem] font-semibold text-gray-700">
             {TOP_MENUS.map((m) => (
               <button
                 key={m}
                 onClick={() => {
                   setTop(m);
                   setSub(SUB_MENUS[m][0]);
-                  setShowSub(true); // 클릭 시 소카테고리 표시
+                  setShowSub(true);
                 }}
                 className={
                   top === m
-                    ? "pb-1 border-b-2 border-black"
-                    : "text-gray-600 hover:text-black"
+                    ? "pb-1 border-b-2 border-gray-700 text-black"
+                    : "hover:text-black"
                 }
               >
                 {m}
@@ -63,9 +72,9 @@ export default function AppShell() {
 
         </div>
 
-        {/* 소카테고리 (대카테고리 바로 아래 표시) */}
-        {showSub && (
-          <div className="flex gap-2 mt-3 pl-[70px]"> 
+        {/* 2) 소카테고리 — 대카테고리 바로 아래 */}
+        {top && showSub && (
+          <div className="flex gap-2 mt-3 ml-auto w-fit">
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -73,10 +82,10 @@ export default function AppShell() {
                   setSub(s);
                   setShowSub(false);
                 }}
-                className={`px-4 py-1 text-sm rounded-full border ${
+                className={`px-3 py-1 text-xs rounded-full border ${
                   sub === s
                     ? "bg-blue-100 border-blue-300 text-blue-700"
-                    : "bg-white hover:bg-gray-100"
+                    : "bg-gray-50 hover:bg-gray-200"
                 }`}
               >
                 {s}
@@ -87,10 +96,11 @@ export default function AppShell() {
 
       </header>
 
-      {/* 메인 화면 */}
-      <main className="px-4 py-4 w-full">
+      {/* 메인 영역 */}
+      <main className="px-[0.5cm] py-4 w-full">
         <CurrentView />
       </main>
     </div>
   );
 }
+
