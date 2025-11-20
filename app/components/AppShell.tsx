@@ -31,49 +31,43 @@ export default function AppShell() {
       {/* HEADER */}
       <header className="bg-gray-100 border-b w-full px-8 py-3">
 
-        {/* 로고 + 제목 + 대카테고리 한 줄 */}
-        <div className="flex items-center justify-between">
-
-          {/* 로고 + 제목 */}
-          <div className="flex items-center gap-3">
-            <Image
-              src="/logo.png"
-              alt="logo"
-              width={36}
-              height={36}
-            />
-
-            <h1 className="text-[1.45rem] font-bold text-gray-800">
-              Moulab Rental ERP
-            </h1>
-          </div>
-
-          {/* 대카테고리 (← 15cm 왼쪽 이동) */}
-          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700 ml-[1cm]">
-            {TOP_MENUS.map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  setTop(m);
-                  setSub(SUB_MENUS[m][0]);
-                  setShowSub(true);
-                }}
-                className={
-                  top === m
-                    ? "pb-1 border-b-2 border-gray-800 text-black"
-                    : "hover:text-black"
-                }
-              >
-                {m}
-              </button>
-            ))}
-          </nav>
-
+        {/* 로고 + 제목 */}
+        <div className="flex items-center gap-3 mb-2">
+          <Image
+            src="/logo.png"
+            alt="logo"
+            width={36}
+            height={36}
+          />
+          <h1 className="text-[1.45rem] font-bold text-gray-800">
+            Moulab Rental ERP
+          </h1>
         </div>
 
-        {/* 소카테고리 → 대카테고리 바로 아래에서 표시 + 모든 버튼 컬러 스타일 적용 */}
+        {/* 대카테고리 (15cm 이동) */}
+        <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700 ml-[15cm]">
+          {TOP_MENUS.map((m) => (
+            <button
+              key={m}
+              onClick={() => {
+                setTop(m);
+                setSub(SUB_MENUS[m][0]);
+                setShowSub(true);
+              }}
+              className={
+                top === m
+                  ? "pb-1 border-b-2 border-gray-800 text-black"
+                  : "hover:text-black"
+              }
+            >
+              {m}
+            </button>
+          ))}
+        </nav>
+
+        {/* 소카테고리 (대카테고리 아래 + 모든 버튼 컬러 적용) */}
         {top && showSub && (
-          <div className="flex gap-2 mt-2 ml-[1cm]">
+          <div className="flex gap-2 mt-2 ml-[15cm]">
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -81,11 +75,11 @@ export default function AppShell() {
                   setSub(s);
                   setShowSub(false);
                 }}
-                className={`px-3 py-1 text-sm rounded-full border
+                className={`px-3 py-1 text-xs rounded-full border
                  ${
                    sub === s
                      ? "bg-blue-100 border-blue-300 text-blue-700"
-                     : "bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200"
+                     : "bg-gray-200 border-gray-300 text-gray-700 hover:bg-gray-300"
                  }`}
               >
                 {s}
