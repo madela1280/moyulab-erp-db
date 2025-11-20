@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import AdminSetting from './AdminSetting';
 import LockScreen from './LockScreen';
-import { getCurrentUser, isAdmin } from '@/app/lib/permissions';
+
+// ⛔ 잘못된 경로: '@/app/lib/permissions'
+// ✅ 올바른 경로: '@/lib/permissions'
+import { getCurrentUser, isAdmin } from '@/lib/permissions';
 
 const ADMIN_ID_FIXED = 'medela1280';
 
@@ -12,8 +15,17 @@ export default function AdminSettingCentered() {
 
   useEffect(() => {
     try {
+      const authed = sessionStorage.getItem('erp_auth') === '1';
+      const uid =
+        sessionStorage.getItem('erp_user') ||
+        localStorage.getItem('erp_user') ||
+        '';
+
       const current = getCurrentUser();
-      const adminCheck = current && isAdmin(current);
+      const adminCheck =
+        (authed && uid === ADMIN_ID_FIXED) ||
+        (current && isAdmin(current));
+
       setIsAdminUser(!!adminCheck);
     } catch {
       setIsAdminUser(false);
@@ -31,3 +43,4 @@ export default function AdminSettingCentered() {
     </div>
   );
 }
+
