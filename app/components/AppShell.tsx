@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import Image from 'next/image';
-import { useState } from 'react';
-import { TOP_MENUS, TopMenu } from '@/menus/topMenus';
-import { SUB_MENUS } from '@/menus/subMenus';
-import { makeRouteKey } from '@/menus/menuRouter';
-import { VIEW_MAP } from '@/menus/viewMap';
+import Image from "next/image";
+import { useState } from "react";
+import { TOP_MENUS } from "@/app/menus/topMenus";
+import { SUB_MENUS } from "@/app/menus/subMenus";
+import { makeRouteKey } from "@/app/menus/menuRouter";
+import { VIEW_MAP } from "@/app/menus/viewMap";
 
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu>('통합관리');
-  const [sub, setSub] = useState(SUB_MENUS['통합관리'][0]);
+  const [top, setTop] = useState<keyof typeof TOP_MENUS>("통합관리");
+  const [sub, setSub] = useState(SUB_MENUS["통합관리"][0]);
 
   const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
 
@@ -18,24 +18,29 @@ export default function AppShell() {
 
       <header className="bg-gray-100 border-b px-6 pt-3 pb-2">
         <div className="flex items-center">
-          <Image src="/moyulogo.jpg" alt="Logo" width={36} height={36} />
+          <Image
+            src="/moyulogo.jpg"
+            alt="Moulab Logo"
+            width={36}
+            height={36}
+          />
           <h1 className="text-xl font-bold text-gray-700 ml-3">
             Moulab Rental ERP
           </h1>
 
-          <nav className="hidden md:flex items-center gap-8 ml-20">
-            {TOP_MENUS.map((item) => (
+          <nav className="hidden md:flex items-center gap-[2.4rem] ml-[380px]">
+            {Object.keys(TOP_MENUS).map((m) => (
               <button
-                key={item}
+                key={m}
                 onClick={() => {
-                  setTop(item);
-                  setSub(SUB_MENUS[item][0]);
+                  setTop(m as keyof typeof TOP_MENUS);
+                  setSub(SUB_MENUS[m as keyof typeof TOP_MENUS][0]);
                 }}
-                className={`text-sm font-semibold ${
-                  top === item ? 'text-black' : 'text-gray-600'
+                className={`text-[0.95rem] font-semibold ${
+                  top === m ? "text-black" : "text-gray-700 hover:text-black"
                 }`}
               >
-                {item}
+                {m}
               </button>
             ))}
           </nav>
@@ -43,27 +48,28 @@ export default function AppShell() {
       </header>
 
       <div className="bg-white border-b px-6 py-2 flex items-center gap-2">
-        {SUB_MENUS[top].map((item) => (
+        {SUB_MENUS[top].map((s) => (
           <button
-            key={item}
-            onClick={() => setSub(item)}
+            key={s}
+            onClick={() => setSub(s)}
             className={`px-3 py-1 text-sm rounded-full border ${
-              sub === item
-                ? 'bg-blue-100 border-blue-300 text-blue-700'
-                : 'bg-gray-50'
+              sub === s
+                ? "bg-blue-100 border-blue-300 text-blue-700"
+                : "bg-gray-50 hover:bg-gray-100"
             }`}
           >
-            {item}
+            {s}
           </button>
         ))}
       </div>
 
       <main className="p-6">
-        {CurrentView ? <CurrentView /> : '페이지 준비 중'}
+        <CurrentView />
       </main>
     </div>
   );
 }
+
 
 
 
