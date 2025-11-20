@@ -9,7 +9,7 @@ import { VIEW_MAP } from '@/menus/viewMap';
 
 export default function AppShell() {
   const [top, setTop] = useState('통합관리');
-  const [sub, setSub] = useState('통합관리');
+  const [sub, setSub] = useState(SUB_MENUS['통합관리'][0]);
 
   const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
 
@@ -29,7 +29,7 @@ export default function AppShell() {
                 key={item}
                 onClick={() => {
                   setTop(item);
-                  setSub(SUB_MENUS[item][0] || item);
+                  setSub(SUB_MENUS[item][0]);
                 }}
                 className={`text-sm font-semibold ${
                   top === item ? 'text-black' : 'text-gray-600'
@@ -64,4 +64,5 @@ export default function AppShell() {
     </div>
   );
 }
+
 
