@@ -23,7 +23,7 @@ import PermissionSetting from '@/components/UserManagement/PermissionSetting';
 import AdminSettingCentered from '@/components/UserManagement/AdminSettingCentered';
 
 import LockScreen from '@/components/UserManagement/LockScreen';
-import { getCurrentUser, isAdmin, canRead, ADMIN_ONLY_KEYS } from '@/lib/permissions';
+import { getCurrentUser, isAdmin } from '@/lib/permissions';
 
 // 로그인 체크
 function useAuthCheck() {
@@ -42,23 +42,6 @@ function useAuthCheck() {
     };
     check();
   }, []);
-}
-
-// 권한 게이트
-function PermissionGate({ routeKey, children }) {
-  const me = getCurrentUser();
-
-  if (!me) return <LockScreen />;
-  if (isAdmin(me)) return <>{children}</>;
-
-  if (ADMIN_ONLY_KEYS.has(routeKey)) return <LockScreen />;
-
-  const top = routeKey.split('>')[0];
-  if (canRead(me.username, routeKey) || canRead(me.username, top)) {
-    return <>{children}</>;
-  }
-
-  return <LockScreen />;
 }
 
 // TOP MENU 타입
