@@ -8,7 +8,7 @@ import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
 export default function AppShell() {
-  const [top, setTop] = useState<keyof typeof TOP_MENUS>("통합관리");
+  const [top, setTop] = useState<(typeof TOP_MENUS)[number]>("통합관리");
   const [sub, setSub] = useState(SUB_MENUS["통합관리"][0]);
 
   const CurrentView = VIEW_MAP[makeRouteKey(top, sub)];
