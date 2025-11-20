@@ -47,7 +47,7 @@ export default function AppShell() {
           </div>
 
           {/* 대카테고리 */}
-          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700">
+          <nav className="flex items-center gap-10 text-[0.82rem] font-semibold text-black ml-[10cm]">
             {TOP_MENUS.map((m) => (
               <button
                 key={m}
