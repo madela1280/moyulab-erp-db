@@ -1,14 +1,16 @@
-export async function getCurrentUser() {
+export function getCurrentUser() {
   try {
-    const res = await fetch('/api/auth/me', { credentials: 'include' });
-    const data = await res.json();
-    if (data.ok && data.username) {
-      return { username: data.username, role: data.role ?? 'user' };
-    }
-    return null;
-  } catch (err) {
-    console.error('❌ 사용자 정보 불러오기 실패:', err);
+    const raw = localStorage.getItem('erp_user_data');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
     return null;
   }
 }
+
+export function isAdmin(user: any) {
+  if (!user) return false;
+  return user.role === 'admin' || user.username === 'medela1280';
+}
+
 
