@@ -166,3 +166,8 @@ export default function AppShell() {
   <ActiveView />
 </main>
 
+    </div>
+  );
+}
+
+
