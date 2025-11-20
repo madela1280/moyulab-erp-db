@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TOP_MENUS } from "@/menus/topMenus";
 import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
@@ -18,37 +18,32 @@ export default function AppShell() {
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
 
-  // 소카테고리 5초 자동 숨김
-  useEffect(() => {
-    if (showSub) {
-      const t = setTimeout(() => setShowSub(false), 5000);
-      return () => clearTimeout(t);
-    }
-  }, [showSub]);
-
   return (
     <div className="min-h-screen bg-gray-50 w-full">
 
-      {/* --------------------- 상단 전체 컨테이너 --------------------- */}
-      <header className="bg-gray-100 border-b w-full px-10 pt-4">
+      {/* ---------------- 헤더 전체 영역 ---------------- */}
+      <header className="bg-gray-100 border-b w-full px-8 pt-4 pb-2">
 
-        {/* 1) 로고 + ERP 제목 */}
+        {/* ------- 로고 + 제목 영역 ------- */}
         <div className="flex items-center mb-3">
+
+          {/* 로고 30% 축소 → 기존 52 → 36 */}
           <Image
             src="/logo.png"
             alt="logo"
-            width={52}   // 30% 확대
-            height={52}
+            width={36}
+            height={36}
           />
 
-          <h1 className="text-[1.6rem] font-bold text-gray-700 ml-4">
-            {/* 20% 축소 */}
+          {/* 제목 20% 축소 → 기존 1.6rem → 1.28rem */}
+          <h1 className="text-[1.28rem] font-bold text-gray-700 ml-3">
             Moulab Rental ERP
           </h1>
         </div>
 
-        {/* 2) 대카테고리 */}
-        <nav className="flex items-center gap-10 text-[0.82rem] font-semibold text-black ml-[200px]">
+        {/* ------- 대카테고리 메뉴 (20% 확대) ------- */}
+        {/* 기존 text-[0.82rem] → 20% 증가 → text-[0.98rem] */}
+        <nav className="flex items-center gap-10 text-[0.98rem] font-semibold text-gray-700 ml-[140px]">
           {TOP_MENUS.map((m) => (
             <button
               key={m}
@@ -57,20 +52,20 @@ export default function AppShell() {
                 setSub(SUB_MENUS[m][0]);
                 setShowSub(true);
               }}
-              className={
+              className={`pb-1 ${
                 top === m
-                  ? "pb-1 border-b-2 border-gray-700"
-                  : "hover:text-gray-700"
-              }
+                  ? "border-b-2 border-black text-black"
+                  : "hover:text-black"
+              }`}
             >
               {m}
             </button>
           ))}
         </nav>
 
-        {/* 3) 소카테고리 — 반드시 대카테고리 바로 아래 */}
+        {/* ------- 소카테고리 (대카테고리 바로 아래 표시) ------- */}
         {top && showSub && (
-          <div className="flex gap-2 mt-3 ml-[200px]">
+          <div className="flex gap-2 mt-3 ml-[140px]">
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -92,7 +87,7 @@ export default function AppShell() {
 
       </header>
 
-      {/* --------------------- 메인 화면 --------------------- */}
+      {/* ---------------- 메인 화면 ---------------- */}
       <main className="px-[0.5cm] py-4 w-full">
         <CurrentView />
       </main>
