@@ -29,12 +29,12 @@ export default function AppShell() {
           </h1>
 
           <nav className="hidden md:flex items-center gap-[2.4rem] ml-[380px]">
-            {Object.keys(TOP_MENUS).map((m) => (
+            {TOP_MENUS.map((m) => (
               <button
                 key={m}
                 onClick={() => {
-                  setTop(m as keyof typeof TOP_MENUS);
-                  setSub(SUB_MENUS[m as keyof typeof TOP_MENUS][0]);
+                  setTop(m);
+                  setSub(SUB_MENUS[m][0]);
                 }}
                 className={`text-[0.95rem] font-semibold ${
                   top === m ? "text-black" : "text-gray-700 hover:text-black"
@@ -69,6 +69,7 @@ export default function AppShell() {
     </div>
   );
 }
+
 
 
 
