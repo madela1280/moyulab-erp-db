@@ -4,7 +4,9 @@ import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const AppShell = dynamic(() => import('@/components/AppShell'), {
+// ⛔ 잘못된 경로: '@/components/AppShell'
+// ✅ 올바른 경로: '@/app/components/AppShell'
+const AppShell = dynamic(() => import('@/app/components/AppShell'), {
   ssr: false,
 });
 
@@ -22,13 +24,13 @@ export default function MainPage() {
 
         const data = await r.json();
 
-        // 🔥 로그인 안 된 경우 → /login
+        // 로그인 안 된 경우 → 로그인 페이지로
         if (!data.ok) {
           router.replace('/login');
           return;
         }
 
-        // 🔥 로그인 OK → ERP 보여주기
+        // 로그인 O
         setAuthorized(true);
 
       } catch (e) {
@@ -39,11 +41,10 @@ export default function MainPage() {
     check();
   }, [router]);
 
-  // 로그인 체크 끝날 때까지 화면 숨김
   if (!authorized) return null;
 
-  // 로그인된 경우에만 AppShell 표시
   return <AppShell />;
 }
+
 
 
