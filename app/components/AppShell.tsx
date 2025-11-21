@@ -23,16 +23,19 @@ export default function AppShell() {
       {/* HEADER */}
       <header className="bg-gray-100 border-b w-full px-8 py-3">
 
-        {/* 로고 + 타이틀 + 대카테고리 (17cm 이동 포함) */}
-        <div className="flex items-center gap-10">
+        {/* 로고 + 제목 + 대카테고리 (정렬 정상화) */}
+        <div className="flex items-center justify-between">
+
+          {/* 왼쪽: 로고 */}
           <div className="flex items-center gap-3">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
+          {/* 오른쪽: 대카테고리 */}
           <nav
             className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700"
-            style={{ marginLeft: "17cm" }}
+            style={{ marginRight: "17cm" }}
           >
             {TOP_MENUS.map((m) => (
               <button
@@ -53,9 +56,12 @@ export default function AppShell() {
           </nav>
         </div>
 
-        {/* 소카테고리 — 선택된 대카테고리 바로 아래 */}
+        {/* 소카테고리: 대카테고리 아래 정확한 위치 */}
         {top && (
-          <div className="flex gap-2 mt-2" style={{ marginLeft: "17cm" }}>
+          <div
+            className="flex gap-2 mt-2"
+            style={{ display: "flex", justifyContent: "flex-end", marginRight: "17cm" }}
+          >
             {SUB_MENUS[top].map((s) => (
               <button
                 key={s}
@@ -85,6 +91,5 @@ export default function AppShell() {
     </div>
   );
 }
-
 
 
