@@ -8,7 +8,7 @@ import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu | null>(null);
+  const [top, setTop] = useState<TopMenu | null>(null);git push
   const [sub, setSub] = useState<string | null>(null);
   const [showSub, setShowSub] = useState(false);
 
@@ -38,7 +38,7 @@ export default function AppShell() {
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
 
         {/* 1줄: 로고 + 타이틀 + 대카테고리 */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-start">
           <div className="flex items-center gap-3">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
