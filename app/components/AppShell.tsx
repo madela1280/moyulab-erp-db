@@ -41,7 +41,7 @@ export default function AppShell() {
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
 
         {/* === 1줄: 로고 + 타이틀 + 대카테고리 === */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-12">
 
           {/* 로고 + 타이틀 */}
           <div className="flex items-center gap-3">
