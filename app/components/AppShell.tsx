@@ -76,7 +76,7 @@ export default function AppShell() {
         {top && showSub && (
           <div
             className="flex gap-2 mt-3 absolute left-8"
-            style={{ top: "72px" }} // 대카테고리 바로 아래 위치
+            style={{ top: "48px" }} // 대카테고리 바로 아래 위치
             onMouseEnter={stopTimer}
             onMouseLeave={startTimer}
           >
