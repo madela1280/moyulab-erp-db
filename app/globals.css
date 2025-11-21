@@ -43,3 +43,14 @@ body {
 
 /* 🚀 Tailwind가 레이아웃 제어 (중앙정렬은 layout.tsx에서 담당) */
 
+/* 🔧 버튼 기본 스타일 초기화 (소카테고리 버튼 글자크기/정렬 깨짐 해결) */
+button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+
