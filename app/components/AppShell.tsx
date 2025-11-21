@@ -40,15 +40,18 @@ export default function AppShell() {
 
         <div className="flex items-center">
           
+          {/* 좌측 로고/타이틀 영역 */}
           <div className="flex items-center gap-3 mr-12">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
-          <nav className="flex-grow flex justify-center text-[0.90rem] font-semibold text-gray-700">
+          {/* ⚠️ 수정: justify-center 제거, ml-40 (약 10cm) 추가하여 좌측으로 이동 */}
+          <nav className="flex-grow flex text-[0.90rem] font-semibold text-gray-700 ml-40">
             
             <div className="flex items-center gap-8 relative"> 
               
+              {/* 대카테고리 */}
               {TOP_MENUS.map((m) => (
                 <button
                   key={m}
@@ -69,7 +72,7 @@ export default function AppShell() {
                 </button>
               ))}
 
-              {/* 소카테고리 스타일 수정된 부분 */}
+              {/* 소카테고리 (회색 톤으로 변경됨) */}
               {top && showSub && (
                 <div
                   className="flex gap-2 absolute w-max"
@@ -87,10 +90,10 @@ export default function AppShell() {
                       }}
                       className={`px-3 py-1 text-xs rounded-full border
                         ${
-                          // ⚠️ 수정: 선택된 메뉴는 더 진한 파란색, 나머지는 연한 파란색
+                          // ⚠️ 수정: 선택된 메뉴는 진한 회색, 나머지는 연한 회색으로 변경
                           sub === s
-                            ? "bg-blue-300 border-blue-500 text-blue-800" 
-                            : "bg-blue-100 border-blue-300 text-blue-700" 
+                            ? "bg-gray-300 border-gray-500 text-gray-800" 
+                            : "bg-gray-100 border-gray-300 text-gray-700" 
                         }`}
                     >
                       {s}
