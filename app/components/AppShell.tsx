@@ -72,35 +72,31 @@ export default function AppShell() {
                 </button>
               ))}
 
-              {/* 소카테고리 (회색 톤으로 변경됨) */}
-              {top && showSub && (
-                <div
-                  className="flex gap-2 absolute w-max"
-                  style={{ top: "40px", left: `${dropdownLeft}px` }} 
-                  onMouseEnter={stopTimer}
-                  onMouseLeave={startTimer}
-                >
-                  {SUB_MENUS[top].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        setSub(s);
-                        setShowSub(false);
-                        stopTimer();
-                      }}
-                      className={`px-3 py-1 text-xs rounded-full border
-                        ${
-                          // ⚠️ 수정: 선택된 메뉴는 진한 회색, 나머지는 연한 회색으로 변경
-                          sub === s
-                            ? "bg-gray-300 border-gray-500 text-gray-800" 
-                            : "bg-gray-100 border-gray-300 text-gray-700" 
-                        }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* 소카테고리 (전부 동일한 진회색으로 통일됨) */}
+{top && showSub && (
+  <div
+    className="flex gap-2 absolute w-max"
+    style={{ top: "40px", left: `${dropdownLeft}px` }}
+    onMouseEnter={stopTimer}
+    onMouseLeave={startTimer}
+  >
+    {SUB_MENUS[top].map((s) => (
+      <button
+        key={s}
+        onClick={() => {
+          setSub(s);
+          setShowSub(false);
+          stopTimer();
+        }}
+        className={`px-3 py-1 text-xs rounded-full border
+          bg-gray-300 border-gray-500 text-gray-800
+        `}
+      >
+        {s}
+      </button>
+    ))}
+  </div>
+)}
             </div>
           </nav>
         </div>
