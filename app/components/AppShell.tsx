@@ -29,12 +29,12 @@ export default function AppShell() {
     <div className="min-h-screen bg-gray-50 w-full">
 
       {/* HEADER */}
-      <header className="bg-gray-100 border-b w-full px-8 py-3">
+      <header className="bg-gray-100 border-b w-full px-8 py-3 flex flex-col gap-2">
 
-        {/* 전체 헤더를 3줄 구조로 확정 */}
-        <div className="flex flex-col">
+        {/* ✔ 첫째줄: 로고 + Moulab + 대카테고리 */}
+        <div className="flex items-center justify-between w-full">
 
-          {/* 1줄: 로고 + 타이틀 */}
+          {/* 로고 + 텍스트 */}
           <div className="flex items-center gap-3">
             <Image
               src="/logo.png"
@@ -42,13 +42,15 @@ export default function AppShell() {
               width={36}
               height={36}
             />
+
+            {/* ✔ Rental ERP 제거 → Moulab만 남김 */}
             <h1 className="text-[1.45rem] font-bold text-gray-800">
-              Moulab Rental ERP
+              Moulab
             </h1>
           </div>
 
-          {/* 2줄: 대카테고리 (15cm 이동 후 그대로 한 줄 유지) */}
-          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700 ml-[15cm] mt-4">
+          {/* 대카테고리 */}
+          <nav className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700">
             {TOP_MENUS.map((m) => (
               <button
                 key={m}
@@ -67,36 +69,35 @@ export default function AppShell() {
               </button>
             ))}
           </nav>
-
-          {/* 3줄: 소카테고리 → 반드시 대카테고리 바로 아래 */}
-          {top && showSub && (
-            <div className="flex gap-2 mt-2 ml-[15cm]">
-              {SUB_MENUS[top].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => {
-                    setSub(s);
-                    setShowSub(false);
-                  }}
-                  className={`px-3 py-1 text-xs rounded-full border
-                    bg-gray-200 border-gray-300 text-gray-700 hover:bg-gray-300
-                  `}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-
         </div>
+
+        {/* ✔ 둘째줄: 선택된 대카테고리 바로 아래 소카테고리 */}
+        {top && showSub && (
+          <div className="flex gap-2">
+            {SUB_MENUS[top].map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setSub(s);
+                  setShowSub(false);
+                }}
+                className={`
+                  px-3 py-1 text-xs rounded-full border
+                  bg-gray-200 border-gray-300 text-gray-700 hover:bg-gray-300
+                `}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
       </header>
 
-      {/* 메인 */}
+      {/* MAIN */}
       <main className="px-6 py-4 w-full">
         <CurrentView />
       </main>
-
     </div>
   );
 }
