@@ -11,7 +11,6 @@ export default function AppShell() {
   const [top, setTop] = useState<TopMenu | null>(null);
   const [sub, setSub] = useState<string | null>(null);
   const [showSub, setShowSub] = useState(false);
-  // ⚠️ 1. 추가: 드롭다운의 좌측 위치(offset)를 저장할 state
   const [dropdownLeft, setDropdownLeft] = useState(0); 
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -39,33 +38,25 @@ export default function AppShell() {
 
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
 
-        {/* 1줄: 로고 + 타이틀 (좌측) + 대카테고리 (중앙) */}
         <div className="flex items-center">
           
-          {/* 좌측 로고/타이틀 영역 */}
           <div className="flex items-center gap-3 mr-12">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
-          {/* 대카테고리 영역: flex-grow와 justify-center로 중앙 정렬 */}
           <nav className="flex-grow flex justify-center text-[0.90rem] font-semibold text-gray-700">
             
-            {/* 메뉴 목록 Wrapper: relative 기준점 */}
             <div className="flex items-center gap-8 relative"> 
               
-              {/* 대카테고리 */}
               {TOP_MENUS.map((m) => (
                 <button
                   key={m}
-                  // ⚠️ 2. 수정: 클릭 시 이벤트 객체 e를 받아 버튼의 offsetLeft을 계산합니다.
                   onClick={(e) => {
                     setTop(m);
                     setSub(SUB_MENUS[m][0]);
                     setShowSub(true);
                     startTimer();
-
-                    // 클릭된 버튼의 left 위치(부모 relative 기준)를 저장
                     setDropdownLeft(e.currentTarget.offsetLeft); 
                   }}
                   className={
@@ -78,11 +69,10 @@ export default function AppShell() {
                 </button>
               ))}
 
-              {/* 소카테고리 — 클릭된 버튼 바로 아래 (Wrapper 기준 absolute) */}
+              {/* 소카테고리 스타일 수정된 부분 */}
               {top && showSub && (
                 <div
                   className="flex gap-2 absolute w-max"
-                  // ⚠️ 3. 수정: left 값을 동적으로 적용
                   style={{ top: "40px", left: `${dropdownLeft}px` }} 
                   onMouseEnter={stopTimer}
                   onMouseLeave={startTimer}
@@ -97,9 +87,10 @@ export default function AppShell() {
                       }}
                       className={`px-3 py-1 text-xs rounded-full border
                         ${
+                          // ⚠️ 수정: 선택된 메뉴는 더 진한 파란색, 나머지는 연한 파란색
                           sub === s
-                            ? "bg-blue-100 border-blue-300 text-blue-700"
-                            : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                            ? "bg-blue-300 border-blue-500 text-blue-800" 
+                            : "bg-blue-100 border-blue-300 text-blue-700" 
                         }`}
                     >
                       {s}
@@ -118,5 +109,3 @@ export default function AppShell() {
     </div>
   );
 }
-
-
