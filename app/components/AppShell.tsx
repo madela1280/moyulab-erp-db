@@ -17,7 +17,7 @@ export default function AppShell() {
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
 
-  /* ✅ 소카테고리 자동 숨김 (5초) */
+  /* 🔥 소카테고리 5초 후 자동 숨김 */
   useEffect(() => {
     if (top) {
       const timer = setTimeout(() => setTop(null), 5000);
@@ -31,7 +31,7 @@ export default function AppShell() {
       {/* HEADER */}
       <header className="bg-gray-100 border-b w-full px-8 py-3">
 
-        {/* 로고 + 타이틀 + 대카테고리 (절대 수정 금지 영역) */}
+        {/* 로고 + 제목 + 대카테고리 (절대 수정 금지 영역) */}
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-3">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
@@ -60,36 +60,35 @@ export default function AppShell() {
             ))}
           </nav>
         </div>
-
-        {/* █ 소카테고리 — 문제 해결된 영역 ONLY 수정 █ */}
-        {top && (
-          <div
-            className="flex gap-2 mt-2"
-            style={{ marginLeft: "17cm" }} // 대카테고리 아래 정확히 위치
-          >
-            {SUB_MENUS[top].map((s) => (
-              <button
-                key={s}
-                onClick={() => {
-                  setSub(s);
-                  setTimeout(() => setTop(null), 0); // 클릭 즉시 숨김
-                }}
-                className={`
-                  px-3 py-1 text-xs rounded-full border
-                  ${
-                    sub === s
-                      ? "bg-blue-100 border-blue-300 text-blue-700"
-                      : "bg-gray-200 border-gray-300 text-gray-700"
-                  }
-                `}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
       </header>
+
+      {/* 🔥 소카테고리 레이아웃 완전 분리 (대카테고리와 flex 영향 0%) */}
+      {top && (
+        <div
+          className="flex gap-2 py-2 bg-gray-100"
+          style={{ marginLeft: "17cm", borderBottom: "1px solid #e5e7eb" }}
+        >
+          {SUB_MENUS[top].map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setSub(s);
+                setTimeout(() => setTop(null), 0); // 클릭 즉시 숨김
+              }}
+              className={`
+                px-3 py-1 text-xs rounded-full border
+                ${
+                  sub === s
+                    ? "bg-blue-100 border-blue-300 text-blue-700"
+                    : "bg-gray-200 border-gray-300 text-gray-700"
+                }
+              `}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* MAIN */}
       <main className="px-6 py-4 w-full">
@@ -99,6 +98,7 @@ export default function AppShell() {
     </div>
   );
 }
+
 
 
 
