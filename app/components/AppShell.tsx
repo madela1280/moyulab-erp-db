@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { TOP_MENUS } from "@/menus/topMenus";
+import type { TopMenu } from "@/menus/topMenus";
 import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
