@@ -8,7 +8,7 @@ import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu | null>(null);git push
+  const [top, setTop] = useState<TopMenu | null>(null);
   const [sub, setSub] = useState<string | null>(null);
   const [showSub, setShowSub] = useState(false);
 
