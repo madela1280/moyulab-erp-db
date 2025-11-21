@@ -1,29 +1,25 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { TOP_MENUS } from "@/menus/topMenus";
 import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
-type TopMenu = (typeof TOP_MENUS)[number];
-type SubMenu = typeof SUB_MENUS[TopMenu][number];
-
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu | null>(null);
-  const [sub, setSub] = useState<SubMenu | null>(null);
+  const [top, setTop] = useState(null);
+  const [sub, setSub] = useState(null);
+  const [showSub, setShowSub] = useState(false);
 
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
 
-  /* 🔥 소카테고리 5초 후 자동 숨김 */
   useEffect(() => {
-    if (top) {
-      const timer = setTimeout(() => setTop(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [top]);
+    if (!showSub) return;
+    const t = setTimeout(() => setShowSub(false), 5000);
+    return () => clearTimeout(t);
+  }, [showSub]);
 
   return (
     <div className="min-h-screen bg-gray-50 w-full">
@@ -31,13 +27,16 @@ export default function AppShell() {
       {/* HEADER */}
       <header className="bg-gray-100 border-b w-full px-8 py-3">
 
-        {/* 로고 + 제목 + 대카테고리 (절대 수정 금지 영역) */}
-        <div className="flex items-center gap-10">
+        {/* 로고 + 제목 + 대카테고리 한 줄 */}
+        <div className="flex items-center justify-between">
+
+          {/* 로고 + 제목 */}
           <div className="flex items-center gap-3">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
+          {/* 대카테고리 (왼쪽으로 17cm 이동 유지) */}
           <nav
             className="flex items-center gap-8 text-[0.90rem] font-semibold text-gray-700"
             style={{ marginLeft: "17cm" }}
@@ -48,6 +47,7 @@ export default function AppShell() {
                 onClick={() => {
                   setTop(m);
                   setSub(SUB_MENUS[m][0]);
+                  setShowSub(true);
                 }}
                 className={
                   top === m
@@ -60,44 +60,47 @@ export default function AppShell() {
             ))}
           </nav>
         </div>
+
+        {/* 소카테고리 (대카테고리 바로 아래에 노출되도록 독립 레이어) */}
+        {top && showSub && (
+          <div
+            className="flex gap-2 mt-2"
+            style={{
+              marginLeft: "17cm",
+              display: "flex",
+              position: "relative",
+            }}
+          >
+            {SUB_MENUS[top].map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setSub(s);
+                  setShowSub(false);
+                }}
+                className={`px-3 py-1 text-xs rounded-full border
+                  ${
+                    sub === s
+                      ? "bg-blue-100 border-blue-300 text-blue-700"
+                      : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                  }
+                `}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
-      {/* 🔥 소카테고리 레이아웃 완전 분리 (대카테고리와 flex 영향 0%) */}
-      {top && (
-        <div
-          className="flex gap-2 py-2 bg-gray-100"
-          style={{ marginLeft: "17cm", borderBottom: "1px solid #e5e7eb" }}
-        >
-          {SUB_MENUS[top].map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setSub(s);
-                setTimeout(() => setTop(null), 0); // 클릭 즉시 숨김
-              }}
-              className={`
-                px-3 py-1 text-xs rounded-full border
-                ${
-                  sub === s
-                    ? "bg-blue-100 border-blue-300 text-blue-700"
-                    : "bg-gray-200 border-gray-300 text-gray-700"
-                }
-              `}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* MAIN */}
+      {/* 메인 */}
       <main className="px-6 py-4 w-full">
         <CurrentView />
       </main>
-
     </div>
   );
 }
+
 
 
 

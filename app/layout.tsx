@@ -23,7 +23,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${geistSans.variable} ${geistMono.variable} bg-gray-100 min-h-screen`}
       >
-        {/* 정렬 깨짐 방지용 wrapper */}
         <div className="w-full flex flex-col">
           <main className="w-full min-h-screen">
             {children}
@@ -33,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
 
 
 
