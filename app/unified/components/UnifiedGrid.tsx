@@ -9,8 +9,39 @@ type UnifiedRow = {
   data: Record<string, any>;
 };
 
-// ✅ 전역 socket (수정 핵심)
+// ✅ 전역 socket
 let socket: any = null;
+
+// ✅ 모든 컬럼 이름
+const unifiedColumns: string[] = [
+  "거래처분류",
+  "상태",
+  "안내분류",
+  "구매/렌탈",
+  "기기번호",
+  "기종",
+  "에러횟수",
+  "제품",
+  "수취인명",
+  "연락처1",
+  "연락처2",
+  "계약자주소",
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+  "특이사항1",
+  "특이사항2",
+  "총연장횟수",
+  "신청일",
+  "0차연장",
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
+];
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
@@ -152,4 +183,5 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
