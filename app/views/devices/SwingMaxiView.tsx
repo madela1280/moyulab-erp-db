@@ -1,9 +1,10 @@
 'use client';
 
-export default function 스윙맥시View() {
+export default function SwingMaxiView() {
   return (
     <div className="text-gray-700 text-sm">
-      스윙맥시 페이지
+      SwingMaxi 페이지
     </div>
   );
 }
+

@@ -1,9 +1,10 @@
 'use client';
 
-export default function 보건소View() {
+export default function HealthCenterView() {
   return (
     <div className="text-gray-700 text-sm">
-      보건소 페이지 (초기 화면)
+      HealthCenter 페이지 (초기 화면)
     </div>
   );
 }
+

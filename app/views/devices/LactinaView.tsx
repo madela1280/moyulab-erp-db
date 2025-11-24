@@ -1,9 +1,10 @@
 'use client';
 
-export default function 락티나View() {
+export default function LactinaView() {
   return (
     <div className="text-gray-700 text-sm">
-      락티나 페이지
+      Lactina 페이지
     </div>
   );
 }
+

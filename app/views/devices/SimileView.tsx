@@ -1,9 +1,10 @@
 'use client';
 
-export default function 시밀래View() {
+export default function SimileView() {
   return (
     <div className="text-gray-700 text-sm">
-      시밀래 페이지
+      Simile 페이지
     </div>
   );
 }
+

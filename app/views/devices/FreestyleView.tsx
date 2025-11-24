@@ -1,9 +1,10 @@
 'use client';
 
-export default function 프리스타일View() {
+export default function FreestyleView() {
   return (
     <div className="text-gray-700 text-sm">
-      프리스타일 페이지
+      Freestyle 페이지
     </div>
   );
 }
+

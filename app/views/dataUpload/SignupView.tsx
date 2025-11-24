@@ -1,9 +1,10 @@
 'use client';
 
-export default function 신규가입View() {
+export default function SignupView() {
   return (
     <div className="text-gray-700 text-sm">
-      신규가입 페이지
+      Signup 페이지
     </div>
   );
 }
+

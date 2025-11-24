@@ -1,9 +1,10 @@
 'use client';
 
-export default function 스윙View() {
+export default function SwingView() {
   return (
     <div className="text-gray-700 text-sm">
-      스윙 페이지
+      Swing 페이지
     </div>
   );
 }
+
