@@ -1,7 +1,7 @@
 "use client";
 
-import GridHeader from "@/app/unified/components/GridHeader";
-import GridTable from "@/app/unified/components/GridTable";
+import GridHeader from "@/unified/components/GridHeader";
+import GridTable from "@/unified/components/GridTable";
 
 export default function UnifiedMainView() {
   return (
@@ -15,6 +15,7 @@ export default function UnifiedMainView() {
     </div>
   );
 }
+
 
 
 
