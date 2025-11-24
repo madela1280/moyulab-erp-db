@@ -1,3 +1,4 @@
+// app/unified/components/UnifiedGrid.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -13,12 +14,11 @@ export default function UnifiedGrid() {
     });
 
     socket.emit("join", "global");
+    socket.on("unified:update", () => loadData());
 
-    socket.on("unified:update", () => {
-      loadData();
-    });
-
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   async function loadData() {
@@ -63,10 +63,7 @@ export default function UnifiedGrid() {
   }
 
   async function deleteRow(id: number) {
-    await fetch(`/api/unified/${id}`, {
-      method: "DELETE",
-    });
-
+    await fetch(`/api/unified/${id}`, { method: "DELETE" });
     setRows((prev) => prev.filter((r) => r.id !== id));
 
     const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
@@ -75,21 +72,16 @@ export default function UnifiedGrid() {
     socket.emit("unified:update");
   }
 
-  if (loading)
-    return (
-      <div className="text-center text-gray-500 py-10">Loading...</div>
-    );
+  if (loading) return <div className="text-center py-10">Loading...</div>;
 
   return (
-    <div className="px-2">
-      <div className="flex gap-2 mb-2">
-        <button
-          onClick={addRow}
-          className="px-2 py-1 border text-xs bg-white"
-        >
-          행 추가
-        </button>
-      </div>
+    <div className="px-4">
+      <button
+        onClick={addRow}
+        className="px-3 py-1 border text-xs bg-white mb-2"
+      >
+        행 추가
+      </button>
 
       <div
         className="border rounded bg-white overflow-auto w-full"
@@ -119,9 +111,7 @@ export default function UnifiedGrid() {
                     <input
                       className="w-full text-xs"
                       defaultValue={row.data[key]}
-                      onBlur={(e) =>
-                        saveCell(row.id, key, e.target.value)
-                      }
+                      onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
                 ))}
