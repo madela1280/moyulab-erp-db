@@ -2,7 +2,6 @@
 "use client";
 
 import GridHeader from "@/unified/components/GridHeader";
-import GridTable from "@/unified/components/GridTable";
 import UnifiedGrid from "@/unified/components/UnifiedGrid";
 
 export default function UnifiedMainView() {
@@ -10,7 +9,7 @@ export default function UnifiedMainView() {
     <div className="w-full h-full">
       <div style={{ height: "0.5cm" }} />
 
-      <GridHeader onAdd10={() => {}} />
+      <GridHeader />
 
       <div style={{ height: "0.5cm" }} />
 
@@ -18,6 +17,7 @@ export default function UnifiedMainView() {
     </div>
   );
 }
+
 
 
 

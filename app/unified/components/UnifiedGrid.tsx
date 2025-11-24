@@ -1,3 +1,4 @@
+// app/unified/components/UnifiedGrid.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,10 +9,10 @@ type UnifiedRow = {
   data: Record<string, any>;
 };
 
-// 🔵 전역 socket
+// 전역 socket
 let socket: any = null;
 
-// 🔵 모든 컬럼
+// 컬럼 정의
 const unifiedColumns: string[] = [
   "거래처분류",
   "상태",
@@ -39,26 +40,32 @@ const unifiedColumns: string[] = [
   "2차연장",
   "3차연장",
   "4차연장",
-  "5차연장"
+  "5차연장",
 ];
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 소켓 연결
   useEffect(() => {
     if (!socket) {
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
         transports: ["websocket"],
+        reconnection: true,
       });
     }
 
     socket.emit("join", "global");
-    socket.on("unified:update", loadData);
+
+    socket.on("unified:update", () => {
+      loadData();
+    });
 
     return () => {};
   }, []);
 
+  // DB 데이터 불러오기
   async function loadData() {
     setLoading(true);
     const res = await fetch("/api/unified", { cache: "no-store" });
@@ -72,49 +79,21 @@ export default function UnifiedGrid() {
   }, []);
 
   async function saveCell(id: number, key: string, value: string) {
+    const body = { [key]: value };
+
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ [key]: value }),
+      body: JSON.stringify(body),
     });
 
     if (socket) socket.emit("unified:update");
-  }
-
-  async function addRow() {
-    const initialData: Record<string, string> = {};
-    unifiedColumns.forEach((c) => (initialData[c] = ""));
-
-    const res = await fetch("/api/unified", {
-      method: "POST",
-      body: JSON.stringify(initialData),
-    });
-
-    if (socket) socket.emit("unified:update");
-  }
-
-  async function add10Rows() {
-    for (let i = 0; i < 10; i++) {
-      await addRow();
-    }
   }
 
   if (loading)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    <div className="px-4">
-
-      {/* 버튼 원래 위치로 복구 */}
-      <div className="flex gap-2 mb-2">
-        <button onClick={addRow} className="px-3 py-1 border text-xs bg-white">
-          행 추가
-        </button>
-
-        <button onClick={add10Rows} className="px-3 py-1 border text-xs bg-white">
-          행 10 추가
-        </button>
-      </div>
-
+    <div className="px-2">
       <div
         className="border rounded bg-white overflow-auto w-full"
         style={{ height: "calc(100vh - 210px)" }}
@@ -153,5 +132,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
