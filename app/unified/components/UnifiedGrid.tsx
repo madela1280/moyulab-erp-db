@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
+import { unifiedColumns } from "@/app/config/unifiedColumns";
 
 type UnifiedRow = {
   id: number;
@@ -53,14 +54,41 @@ export default function UnifiedGrid() {
   }
 
   async function addRow() {
+    const initialData = {};
+    unifiedColumns.forEach((c) => (initialData[c] = ""));
+
     const res = await fetch("/api/unified", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(initialData),
     });
 
     const newRow = (await res.json()) as UnifiedRow;
 
-    setRows((prev: UnifiedRow[]) => [...prev, newRow]);
+    setRows((prev) => [...prev, newRow]);
+
+    const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
+      transports: ["websocket"],
+    });
+    socket.emit("unified:update");
+  }
+
+  async function addRow10() {
+    const createdRows: UnifiedRow[] = [];
+
+    for (let i = 0; i < 10; i++) {
+      const init = {};
+      unifiedColumns.forEach((c) => (init[c] = ""));
+
+      const res = await fetch("/api/unified", {
+        method: "POST",
+        body: JSON.stringify(init),
+      });
+
+      const row = (await res.json()) as UnifiedRow;
+      createdRows.push(row);
+    }
+
+    setRows((prev) => [...prev, ...createdRows]);
 
     const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
       transports: ["websocket"],
@@ -71,7 +99,7 @@ export default function UnifiedGrid() {
   async function deleteRow(id: number) {
     await fetch(`/api/unified/${id}`, { method: "DELETE" });
 
-    setRows((prev: UnifiedRow[]) => prev.filter((r) => r.id !== id));
+    setRows((prev) => prev.filter((r) => r.id !== id));
 
     const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
       transports: ["websocket"],
@@ -83,13 +111,22 @@ export default function UnifiedGrid() {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    <div className="px-4">
-      <button
-        onClick={addRow}
-        className="px-3 py-1 border text-xs bg-white mb-2"
-      >
-        행 추가
-      </button>
+    <div className="px-2">
+      <div className="flex gap-2 mb-2">
+        <button
+          onClick={addRow}
+          className="px-3 py-1 border text-xs bg-white"
+        >
+          행 추가
+        </button>
+
+        <button
+          onClick={addRow10}
+          className="px-3 py-1 border text-xs bg-white"
+        >
+          행 10 추가
+        </button>
+      </div>
 
       <div
         className="border rounded bg-white overflow-auto w-full"
@@ -99,13 +136,12 @@ export default function UnifiedGrid() {
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-2 py-1 w-10">ID</th>
-              <th className="border px-2 py-1">거래처분류</th>
-              <th className="border px-2 py-1">상태</th>
-              <th className="border px-2 py-1">안내분류</th>
-              <th className="border px-2 py-1">구매/렌탈</th>
-              <th className="border px-2 py-1">기기번호</th>
-              <th className="border px-2 py-1">기종</th>
-              <th className="border px-2 py-1">삭제</th>
+              {unifiedColumns.map((col) => (
+                <th key={col} className="border px-2 py-1">
+                  {col}
+                </th>
+              ))}
+              <th className="border px-2 py-1 w-14">삭제</th>
             </tr>
           </thead>
 
@@ -114,11 +150,11 @@ export default function UnifiedGrid() {
               <tr key={row.id}>
                 <td className="border px-2 py-1">{row.id}</td>
 
-                {Object.keys(row.data).map((key) => (
+                {unifiedColumns.map((key) => (
                   <td key={key} className="border px-2 py-1">
                     <input
-                      className="w-full text-xs"
-                      defaultValue={row.data[key]}
+                      className="w-full text-xs py-0.5"
+                      defaultValue={row.data[key] || ""}
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
@@ -140,4 +176,5 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
