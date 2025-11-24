@@ -1,32 +1,20 @@
-// app/unified/components/GridHeader.tsx
-
 "use client";
 
-import React from "react";
-
-interface Props {
-  onClick?: () => void;
-}
-
-export default function GridHeader({}: Props) {
+export default function GridHeader() {
   return (
-    <div className="w-full flex items-center gap-2 px-4 py-2 bg-white border-b">
-
-      <button className="px-3 py-1 border rounded bg-gray-50">안내분류</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">분류</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">필터</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">검색</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">다운로드(엑셀)</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">칼라</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">중복/오류검사</button>
-
-      <div className="flex-1"></div>
-
-      <button className="px-3 py-1 border rounded bg-gray-50">열 이동 모드</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">행 10 추가</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">양식 추가(열)</button>
-      <button className="px-3 py-1 border rounded bg-gray-50">선택 삭제</button>
-
+    <div className="flex items-center gap-3 px-4 py-2 bg-gray-100 border-b">
+      <span className="text-sm text-gray-700">안내분류</span>
+      <span className="text-sm text-gray-700">분류</span>
+      <span className="text-sm text-gray-700">필터</span>
+      <span className="text-sm text-gray-700">검색</span>
+      <span className="text-sm text-gray-700">다운로드</span>
+      <span className="text-sm text-gray-700">칼라</span>
+      <span className="text-sm text-gray-700">중복</span>
+      <span className="text-sm text-gray-700">오류검사</span>
+      <span className="text-sm text-gray-700">열이동모드</span>
+      <span className="text-sm text-gray-700">행10추가</span>
+      <span className="text-sm text-gray-700">양식추가</span>
+      <span className="text-sm text-gray-700">선택삭제</span>
     </div>
   );
 }
