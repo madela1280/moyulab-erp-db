@@ -1,9 +1,9 @@
 // app/views/unified/UnifiedMainView.tsx
 "use client";
 
-import GridHeader from "@/app/unified/components/GridHeader";
-import GridTable from "@/app/unified/components/GridTable";
-import UnifiedGrid from "@/app/unified/components/UnifiedGrid";
+import GridHeader from "@/unified/components/GridHeader";
+import GridTable from "@/unified/components/GridTable";
+import UnifiedGrid from "@/unified/components/UnifiedGrid";
 
 export default function UnifiedMainView() {
   return (
@@ -14,11 +14,11 @@ export default function UnifiedMainView() {
 
       <div style={{ height: "0.5cm" }} />
 
-      {/* 기존 GridTable은 UI 샘플이므로 실제 데이터는 UnifiedGrid 렌더링 */}
       <UnifiedGrid />
     </div>
   );
 }
+
 
 
 
