@@ -24,14 +24,14 @@ export const VIEW_MAP: Record<string, any> = {
   // 데이터업로드
   "데이터업로드>신규가입": dynamic(() => import("@/views/dataUpload/SignupView")),
 
-  // 대여관리
-  "대여관리>대여관리": dynamic(() => import("@/views/rentals/RentalView")),
+  // 대여관리 ★ 여기 오류 발생했던 부분
+  "대여관리>대여관리": dynamic(() => import("@/views/rentals/RentalManagementView")),
 
   // 유축기현황
   "유축기현황>유축기현황": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
-  // 문자
-  "문자>문자": dynamic(() => import("@/views/sms/SMSView")),
+  // 문자 ★ 여기 오류 발생했던 부분
+  "문자>문자": dynamic(() => import("@/views/sms/MessageView")),
 
   // 합포장
   "합포장>합포장": dynamic(() => import("@/views/packaging/PackagingView")),
@@ -39,6 +39,7 @@ export const VIEW_MAP: Record<string, any> = {
   // 집계
   "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
 };
+
 
 
 
