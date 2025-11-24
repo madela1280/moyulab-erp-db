@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
-import { unifiedColumns } from "@/app/config/unifiedColumns";
 
 type UnifiedRow = {
   id: number;
