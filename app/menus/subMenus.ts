@@ -3,30 +3,31 @@
 import { TopMenu } from "./topMenus";
 
 export const SUB_MENUS: Record<TopMenu, string[]> = {
-  사용자관리: ["사용자추가", "권한설정", "관리자설정"],
+  user: ["UserAdd", "PermissionSetting", "AdminSetting"],
 
-  통합관리: ["통합관리", "온라인", "보건소", "조리원"],
+  unified: ["UnifiedMain", "Online", "HealthCenter", "PostpartumCare"],
 
-  기기관리: [
-    "심포니",
-    "락티나",
-    "스윙",
-    "스윙맥시",
-    "프리스타일",
-    "시밀래",
-    "각시밀",
+  devices: [
+    "Symphony",
+    "Lactina",
+    "Swing",
+    "SwingMaxi",
+    "Freestyle",
+    "Similae",
+    "Gaksamil",
   ],
 
-  데이터업로드: ["신규가입"],
+  dataUpload: ["Signup"],
 
-  대여관리: ["대여관리"],
+  rentals: ["RentalManagement"],
 
-  유축기현황: ["유축기현황"],
+  pumpStatus: ["PumpStatus"],
 
-  문자: ["문자"],
+  sms: ["Sms"],
 
-  합포장: ["합포장"],
+  packaging: ["Packaging"],
 
-  집계: ["집계"],
+  statistics: ["Statistics"],
 };
+
 
