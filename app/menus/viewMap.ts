@@ -18,20 +18,20 @@ export const VIEW_MAP: Record<string, any> = {
   "기기관리>스윙": dynamic(() => import("@/views/devices/SwingView")),
   "기기관리>스윙맥시": dynamic(() => import("@/views/devices/SwingMaxiView")),
   "기기관리>프리스타일": dynamic(() => import("@/views/devices/FreestyleView")),
-  "기기관리>시밀래": dynamic(() => import("@/views/devices/SimilaeView")),
-  "기기관리>각시밀": dynamic(() => import("@/views/devices/GaksamilView")),
+  "기기관리>시밀래": dynamic(() => import("@/views/devices/SimileView")),
+  "기기관리>각시밀": dynamic(() => import("@/views/devices/GaksiMilView")),
 
   // 데이터업로드
   "데이터업로드>신규가입": dynamic(() => import("@/views/dataUpload/SignupView")),
 
   // 대여관리
-  "대여관리>대여관리": dynamic(() => import("@/views/rentals/RentalManagementView")),
+  "대여관리>대여관리": dynamic(() => import("@/views/rentals/RentalView")),
 
   // 유축기현황
   "유축기현황>유축기현황": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
   // 문자
-  "문자>문자": dynamic(() => import("@/views/sms/MessageView")),
+  "문자>문자": dynamic(() => import("@/views/sms/SMSView")),
 
   // 합포장
   "합포장>합포장": dynamic(() => import("@/views/packaging/PackagingView")),
@@ -39,6 +39,7 @@ export const VIEW_MAP: Record<string, any> = {
   // 집계
   "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
 };
+
 
 
 
