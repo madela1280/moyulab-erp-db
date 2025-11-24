@@ -54,7 +54,7 @@ export default function UnifiedGrid() {
   }
 
   async function addRow() {
-    const initialData = {};
+    const initialData: Record<string, any> = {};
     unifiedColumns.forEach((c) => (initialData[c] = ""));
 
     const res = await fetch("/api/unified", {
@@ -76,7 +76,7 @@ export default function UnifiedGrid() {
     const createdRows: UnifiedRow[] = [];
 
     for (let i = 0; i < 10; i++) {
-      const init = {};
+      const init: Record<string, any> = {};
       unifiedColumns.forEach((c) => (init[c] = ""));
 
       const res = await fetch("/api/unified", {
