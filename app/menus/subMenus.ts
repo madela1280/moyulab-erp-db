@@ -1,33 +1,23 @@
-// app/menus/subMenus.ts
-
 import { TopMenu } from "./topMenus";
 
 export const SUB_MENUS: Record<TopMenu, string[]> = {
-  user: ["UserAdd", "PermissionSetting", "AdminSetting"],
+  사용자관리: ["사용자추가", "권한설정", "관리자설정"],
 
-  unified: ["UnifiedMain", "Online", "HealthCenter", "PostpartumCare"],
+  통합관리: ["통합관리", "온라인", "보건소", "조리원"],
 
-  devices: [
-    "Symphony",
-    "Lactina",
-    "Swing",
-    "SwingMaxi",
-    "Freestyle",
-    "Similae",
-    "Gaksamil",
-  ],
+  기기관리: ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"],
 
-  dataUpload: ["Signup"],
+  데이터업로드: ["신규가입"],
 
-  rentals: ["RentalManagement"],
+  대여관리: ["대여관리"],
 
-  pumpStatus: ["PumpStatus"],
+  유축기현황: ["유축기현황"],
 
-  sms: ["Sms"],
+  문자: ["문자"],
 
-  packaging: ["Packaging"],
+  합포장: ["합포장"],
 
-  statistics: ["Statistics"],
+  집계: ["집계"],
 };
 
 
