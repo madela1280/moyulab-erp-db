@@ -1,4 +1,3 @@
-// app/unified/components/UnifiedGrid.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -50,19 +49,33 @@ export default function UnifiedGrid() {
   // 소켓 연결
   useEffect(() => {
     if (!socket) {
+      // 1. 소켓 객체 생성 (아직 연결 시도 전)
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
         transports: ["websocket"],
         reconnection: true,
       });
     }
 
-    socket.emit("join", "global");
+    // 2. [수정된 부분]: 'connect' 이벤트 리스너를 추가하여 연결 성공 후 작업 수행
+    // 기존의 `socket.emit("join", "global");` 코드를 이 안으로 이동했습니다.
+    socket.on('connect', () => {
+        console.log("Socket connected, joining global room.");
+        socket.emit("join", "global");
+    });
 
     socket.on("unified:update", () => {
       loadData();
     });
 
-    return () => {};
+    // 소켓 연결 오류 발생 시 디버깅을 위한 리스너 추가
+    socket.on('connect_error', (err: any) => {
+        console.error("Socket connection error:", err.message);
+    });
+
+    return () => {
+        // 컴포넌트 언마운트 시 소켓 연결 해제 (선택 사항이지만 안전함)
+        // socket.disconnect(); 
+    };
   }, []);
 
   // DB 데이터 불러오기
@@ -86,7 +99,12 @@ export default function UnifiedGrid() {
       body: JSON.stringify(body),
     });
 
-    if (socket) socket.emit("unified:update");
+    // 소켓이 연결된 경우에만 emit
+    if (socket && socket.connected) {
+        socket.emit("unified:update");
+    } else {
+        console.warn("Socket is not connected. Cannot emit update.");
+    }
   }
 
   if (loading)
@@ -132,6 +150,5 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
