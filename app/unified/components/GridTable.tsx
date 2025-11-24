@@ -5,56 +5,77 @@ export default function GridTable() {
     <div
       className="border rounded bg-white overflow-auto"
       style={{
-        marginTop: "0.3cm",
-        marginBottom: "0.3cm",
         marginLeft: "0.3cm",
         marginRight: "0.3cm",
-        maxHeight: "calc(100vh - 180px)", // 화면 거의 채우되 아래 0.3cm 확보
+        maxHeight: "calc(100vh - 240px)",
       }}
     >
-      <table className="min-w-[2800px] table-fixed border-collapse text-[0.7rem]">
+      <table className="min-w-[2800px] table-fixed border-collapse text-[70%]">
         <thead className="bg-gray-100 sticky top-0 z-10">
           <tr>
-            <th className="border px-2 py-1">거래처분류</th>
-            <th className="border px-2 py-1">상태</th>
-            <th className="border px-2 py-1">안내분류</th>
-            <th className="border px-2 py-1">구매/렌탈</th>
-            <th className="border px-2 py-1">기기번호</th>
-            <th className="border px-2 py-1">기종</th>
-            <th className="border px-2 py-1">에러횟수</th>
-            <th className="border px-2 py-1">제품</th>
-            <th className="border px-2 py-1">수취인명</th>
-            <th className="border px-2 py-1">연락처1</th>
-            <th className="border px-2 py-1">연락처2</th>
-            <th className="border px-2 py-1">계약자주소</th>
-            <th className="border px-2 py-1">택배발송일</th>
-            <th className="border px-2 py-1">시작일</th>
-            <th className="border px-2 py-1">종료일</th>
-            <th className="border px-2 py-1">반납요청일</th>
-            <th className="border px-2 py-1">반납완료일</th>
-            <th className="border px-2 py-1">특이사항1</th>
-            <th className="border px-2 py-1">특이사항2</th>
-            <th className="border px-2 py-1">총연장횟수</th>
-            <th className="border px-2 py-1">신청일</th>
-            <th className="border px-2 py-1">0차연장</th>
-            <th className="border px-2 py-1">1차연장</th>
-            <th className="border px-2 py-1">2차연장</th>
-            <th className="border px-2 py-1">3차연장</th>
-            <th className="border px-2 py-1">4차연장</th>
-            <th className="border px-2 py-1">5차연장</th>
+            <th className="border px-2 py-2">거래처분류</th>
+            <th className="border px-2 py-2">상태</th>
+            <th className="border px-2 py-2">안내분류</th>
+            <th className="border px-2 py-2">구매/렌탈</th>
+            <th className="border px-2 py-2">기기번호</th>
+            <th className="border px-2 py-2">기종</th>
+            <th className="border px-2 py-2">에러횟수</th>
+            <th className="border px-2 py-2">제품</th>
+            <th className="border px-2 py-2">수취인명</th>
+            <th className="border px-2 py-2">연락처1</th>
+            <th className="border px-2 py-2">연락처2</th>
+            <th className="border px-2 py-2">계약자주소</th>
+            <th className="border px-2 py-2">택배발송일</th>
+            <th className="border px-2 py-2">시작일</th>
+            <th className="border px-2 py-2">종료일</th>
+            <th className="border px-2 py-2">반납요청일</th>
+            <th className="border px-2 py-2">반납완료일</th>
+            <th className="border px-2 py-2">특이사항1</th>
+            <th className="border px-2 py-2">특이사항2</th>
+            <th className="border px-2 py-2">총연장횟수</th>
+            <th className="border px-2 py-2">신청일</th>
+            <th className="border px-2 py-2">0차연장</th>
+            <th className="border px-2 py-2">1차연장</th>
+            <th className="border px-2 py-2">2차연장</th>
+            <th className="border px-2 py-2">3차연장</th>
+            <th className="border px-2 py-2">4차연장</th>
+            <th className="border px-2 py-2">5차연장</th>
           </tr>
         </thead>
 
         <tbody>
-          {Array.from({ length: 40 }).map((_, i) => (
-            <tr key={i}>
-              {Array.from({ length: 27 }).map((__, j) => (
-                <td key={j} className="border px-2 py-1"></td>
-              ))}
-            </tr>
-          ))}
+          <tr>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+            <td className="border px-2 py-2" contentEditable></td>
+          </tr>
         </tbody>
       </table>
     </div>
   );
 }
+
