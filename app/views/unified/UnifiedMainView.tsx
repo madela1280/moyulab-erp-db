@@ -9,7 +9,7 @@ export default function UnifiedMainView() {
     <div className="w-full h-full">
       <div style={{ height: "0.5cm" }} />
 
-      <GridHeader />
+      <GridHeader onAdd10={() => {}} />
 
       <div style={{ height: "0.5cm" }} />
 
@@ -17,6 +17,7 @@ export default function UnifiedMainView() {
     </div>
   );
 }
+
 
 
 
