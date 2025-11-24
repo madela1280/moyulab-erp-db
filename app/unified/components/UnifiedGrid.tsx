@@ -4,8 +4,13 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
+type UnifiedRow = {
+  id: number;
+  data: Record<string, any>;
+};
+
 export default function UnifiedGrid() {
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,8 +58,9 @@ export default function UnifiedGrid() {
       body: JSON.stringify({}),
     });
 
-    const newRow = await res.json();
-    setRows((prev) => [...prev, newRow]);
+    const newRow = (await res.json()) as UnifiedRow;
+
+    setRows((prev: UnifiedRow[]) => [...prev, newRow]);
 
     const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
       transports: ["websocket"],
@@ -64,7 +70,8 @@ export default function UnifiedGrid() {
 
   async function deleteRow(id: number) {
     await fetch(`/api/unified/${id}`, { method: "DELETE" });
-    setRows((prev) => prev.filter((r) => r.id !== id));
+
+    setRows((prev: UnifiedRow[]) => prev.filter((r) => r.id !== id));
 
     const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
       transports: ["websocket"],
@@ -72,7 +79,8 @@ export default function UnifiedGrid() {
     socket.emit("unified:update");
   }
 
-  if (loading) return <div className="text-center py-10">Loading...</div>;
+  if (loading)
+    return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
     <div className="px-4">
@@ -132,3 +140,4 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
