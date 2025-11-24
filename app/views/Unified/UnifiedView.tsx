@@ -1,8 +1,8 @@
 // app/views/Unified/UnifiedView.tsx
 "use client";
 
-import GridHeader from "@/app/unified/components/GridHeader";
-import GridTable from "@/app/unified/components/GridTable";
+import GridHeader from "@/app/Unified/components/GridHeader";
+import GridTable from "@/app/Unified/components/GridTable";
 
 export default function UnifiedView() {
   return (
