@@ -1,18 +1,18 @@
-import GridHeader from "@/unified/components/GridHeader";
-import GridTable from "@/unified/components/GridTable";
+// app/views/unified/UnifiedMainView.tsx
+"use client";
+
+import GridHeader from "@/app/unified/components/GridHeader";
+import GridTable from "@/app/unified/components/GridTable";
 
 export default function UnifiedMainView() {
   return (
-    <div className="w-full h-full">
-      <div style={{ height: "0.5cm" }} />
-
+    <div className="w-full h-full px-2">
       <GridHeader />
-      <div style={{ height: "0.5cm" }} />
-
       <GridTable />
     </div>
   );
 }
+
 
 
 

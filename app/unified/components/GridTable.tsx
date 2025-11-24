@@ -1,4 +1,3 @@
-// app/unified/components/GridTable.tsx
 "use client";
 
 export default function GridTable() {
@@ -6,11 +5,14 @@ export default function GridTable() {
     <div
       className="border rounded bg-white overflow-auto"
       style={{
-        margin: "0.5cm",
-        maxHeight: "calc(100vh - 240px)",
+        marginTop: "0.3cm",
+        marginBottom: "0.3cm",
+        marginLeft: "0.3cm",
+        marginRight: "0.3cm",
+        maxHeight: "calc(100vh - 180px)", // 화면 거의 채우되 아래 0.3cm 확보
       }}
     >
-      <table className="min-w-[2800px] table-fixed border-collapse text-sm">
+      <table className="min-w-[2800px] table-fixed border-collapse text-[0.7rem]">
         <thead className="bg-gray-100 sticky top-0 z-10">
           <tr>
             <th className="border px-2 py-1">거래처분류</th>
@@ -44,11 +46,13 @@ export default function GridTable() {
         </thead>
 
         <tbody>
-          <tr>
-            {Array.from({ length: 27 }).map((_, idx) => (
-              <td key={idx} className="border px-2 py-1"></td>
-            ))}
-          </tr>
+          {Array.from({ length: 40 }).map((_, i) => (
+            <tr key={i}>
+              {Array.from({ length: 27 }).map((__, j) => (
+                <td key={j} className="border px-2 py-1"></td>
+              ))}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
