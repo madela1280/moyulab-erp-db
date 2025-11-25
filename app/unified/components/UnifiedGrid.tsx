@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
-import { useStableRows } from "./useStableRows"; // ⬅ 새로운 안정화 훅
+import { useStableRows } from "./useStableRows";
+import { mergeRows } from "./unifiedSync";
+import { checkConflict } from "./useConflictCheck";
 
 type UnifiedRow = {
   id: number;
@@ -44,12 +46,9 @@ const unifiedColumns: string[] = [
 ];
 
 export default function UnifiedGrid() {
-  // 데이터 원본(신규)
-  const [rawRows, setRawRows] = useState<UnifiedRow[]>([]);
+  const [rows, setRows] = useState<UnifiedRow[]>([]);
+  const stableRows = useStableRows(rows);
   const [loading, setLoading] = useState(true);
-
-  // 깜빡임 제거용 안정화 rows
-  const rows = useStableRows(rawRows);
 
   // 소켓 연결
   useEffect(() => {
@@ -61,17 +60,14 @@ export default function UnifiedGrid() {
     }
 
     socket.on("connect", () => {
-      console.log("Socket connected → joining global");
       socket.emit("join", "global");
     });
 
-    socket.on("unified:update", () => {
-      loadData();
+    socket.on("unified:update", async () => {
+      await loadData();
     });
 
-    socket.on("connect_error", (err: any) => {
-      console.error("Socket connection error:", err.message);
-    });
+    return () => {};
   }, []);
 
   // DB 데이터 불러오기
@@ -79,7 +75,8 @@ export default function UnifiedGrid() {
     setLoading(true);
     const res = await fetch("/api/unified", { cache: "no-store" });
     const data = await res.json();
-    setRawRows(data);
+
+    setRows((prev) => mergeRows(prev, data));
     setLoading(false);
   }
 
@@ -88,6 +85,17 @@ export default function UnifiedGrid() {
   }, []);
 
   async function saveCell(id: number, key: string, value: string) {
+    const snapshot = stableRows.find((r) => r.id === id)?.data;
+
+    if (!snapshot) return;
+
+    const ok = await checkConflict(id, snapshot);
+    if (!ok) {
+      alert("⚠️ 다른 사용자가 먼저 수정했습니다.\n새로고침 후 다시 입력해주세요.");
+      await loadData();
+      return;
+    }
+
     const body = { [key]: value };
 
     await fetch(`/api/unified/${id}`, {
@@ -100,7 +108,7 @@ export default function UnifiedGrid() {
     }
   }
 
-  if (loading && rows.length === 0)
+  if (loading)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
@@ -122,7 +130,7 @@ export default function UnifiedGrid() {
           </thead>
 
           <tbody>
-            {rows.map((row: UnifiedRow) => (
+            {stableRows.map((row: UnifiedRow) => (
               <tr key={row.id}>
                 <td className="border px-2 py-1">{row.id}</td>
 
