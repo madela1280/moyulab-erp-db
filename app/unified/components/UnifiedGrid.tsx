@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 
 type UnifiedRow = {
@@ -44,9 +44,13 @@ const unifiedColumns: string[] = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
+  const [snapshot, setSnapshot] = useState<UnifiedRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(false);
 
-  // 소켓 연결
+  // -------------------------------------------------------------------------
+  // 소켓 연결 (절대 변경 금지 부분 그대로 유지)
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!socket) {
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
@@ -60,28 +64,78 @@ export default function UnifiedGrid() {
     });
 
     socket.on("unified:update", async () => {
-      await loadData();
+      await silentReload();
     });
 
     return () => {};
   }, []);
 
-  // DB 데이터 불러오기
+  // -------------------------------------------------------------------------
+  // 초기 로딩 + snapshot 저장
+  // -------------------------------------------------------------------------
   async function loadData() {
     setLoading(true);
     const res = await fetch("/api/unified", { cache: "no-store" });
     const data = await res.json();
-    setRows(data); // 서버 데이터 그대로
+
+    setRows(data);
+    setSnapshot(data);
     setLoading(false);
+  }
+
+  // 소켓 갱신 시 "깜빡임 없는 부분 업데이트"
+  async function silentReload() {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
+    const res = await fetch("/api/unified", { cache: "no-store" });
+    const fresh = await res.json();
+
+    setRows((prev) => {
+      const map: Record<number, UnifiedRow> = {};
+      prev.forEach((r) => (map[r.id] = r));
+
+      // 변경된 row만 교체 → 깜빡임 제거
+      fresh.forEach((fr: UnifiedRow) => {
+        const old = map[fr.id];
+        if (!old) {
+          map[fr.id] = fr;
+        } else if (JSON.stringify(old.data) !== JSON.stringify(fr.data)) {
+          map[fr.id] = fr; // 변경된 row만 교체
+        }
+      });
+
+      return Object.values(map);
+    });
+
+    setSnapshot(fresh);
+    loadingRef.current = false;
   }
 
   useEffect(() => {
     loadData();
   }, []);
 
+  // -------------------------------------------------------------------------
+  // 셀 저장 + 충돌 방지 (UI에서만 처리)
+  // -------------------------------------------------------------------------
   async function saveCell(id: number, key: string, value: string) {
-    const body = { [key]: value };
+    const localRow = snapshot.find((r) => r.id === id);
+    if (!localRow) return;
 
+    // 서버 최신 데이터 확인
+    const res = await fetch(`/api/unified/${id}`, { cache: "no-store" });
+    const server = await res.json();
+
+    // 충돌 감지
+    if (JSON.stringify(server.data) !== JSON.stringify(localRow.data)) {
+      alert("⚠️ 다른 사용자가 먼저 수정했습니다.\n새로고침 후 다시 시도하세요.");
+      await silentReload();
+      return;
+    }
+
+    // 충돌이 없으면 저장
+    const body = { [key]: value };
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -92,6 +146,9 @@ export default function UnifiedGrid() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // UI 그대로 유지
+  // -------------------------------------------------------------------------
   if (loading)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
@@ -135,6 +192,5 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
