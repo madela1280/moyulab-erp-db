@@ -8,8 +8,6 @@ type UnifiedRow = {
   data: Record<string, any>;
 };
 
-let socket: any = null;
-
 const unifiedColumns: string[] = [
   "거래처분류","상태","안내분류","구매/렌탈","기기번호","기종","에러횟수","제품",
   "수취인명","연락처1","연락처2","계약자주소","택배발송일","시작일","종료일",
@@ -17,12 +15,14 @@ const unifiedColumns: string[] = [
   "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
 ];
 
+let socket: any = null;
+
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const [snapshot, setSnapshot] = useState<UnifiedRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const snapshot = useRef<UnifiedRow[]>([]);
   const loadingRef = useRef(false);
 
+  /* ---------------------- 소켓 초기화 ---------------------- */
   useEffect(() => {
     if (!socket) {
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
@@ -34,22 +34,25 @@ export default function UnifiedGrid() {
         socket.emit("join", "global");
       });
 
-      // 🔥 삭제 포함 전체 row 즉시 sync (딜레이 제거)
-      socket.on("unified:update", async () => {
-        await fastReload();
+      socket.on("unified:update", () => {
+        fastReload();
       });
     }
   }, []);
 
+  /* ---------------------- 전체 로딩 ---------------------- */
   async function loadData() {
     const res = await fetch("/api/unified", { cache: "no-store" });
     const data = await res.json();
     setRows(data);
-    setSnapshot(data);
-    setLoading(false);
+    snapshot.current = data;
   }
 
-  // 🔥 매우 빠른 방식 (삭제 포함 즉시 반영)
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  /* ---------------------- 초고속 싱크 (삭제 포함) ---------------------- */
   async function fastReload() {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -58,44 +61,49 @@ export default function UnifiedGrid() {
     const fresh = await res.json();
 
     setRows(fresh);
-    setSnapshot(fresh);
+    snapshot.current = fresh;
 
     loadingRef.current = false;
   }
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
+  /* ---------------------- 셀 저장 ---------------------- */
   async function saveCell(id: number, key: string, value: string) {
-    const localRow = snapshot.find((r) => r.id === id);
+    const localRow = snapshot.current.find((r) => r.id === id);
     if (!localRow) return;
 
     const res = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await res.json();
 
-    if (JSON.stringify(server.data) !== JSON.stringify(localRow.data)) {
-      alert("⚠️ 다른 사용자가 먼저 수정했습니다.\n새로고침 후 다시 시도하세요.");
+    if (!server || server.error) {
       await fastReload();
       return;
     }
 
-    const body = { [key]: value };
+    if (JSON.stringify(server.data) !== JSON.stringify(localRow.data)) {
+      alert("⚠️ 다른 사용자가 먼저 수정했습니다.");
+      await fastReload();
+      return;
+    }
+
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ [key]: value }),
     });
 
-    if (socket && socket.connected) socket.emit("unified:update");
+    if (socket && socket.connected) {
+      socket.emit("unified:update");
+    }
   }
 
-  if (loading)
+  if (!rows.length)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
     <div className="px-2">
-      <div className="border rounded bg-white overflow-auto w-full"
-        style={{ height: "calc(100vh - 210px)" }}>
+      <div
+        className="border rounded bg-white overflow-auto w-full"
+        style={{ height: "calc(100vh - 210px)" }}
+      >
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
@@ -107,7 +115,7 @@ export default function UnifiedGrid() {
           </thead>
 
           <tbody>
-            {rows.map((row: UnifiedRow) => (
+            {rows.map((row) => (
               <tr key={row.id}>
                 <td className="border px-2 py-1">{row.id}</td>
 
@@ -123,7 +131,6 @@ export default function UnifiedGrid() {
               </tr>
             ))}
           </tbody>
-
         </table>
       </div>
     </div>
