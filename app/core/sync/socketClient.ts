@@ -4,21 +4,19 @@ import { io, Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
 
-/** ★ 단 한 번만 생성되는 전역 소켓 */
 export function getSocket() {
   if (!socket) {
-    socket = io("wss://moulab.kr:4001", {
+    socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
       transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: 30,
-      reconnectionDelay: 2000,
+      reconnectionDelay: 1000,
     });
 
     socket.on("connect", () => {
-      socket?.emit("join", "global");
+      socket!.emit("join", "global");
     });
   }
-  return socket;
+
+  return socket!;
 }
-
-
