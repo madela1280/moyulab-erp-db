@@ -5,7 +5,7 @@ import { useRef } from "react";
 export function useStableRows(currentRows: any[]) {
   const lastRows = useRef(currentRows);
 
-  if (currentRows?.length > 0) {
+  if (currentRows && currentRows.length > 0) {
     lastRows.current = currentRows;
   }
 
