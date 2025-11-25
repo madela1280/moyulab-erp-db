@@ -44,7 +44,7 @@ export default function UnifiedGrid() {
   useEffect(() => {
     load();
     const s = getSocket();
-    s.on("unified:update", () => silentReload());
+    s.on("update", () => silentReload());   // ← 핵심 변경
   }, []);
 
   async function recordSnapshotBeforeEdit(id: number) {
@@ -65,7 +65,7 @@ export default function UnifiedGrid() {
     const server = await r.json();
 
     if (JSON.stringify(before) !== JSON.stringify(server.data)) {
-      alert("⚠️ 다른 사용자가 거의 동시에 수정했습니다.\n새로고침 후 다시 시도하세요.");
+      alert("⚠️ 다른 사용자가 동시에 수정했습니다.\n새로고침 후 다시 시도하세요.");
       await silentReload();
       return;
     }
@@ -76,7 +76,7 @@ export default function UnifiedGrid() {
     });
 
     const s = getSocket();
-    s.emit("unified:update");
+    s.emit("update");   // ← 핵심 변경
   }
 
   return (
