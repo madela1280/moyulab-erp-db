@@ -122,7 +122,7 @@ export default function UnifiedGrid() {
           </thead>
 
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row: UnifiedRow) => (
               <tr key={row.id}>
                 <td className="border px-2 py-1">{row.id}</td>
 
