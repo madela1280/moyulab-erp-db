@@ -1,10 +1,8 @@
 "use client";
-
 import { io, Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
 
-/** ★ 단 한 번만 생성되는 전역 소켓 */
 export function getSocket() {
   if (!socket) {
     socket = io("wss://moulab.kr:4001", {
@@ -13,12 +11,6 @@ export function getSocket() {
       reconnectionAttempts: 30,
       reconnectionDelay: 2000,
     });
-
-    socket.on("connect", () => {
-      socket?.emit("join", "global");
-    });
   }
   return socket;
 }
-
-
