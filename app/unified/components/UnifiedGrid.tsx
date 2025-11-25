@@ -44,25 +44,19 @@ export default function UnifiedGrid() {
   useEffect(() => {
     load();
     const s = getSocket();
-    s.onmessage = () => silentReload();
+    s.on("unified:update", () => silentReload());
   }, []);
 
-  // -------------------------------------------------------
-  // 충돌방지 로직
-  // -------------------------------------------------------
-
-  // 1) 셀 클릭 시 서버 최신 데이터를 row 단위로 저장
   async function recordSnapshotBeforeEdit(id: number) {
     const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await r.json();
 
     setSnapBeforeEdit((prev) => ({
       ...prev,
-      [id]: JSON.parse(JSON.stringify(server.data))
+      [id]: JSON.parse(JSON.stringify(server.data)),
     }));
   }
 
-  // 2) 저장 직전 비교는 snapBeforeEdit vs 현재 서버 최신 상태
   async function saveCell(id: number, key: string, value: string) {
     const before = snapBeforeEdit[id];
     if (!before) return;
@@ -70,23 +64,19 @@ export default function UnifiedGrid() {
     const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await r.json();
 
-    // 충돌 기준:
-    // before(편집 시작시 서버 상태) !== server(저장 직전 서버 상태)
-    // → 다른 사용자가 수정한 것
     if (JSON.stringify(before) !== JSON.stringify(server.data)) {
       alert("⚠️ 다른 사용자가 거의 동시에 수정했습니다.\n새로고침 후 다시 시도하세요.");
       await silentReload();
       return;
     }
 
-    // 저장 (기존 방식 유지)
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ [key]: value }),
     });
 
-    // 실시간 동기화 신호 전파
-    getSocket().emit("unified:update");
+    const s = getSocket();
+    s.emit("unified:update");
   }
 
   return (
@@ -129,7 +119,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
 
