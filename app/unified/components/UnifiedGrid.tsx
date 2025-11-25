@@ -8,76 +8,138 @@ type UnifiedRow = {
   data: Record<string, any>;
 };
 
+// 컬럼 정의
 const unifiedColumns: string[] = [
-  "거래처분류","상태","안내분류","구매/렌탈","기기번호","기종","에러횟수",
-  "제품","수취인명","연락처1","연락처2","계약자주소","택배발송일","시작일",
-  "종료일","반납요청일","반납완료일","특이사항1","특이사항2","총연장횟수",
-  "신청일","0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
+  "거래처분류",
+  "상태",
+  "안내분류",
+  "구매/렌탈",
+  "기기번호",
+  "기종",
+  "에러횟수",
+  "제품",
+  "수취인명",
+  "연락처1",
+  "연락처2",
+  "계약자주소",
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+  "특이사항1",
+  "특이사항2",
+  "총연장횟수",
+  "신청일",
+  "0차연장",
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
 ];
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [snapshot, setSnapshot] = useState<UnifiedRow[]>([]);
-  const [snapBeforeEdit, setSnapBeforeEdit] = useState<Record<number, any>>({});
-  const loadingRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const silentRef = useRef(false);
 
-  async function load() {
-    const r = await fetch("/api/unified", { cache: "no-store" });
-    const d = await r.json();
-    setRows(d);
-    setSnapshot(d);
-  }
+  // -------------------------------------------------------------------------
+  // 소켓 연결
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const socket = getSocket();
 
-  async function silentReload() {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
+    socket.on("unified:update", async () => {
+      await silentReload();
+    });
 
-    const r = await fetch("/api/unified", { cache: "no-store" });
-    const fresh = await r.json();
+    return () => {};
+  }, []);
 
-    setRows(fresh);
-    setSnapshot(fresh);
-
-    loadingRef.current = false;
+  // -------------------------------------------------------------------------
+  // 데이터 로딩 + 스냅샷 저장
+  // -------------------------------------------------------------------------
+  async function loadData() {
+    setLoading(true);
+    const res = await fetch("/api/unified", { cache: "no-store" });
+    const data = await res.json();
+    setRows(data);
+    setSnapshot(data);
+    setLoading(false);
   }
 
   useEffect(() => {
-    load();
-    const s = getSocket();
-    s.on("update", () => silentReload());   // ← 핵심 변경
+    loadData();
   }, []);
 
-  async function recordSnapshotBeforeEdit(id: number) {
-    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
-    const server = await r.json();
+  // -------------------------------------------------------------------------
+  // 부분 reload (소켓 업데이트)
+  // -------------------------------------------------------------------------
+  async function silentReload() {
+    if (silentRef.current) return;
+    silentRef.current = true;
 
-    setSnapBeforeEdit((prev) => ({
-      ...prev,
-      [id]: JSON.parse(JSON.stringify(server.data)),
-    }));
+    const res = await fetch("/api/unified", { cache: "no-store" });
+    const fresh = await res.json();
+
+    setRows((prev) => {
+      const map: Record<number, UnifiedRow> = {};
+      prev.forEach((r) => (map[r.id] = r));
+
+      fresh.forEach((fr: UnifiedRow) => {
+        const old = map[fr.id];
+        if (!old) {
+          map[fr.id] = fr;
+        } else if (JSON.stringify(old.data) !== JSON.stringify(fr.data)) {
+          map[fr.id] = fr;
+        }
+      });
+
+      return Object.values(map);
+    });
+
+    setSnapshot(fresh);
+    silentRef.current = false;
   }
 
+  // -------------------------------------------------------------------------
+  // 저장 + 충돌방지
+  // -------------------------------------------------------------------------
   async function saveCell(id: number, key: string, value: string) {
-    const before = snapBeforeEdit[id];
-    if (!before) return;
+    const local = snapshot.find((r) => r.id === id);
+    if (!local) return;
 
-    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
-    const server = await r.json();
+    // 서버 최신 데이터 확인
+    const res = await fetch(`/api/unified/${id}`, { cache: "no-store" });
+    const server = await res.json();
 
-    if (JSON.stringify(before) !== JSON.stringify(server.data)) {
-      alert("⚠️ 다른 사용자가 동시에 수정했습니다.\n새로고침 후 다시 시도하세요.");
+    // 충돌 여부
+    if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
+      alert("⚠️ 다른 사용자가 먼저 수정했습니다.\n새로고침 후 다시 시도하세요.");
       await silentReload();
       return;
     }
 
+    // 저장
+    const body = { [key]: value };
+
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ [key]: value }),
+      body: JSON.stringify(body),
     });
 
-    const s = getSocket();
-    s.emit("update");   // ← 핵심 변경
+    // 소켓 브로드캐스트
+    const socket = getSocket();
+    socket.emit("unified:update");
   }
+
+  // -------------------------------------------------------------------------
+  // UI
+  // -------------------------------------------------------------------------
+  if (loading)
+    return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
     <div className="px-2">
@@ -89,8 +151,10 @@ export default function UnifiedGrid() {
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-2 py-1 w-10">ID</th>
-              {unifiedColumns.map((c) => (
-                <th key={c} className="border px-2 py-1">{c}</th>
+              {unifiedColumns.map((col) => (
+                <th key={col} className="border px-2 py-1">
+                  {col}
+                </th>
               ))}
             </tr>
           </thead>
@@ -105,7 +169,6 @@ export default function UnifiedGrid() {
                     <input
                       className="w-full text-xs"
                       defaultValue={row.data[key] || ""}
-                      onFocus={() => recordSnapshotBeforeEdit(row.id)}
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
@@ -113,12 +176,10 @@ export default function UnifiedGrid() {
               </tr>
             ))}
           </tbody>
-
         </table>
       </div>
     </div>
   );
 }
-
 
 
