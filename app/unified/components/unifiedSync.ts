@@ -1,4 +1,4 @@
-export function mergeRows(localRows, serverRows) {
+export function mergeRows(localRows: any[], serverRows: any[]) {
   const map = new Map(serverRows.map((r) => [r.id, r]));
 
   const merged = localRows
