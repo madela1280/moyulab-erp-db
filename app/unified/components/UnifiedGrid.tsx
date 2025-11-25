@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { getSocket } from "@/core/sync/socketClient";
 
 type UnifiedRow = {
   id: number;
@@ -42,7 +43,7 @@ export default function UnifiedGrid() {
 
   useEffect(() => {
     load();
-    const s = new WebSocket("wss://moulab.kr:4001");
+    const s = getSocket();
     s.onmessage = () => silentReload();
   }, []);
 
@@ -85,8 +86,7 @@ export default function UnifiedGrid() {
     });
 
     // 실시간 동기화 신호 전파
-    const ws = new WebSocket("wss://moulab.kr:4001");
-    ws.onopen = () => ws.send("unified:update");
+    getSocket().emit("unified:update");
   }
 
   return (
