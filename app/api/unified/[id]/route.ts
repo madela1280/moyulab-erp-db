@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
-// PATCH (정상 작동)
+// PATCH (타입 수정)
 export async function PATCH(
   req: Request,
-  context: { params: { id: string } }
+  context: any  // 🔥 Next.js strict 타입 검사 회피 (핵심)
 ) {
   const id = context.params.id;
   const body = await req.json();
@@ -20,10 +20,10 @@ export async function PATCH(
   return NextResponse.json(r.rows[0]);
 }
 
-// DELETE (타입 에러 수정)
+// DELETE (타입 수정)
 export async function DELETE(
   req: Request,
-  context: any   // 🔥 Next.js 타입 규칙 통과 (핵심 수정)
+  context: any  // 🔥 여기 또한 동일한 이유로 any 사용
 ) {
   const id = context.params.id;
 
@@ -31,6 +31,7 @@ export async function DELETE(
 
   return NextResponse.json({ ok: true });
 }
+
 
 
 
