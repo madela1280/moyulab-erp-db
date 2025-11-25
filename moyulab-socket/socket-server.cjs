@@ -5,12 +5,8 @@ const express = require("express");
 const app = express();
 const httpServer = createServer(app);
 
-/** Socket.IO 서버 */
 const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 io.on("connection", (socket) => {
@@ -30,8 +26,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 4001;
-
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Socket.IO 서버 실행중 → ${PORT}`);
+httpServer.listen(4001, "0.0.0.0", () => {
+  console.log(`🚀 Socket.IO 서버 실행중 → 4001`);
 });
+
