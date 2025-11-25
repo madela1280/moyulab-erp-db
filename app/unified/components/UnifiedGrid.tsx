@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
+import { useStableRows } from "./useStableRows"; // ⬅ 새로운 안정화 훅
 
 type UnifiedRow = {
   id: number;
@@ -43,39 +44,34 @@ const unifiedColumns: string[] = [
 ];
 
 export default function UnifiedGrid() {
-  const [rows, setRows] = useState<UnifiedRow[]>([]);
+  // 데이터 원본(신규)
+  const [rawRows, setRawRows] = useState<UnifiedRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 깜빡임 제거용 안정화 rows
+  const rows = useStableRows(rawRows);
 
   // 소켓 연결
   useEffect(() => {
     if (!socket) {
-      // 1. 소켓 객체 생성 (아직 연결 시도 전)
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
         transports: ["websocket"],
         reconnection: true,
       });
     }
 
-    // 2. [수정된 부분]: 'connect' 이벤트 리스너를 추가하여 연결 성공 후 작업 수행
-    // 기존의 `socket.emit("join", "global");` 코드를 이 안으로 이동했습니다.
-    socket.on('connect', () => {
-        console.log("Socket connected, joining global room.");
-        socket.emit("join", "global");
+    socket.on("connect", () => {
+      console.log("Socket connected → joining global");
+      socket.emit("join", "global");
     });
 
     socket.on("unified:update", () => {
       loadData();
     });
 
-    // 소켓 연결 오류 발생 시 디버깅을 위한 리스너 추가
-    socket.on('connect_error', (err: any) => {
-        console.error("Socket connection error:", err.message);
+    socket.on("connect_error", (err: any) => {
+      console.error("Socket connection error:", err.message);
     });
-
-    return () => {
-        // 컴포넌트 언마운트 시 소켓 연결 해제 (선택 사항이지만 안전함)
-        // socket.disconnect(); 
-    };
   }, []);
 
   // DB 데이터 불러오기
@@ -83,7 +79,7 @@ export default function UnifiedGrid() {
     setLoading(true);
     const res = await fetch("/api/unified", { cache: "no-store" });
     const data = await res.json();
-    setRows(data);
+    setRawRows(data);
     setLoading(false);
   }
 
@@ -99,15 +95,12 @@ export default function UnifiedGrid() {
       body: JSON.stringify(body),
     });
 
-    // 소켓이 연결된 경우에만 emit
     if (socket && socket.connected) {
-        socket.emit("unified:update");
-    } else {
-        console.warn("Socket is not connected. Cannot emit update.");
+      socket.emit("unified:update");
     }
   }
 
-  if (loading)
+  if (loading && rows.length === 0)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
@@ -150,5 +143,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
