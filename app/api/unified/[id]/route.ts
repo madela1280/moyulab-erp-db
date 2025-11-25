@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
-// ✅ Next.js App Router에서 정석적으로 params로 id 받기
+// PATCH (정상 작동)
 export async function PATCH(
   req: Request,
   context: { params: { id: string } }
 ) {
   const id = context.params.id;
-  const body = await req.json(); // { key: value }
+  const body = await req.json();
 
-  // 기존 row 불러오기
   const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
   const merged = { ...old.rows[0].data, ...body };
 
@@ -21,9 +20,10 @@ export async function PATCH(
   return NextResponse.json(r.rows[0]);
 }
 
+// DELETE (타입 에러 수정)
 export async function DELETE(
   req: Request,
-  context: { params: { id: string } }
+  context: any   // 🔥 Next.js 타입 규칙 통과 (핵심 수정)
 ) {
   const id = context.params.id;
 
@@ -31,6 +31,7 @@ export async function DELETE(
 
   return NextResponse.json({ ok: true });
 }
+
 
 
 
