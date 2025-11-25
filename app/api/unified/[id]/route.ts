@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
-export async function PATCH(
-  req: Request,
-  context: { params: { id: string } }
-) {
-  const id = context.params.id;
-  const body = await req.json(); // { key: value }
+function getId(req: Request) {
+  const url = new URL(req.url);
+  const parts = url.pathname.split("/");
+  return parts[parts.length - 1];
+}
+
+// PATCH
+export async function PATCH(req: Request) {
+  const id = getId(req);
+  const body = await req.json();
 
   const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
   const merged = { ...old.rows[0].data, ...body };
@@ -19,15 +23,12 @@ export async function PATCH(
   return NextResponse.json(r.rows[0]);
 }
 
-export async function DELETE(
-  req: Request,
-  context: { params: { id: string } }
-) {
-  const id = context.params.id;
+// DELETE
+export async function DELETE(req: Request) {
+  const id = getId(req);
   await query(`DELETE FROM unified WHERE id=$1`, [id]);
   return NextResponse.json({ ok: true });
 }
-
 
 
 
