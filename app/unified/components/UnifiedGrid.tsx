@@ -3,12 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 
-type UnifiedRow = {
-  id: number;
-  data: Record<string, any>;
-};
+type UnifiedRow = { id: number; data: Record<string, any> };
 
-const unifiedColumns: string[] = [
+const unifiedColumns = [
   "거래처분류","상태","안내분류","구매/렌탈","기기번호","기종","에러횟수","제품",
   "수취인명","연락처1","연락처2","계약자주소","택배발송일","시작일","종료일",
   "반납요청일","반납완료일","특이사항1","특이사항2","총연장횟수","신청일",
@@ -20,9 +17,9 @@ let socket: any = null;
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const snapshot = useRef<UnifiedRow[]>([]);
-  const loadingRef = useRef(false);
+  const lock = useRef(false);
 
-  /* ---------------------- 소켓 초기화 ---------------------- */
+  /* --------------------- 소켓 --------------------- */
   useEffect(() => {
     if (!socket) {
       socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
@@ -34,54 +31,53 @@ export default function UnifiedGrid() {
         socket.emit("join", "global");
       });
 
-      socket.on("unified:update", () => {
-        fastReload();
-      });
+      // 🔥 삭제 포함 즉시 반영
+      socket.on("unified:update", () => fastReload());
     }
   }, []);
 
-  /* ---------------------- 전체 로딩 ---------------------- */
-  async function loadData() {
-    const res = await fetch("/api/unified", { cache: "no-store" });
-    const data = await res.json();
+  /* --------------------- 최초 로딩 --------------------- */
+  async function load() {
+    const r = await fetch("/api/unified", { cache: "no-store" });
+    const data = await r.json();
     setRows(data);
     snapshot.current = data;
   }
 
   useEffect(() => {
-    loadData();
+    load();
   }, []);
 
-  /* ---------------------- 초고속 싱크 (삭제 포함) ---------------------- */
+  /* --------------------- 초고속 전체 새로고침 --------------------- */
   async function fastReload() {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
+    if (lock.current) return;
+    lock.current = true;
 
-    const res = await fetch("/api/unified", { cache: "no-store" });
-    const fresh = await res.json();
+    const r = await fetch("/api/unified", { cache: "no-store" });
+    const fresh = await r.json();
 
-    setRows(fresh);
+    setRows(fresh);             // ← 삭제가 여기서 즉시 반영됨
     snapshot.current = fresh;
 
-    loadingRef.current = false;
+    lock.current = false;
   }
 
-  /* ---------------------- 셀 저장 ---------------------- */
+  /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
-    const localRow = snapshot.current.find((r) => r.id === id);
-    if (!localRow) return;
+    const local = snapshot.current.find((r) => r.id === id);
+    if (!local) return;
 
-    const res = await fetch(`/api/unified/${id}`, { cache: "no-store" });
-    const server = await res.json();
+    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
+    const server = await r.json();
 
     if (!server || server.error) {
-      await fastReload();
+      fastReload();
       return;
     }
 
-    if (JSON.stringify(server.data) !== JSON.stringify(localRow.data)) {
+    if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
       alert("⚠️ 다른 사용자가 먼저 수정했습니다.");
-      await fastReload();
+      fastReload();
       return;
     }
 
@@ -90,9 +86,7 @@ export default function UnifiedGrid() {
       body: JSON.stringify({ [key]: value }),
     });
 
-    if (socket && socket.connected) {
-      socket.emit("unified:update");
-    }
+    if (socket && socket.connected) socket.emit("unified:update");
   }
 
   if (!rows.length)
@@ -100,16 +94,14 @@ export default function UnifiedGrid() {
 
   return (
     <div className="px-2">
-      <div
-        className="border rounded bg-white overflow-auto w-full"
-        style={{ height: "calc(100vh - 210px)" }}
-      >
+      <div className="border rounded bg-white overflow-auto w-full"
+           style={{ height: "calc(100vh - 210px)" }}>
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-2 py-1 w-10">ID</th>
-              {unifiedColumns.map((col) => (
-                <th key={col} className="border px-2 py-1">{col}</th>
+              {unifiedColumns.map((c) => (
+                <th key={c} className="border px-2 py-1">{c}</th>
               ))}
             </tr>
           </thead>
@@ -136,5 +128,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
