@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { io } from "socket.io-client";
+import useSocket from "@/app/core/socket/useSocket";   // ⬅ 공용 소켓 1개만 사용
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -12,29 +12,25 @@ const unifiedColumns = [
   "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
 ];
 
-let socket: any = null;
-
 export default function UnifiedGrid() {
+  const socket = useSocket();           // ⬅ socket = io() 삭제, 공용 소켓만 사용
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 --------------------- */
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    if (!socket) {
-      socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
-        transports: ["websocket"],
-        reconnection: true,
-      });
+    if (!socket) return;
 
-      socket.on("connect", () => {
-        socket.emit("join", "global");
-      });
+    socket.emit("join", "global");
 
-      // 🔥 삭제 포함 즉시 반영
-      socket.on("unified:update", () => fastReload());
-    }
-  }, []);
+    // 삭제/수정 포함 실시간 반영
+    socket.on("unified:update", () => fastReload());
+
+    return () => {
+      socket.off("unified:update");
+    };
+  }, [socket]);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
@@ -48,7 +44,7 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
-  /* --------------------- 초고속 전체 새로고침 --------------------- */
+  /* --------------------- 초고속 전체 동기화 --------------------- */
   async function fastReload() {
     if (lock.current) return;
     lock.current = true;
@@ -56,7 +52,7 @@ export default function UnifiedGrid() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const fresh = await r.json();
 
-    setRows(fresh);             // ← 삭제가 여기서 즉시 반영됨
+    setRows(fresh);
     snapshot.current = fresh;
 
     lock.current = false;
@@ -86,7 +82,7 @@ export default function UnifiedGrid() {
       body: JSON.stringify({ [key]: value }),
     });
 
-    if (socket && socket.connected) socket.emit("unified:update");
+    if (socket) socket.emit("unified:update");   // ⬅ 공용 소켓으로 이벤트 발송
   }
 
   if (!rows.length)
@@ -128,6 +124,7 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
 
