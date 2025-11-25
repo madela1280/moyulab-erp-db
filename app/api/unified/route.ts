@@ -9,7 +9,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();        // 전체 row = JSON 객체
+  const body = await req.json(); // 전체 row = JSON 객체
 
   const r = await query(
     `INSERT INTO unified (data) VALUES ($1) RETURNING id, data`,
@@ -18,6 +18,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json(r.rows[0]);
 }
+
 
 
 

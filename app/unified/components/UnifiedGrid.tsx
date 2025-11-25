@@ -2,9 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
-import { useStableRows } from "./useStableRows";
-import { mergeRows } from "./unifiedSync";
-import { checkConflict } from "./useConflictCheck";
 
 type UnifiedRow = {
   id: number;
@@ -47,7 +44,6 @@ const unifiedColumns: string[] = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const stableRows = useStableRows(rows);
   const [loading, setLoading] = useState(true);
 
   // 소켓 연결
@@ -75,8 +71,7 @@ export default function UnifiedGrid() {
     setLoading(true);
     const res = await fetch("/api/unified", { cache: "no-store" });
     const data = await res.json();
-
-    setRows((prev) => mergeRows(prev, data));
+    setRows(data); // 서버 데이터 그대로
     setLoading(false);
   }
 
@@ -85,17 +80,6 @@ export default function UnifiedGrid() {
   }, []);
 
   async function saveCell(id: number, key: string, value: string) {
-    const snapshot = stableRows.find((r) => r.id === id)?.data;
-
-    if (!snapshot) return;
-
-    const ok = await checkConflict(id, snapshot);
-    if (!ok) {
-      alert("⚠️ 다른 사용자가 먼저 수정했습니다.\n새로고침 후 다시 입력해주세요.");
-      await loadData();
-      return;
-    }
-
     const body = { [key]: value };
 
     await fetch(`/api/unified/${id}`, {
@@ -130,7 +114,7 @@ export default function UnifiedGrid() {
           </thead>
 
           <tbody>
-            {stableRows.map((row: UnifiedRow) => (
+            {rows.map((row: UnifiedRow) => (
               <tr key={row.id}>
                 <td className="border px-2 py-1">{row.id}</td>
 
