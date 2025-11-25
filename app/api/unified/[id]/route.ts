@@ -11,11 +11,16 @@ export async function PATCH(req: Request) {
   const id = getId(req);
   const body = await req.json();
 
-  const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
+  const old = await query("SELECT data FROM unified WHERE id=$1", [id]);
+
+  if (!old.rows.length) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+
   const merged = { ...old.rows[0].data, ...body };
 
   const r = await query(
-    `UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data`,
+    "UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data",
     [merged, id]
   );
 
@@ -24,9 +29,10 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const id = getId(req);
-  await query(`DELETE FROM unified WHERE id=$1`, [id]);
+  await query("DELETE FROM unified WHERE id=$1", [id]);
   return NextResponse.json({ ok: true });
 }
+
 
 
 
