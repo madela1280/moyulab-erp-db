@@ -20,10 +20,12 @@ export default function UnifiedGrid() {
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => fastReload();
-  if (socket) socket.on("unified:update", handler);
-return () => {
-  if (socket) socket.off("unified:update", handler);
-};
+
+    if (socket) socket.on("unified:update", handler);
+
+    return () => {
+      if (socket) socket.off("unified:update", handler);
+    };
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -65,16 +67,14 @@ return () => {
       return;
     }
 
+    // 🔥 입력, 삭제 모두 반영
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ [key]: value === "" ? null : value }),
     });
 
- // 🔥 여기에 단 1줄만 추가
-  if (socket) socket.emit("unified:update");
-}
-
-    socket.emit("unified:update");
+    // 🔥 전체 업데이트 브로드캐스트
+    if (socket) socket.emit("unified:update");
   }
 
   if (!rows.length)
@@ -82,14 +82,18 @@ return () => {
 
   return (
     <div className="px-2">
-      <div className="border rounded bg-white overflow-auto w-full"
-           style={{ height: "calc(100vh - 210px)" }}>
+      <div
+        className="border rounded bg-white overflow-auto w-full"
+        style={{ height: "calc(100vh - 210px)" }}
+      >
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-2 py-1 w-10">ID</th>
               {unifiedColumns.map((c) => (
-                <th key={c} className="border px-2 py-1">{c}</th>
+                <th key={c} className="border px-2 py-1">
+                  {c}
+                </th>
               ))}
             </tr>
           </thead>
