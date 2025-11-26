@@ -15,15 +15,17 @@ const unifiedColumns = [
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const lock = useRef(false);
+  const reloadTimer = useRef<NodeJS.Timeout | null>(null);
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    const handler = () => reload();
-    socket?.on("unified:update", handler);
-
-    return () => { 
-      socket?.off("unified:update", handler); 
+    const handler = () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      reloadTimer.current = setTimeout(() => reload(), 80);
     };
+
+    socket?.on("unified:update", handler);
+    return () => socket?.off("unified:update", handler);
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -37,7 +39,7 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
-  /* --------------------- reload: DB 최신값으로 다시 세팅 --------------------- */
+  /* --------------------- reload --------------------- */
   async function reload() {
     if (lock.current) return;
     lock.current = true;
@@ -46,7 +48,10 @@ export default function UnifiedGrid() {
     const fresh = await r.json();
     setRows(fresh);
 
-    lock.current = false;
+    // lock 너무 오래 잡지 않기 위해 50ms 뒤 풀기
+    setTimeout(() => {
+      lock.current = false;
+    }, 50);
   }
 
   /* --------------------- 셀 저장 --------------------- */
@@ -58,13 +63,16 @@ export default function UnifiedGrid() {
       body: JSON.stringify(payload),
     });
 
-    socket?.emit("unified:update");
+    // 🔥 DB 반영 후 약간의 딜레이 후 소켓 전송
+    setTimeout(() => {
+      socket?.emit("unified:update");
+    }, 120);
   }
 
+  /* --------------------- UI --------------------- */
   if (!rows.length)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
-  /* --------------------- UI --------------------- */
   return (
     <div className="px-2">
       <div
@@ -92,7 +100,7 @@ export default function UnifiedGrid() {
                   <td key={key} className="border px-2 py-1">
                     <input
                       className="w-full text-xs"
-                      defaultValue={row.data[key] || ""}
+                      defaultValue={row.data[key] ?? ""}
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
@@ -105,6 +113,8 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
+
 
 
 

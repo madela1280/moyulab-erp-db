@@ -1,24 +1,28 @@
-// socket-server.cjs  (Render 전용 WSS 모드)
+// socket-server.cjs  (Render 전용 안정화 버전)
 
-// ⚠️ 절대 포트번호 기반 리슨 금지(F.5)
-// Render는 포트번호를 지정하면 안 되고,
-// Render가 자동으로 환경 변수 PORT를 부여함.
-
+const express = require("express");
 const { createServer } = require("http");
 const { Server } = require("socket.io");
-const express = require("express");
 
 const app = express();
+
+// ⭐ Render health check 대응: 기본 라우팅
+app.get("/", (req, res) => {
+  res.send("Socket server running");
+});
+
+// HTTP 서버 생성
 const httpServer = createServer(app);
 
-// ⭐ Render는 origin: "*", credentials 제거 권장
+// ⭐ Socket.IO 서버 설정
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
   },
-  pingInterval: 10000, // 10초마다 생존신호
-  pingTimeout: 5000    // 5초 응답 없으면 재연결
+  transports: ["websocket"],     // 🔥 websocket 전용 → 끊김 감소 핵심
+  pingInterval: 10000,           // 생존신호(클라이언트와 동일)
+  pingTimeout: 20000             // 🔥 Render 지연 대비 timeout 증가
 });
 
 io.on("connection", (socket) => {
@@ -38,12 +42,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// ⭐ Render가 부여하는 PORT 사용 (포트번호 직접 금지)
+// ⭐ Render가 부여하는 PORT 사용
 const PORT = process.env.PORT || 10000;
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Socket.IO 서버 실행중 (Render PORT=${PORT})`);
 });
+
 
 
 
