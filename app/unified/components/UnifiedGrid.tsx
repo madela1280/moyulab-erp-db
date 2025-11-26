@@ -27,7 +27,7 @@ useEffect(() => {
 
   return () => {
     try {
-      socket.off("unified:update", handler);
+      socket?.off("unified:update", handler);
     } catch (e) {
       console.error("socket cleanup error", e);
     }
