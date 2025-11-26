@@ -17,12 +17,14 @@ export default function UnifiedGrid() {
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    const handler = () => fastReload();
-    socket.on("unified:update", handler);
-    return () => socket.off("unified:update", handler);
-  }, []);
+  const handler = () => fastReload();
+  socket.on("unified:update", handler);
+
+  return () => {
+    socket?.off("unified:update", handler);
+  };
+}, []);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
