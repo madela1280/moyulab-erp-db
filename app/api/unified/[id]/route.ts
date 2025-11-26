@@ -34,10 +34,7 @@ export async function PATCH(req: Request) {
     [merged, id]
   );
 
-  // 🔥 모든 화면 즉시 업데이트
-  io.to("global").emit("unified:update");
-
-  return NextResponse.json(r.rows[0]);
+    return NextResponse.json(r.rows[0]);
 }
 
 export async function DELETE(req: Request) {
