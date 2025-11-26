@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "../../../moyulab-socket/socket-client.js"; // 공용 소켓
+import socket from "../../../../moyulab-socket/socket-client.js"; // ← 타입 any 로 취급됨
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -17,11 +17,14 @@ export default function UnifiedGrid() {
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-   /* --------------------- 소켓 연결 --------------------- */
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => fastReload();
+
     socket.on("unified:update", handler);
-    return () => socket.off("unified:update", handler);
+    return () => {
+      socket.off("unified:update", handler);
+    };
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -50,32 +53,30 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
-  /* --------------------- 셀 저장 (입력/삭제 모두 포함) --------------------- */
+  /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
     const local = snapshot.current.find((r) => r.id === id);
     if (!local) return;
 
-    // 서버 상태 체크
     const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await r.json();
+
     if (!server || server.error) {
       fastReload();
       return;
     }
 
-    // 충돌 검사
     if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
+      alert("⚠️ 다른 사용자가 먼저 수정했습니다.");
       fastReload();
       return;
     }
 
-    // PATCH 실행
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ [key]: value }), // ← 입력/삭제(빈칸) 모두 PATCH로 처리
+      body: JSON.stringify({ [key]: value }),
     });
 
-    // 🔥🔥🔥 정확한 위치 — 입력/삭제 즉시 동기화 전송
     socket.emit("unified:update");
   }
 
@@ -84,10 +85,8 @@ export default function UnifiedGrid() {
 
   return (
     <div className="px-2">
-      <div
-        className="border rounded bg-white overflow-auto w-full"
-        style={{ height: "calc(100vh - 210px)" }}
-      >
+      <div className="border rounded bg-white overflow-auto w-full"
+           style={{ height: "calc(100vh - 210px)" }}>
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
