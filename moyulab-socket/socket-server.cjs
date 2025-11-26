@@ -16,7 +16,9 @@ const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
-  }
+  },
+  pingInterval: 10000, // 10초마다 생존신호
+  pingTimeout: 5000    // 5초 응답 없으면 재연결
 });
 
 io.on("connection", (socket) => {
