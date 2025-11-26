@@ -71,7 +71,7 @@ export default function UnifiedGrid() {
     });
 
     // 🔥 모든 화면 즉시 업데이트
-    socket.emit("unified:update");
+    socket?.emit("unified:update");
   }
 
   if (!rows.length)
