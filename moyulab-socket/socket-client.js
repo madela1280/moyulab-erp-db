@@ -4,7 +4,7 @@
 const { io } = require("socket.io-client");
 
 // 👉 실제 동작하는 소켓 서버 주소는 오직 이것뿐
-const SOCKET_URL = "wss://moulab.kr:4001";
+const SOCKET_URL = "wss://moyulab-socket.onrender.com";
 
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
