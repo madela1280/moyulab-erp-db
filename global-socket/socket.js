@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "wss://moyulab-socket.onrender.com";
+const SOCKET_URL = "wss://moulab.kr:4001";
 
 let socket;
 
