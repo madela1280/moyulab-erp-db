@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "../../../moyulab-socket/socket-client.js";   // ← 공용 소켓 사용
+import socket from "../../../moyulab-socket/socket-client.js"; // 공용 소켓
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -20,10 +20,7 @@ export default function UnifiedGrid() {
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     socket.on("unified:update", () => fastReload());
-
-    return () => {
-      socket.off("unified:update");
-    };
+    return () => socket.off("unified:update");
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -52,29 +49,32 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
-  /* --------------------- 셀 저장 --------------------- */
+  /* --------------------- 셀 저장 (입력/삭제 모두 포함) --------------------- */
   async function saveCell(id: number, key: string, value: string) {
     const local = snapshot.current.find((r) => r.id === id);
     if (!local) return;
 
+    // 서버 상태 체크
     const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await r.json();
-
     if (!server || server.error) {
       fastReload();
       return;
     }
 
+    // 충돌 검사
     if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
       fastReload();
       return;
     }
 
+    // PATCH 실행
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ [key]: value }),
+      body: JSON.stringify({ [key]: value }), // ← 입력/삭제(빈칸) 모두 PATCH로 처리
     });
 
+    // 🔥🔥🔥 정확한 위치 — 입력/삭제 즉시 동기화 전송
     socket.emit("unified:update");
   }
 
@@ -119,6 +119,7 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
 
