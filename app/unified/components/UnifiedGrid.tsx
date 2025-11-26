@@ -19,7 +19,7 @@ export default function UnifiedGrid() {
 
   useEffect(() => {
   const handler = () => fastReload();
-  socket.on("unified:update", handler);
+  socket?.on("unified:update", handler);
 
   return () => {
     socket?.off("unified:update", handler);
