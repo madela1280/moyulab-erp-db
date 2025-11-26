@@ -17,15 +17,21 @@ export default function UnifiedGrid() {
   const lock = useRef(false);
   const reloadTimer = useRef<NodeJS.Timeout | null>(null);
 
-  /* --------------------- 소켓 연결 --------------------- */
+   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    const handler = () => {
-      if (reloadTimer.current) clearTimeout(reloadTimer.current);
-      reloadTimer.current = setTimeout(() => reload(), 80);
-    };
+    if (!socket) return;
 
-    socket?.on("unified:update", handler);
-    return () => socket?.off("unified:update", handler);
+    const handler = () => reload();
+
+    socket.on("unified:update", handler);
+
+    return () => {
+      try {
+        socket.off("unified:update", handler);
+      } catch (e) {
+        console.error("socket cleanup error", e);
+      }
+    };
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
