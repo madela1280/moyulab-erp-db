@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import useSocket from "@/app/core/socket/useSocket";   // ⬅ 공용 소켓 1개만 사용
+import { io } from "socket.io-client";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -12,27 +12,28 @@ const unifiedColumns = [
   "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
 ];
 
+let socket: any = null;
+
 export default function UnifiedGrid() {
-  const socket = useSocket();           // ⬅ socket = io() 삭제, 공용 소켓만 사용
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    if (!socket) return;
+    if (!socket) {
+      socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
+        transports: ["websocket"],
+        reconnection: true,
+      });
 
-    socket.emit("join", "global");
+      socket.on("connect", () => {
+        socket.emit("join", "global");
+      });
 
-    // 삭제/수정 포함 실시간 반영
-    socket.on("unified:update", () => fastReload());
+      socket.on("unified:update", () => fastReload());
+    }
+  }, []);
 
-    return () => {
-      socket.off("unified:update");
-    };
-  }, [socket]);
-
-  /* --------------------- 최초 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -44,7 +45,6 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
-  /* --------------------- 초고속 전체 동기화 --------------------- */
   async function fastReload() {
     if (lock.current) return;
     lock.current = true;
@@ -58,7 +58,6 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
-  /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
     const local = snapshot.current.find((r) => r.id === id);
     if (!local) return;
@@ -72,7 +71,6 @@ export default function UnifiedGrid() {
     }
 
     if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
-      alert("⚠️ 다른 사용자가 먼저 수정했습니다.");
       fastReload();
       return;
     }
@@ -82,7 +80,7 @@ export default function UnifiedGrid() {
       body: JSON.stringify({ [key]: value }),
     });
 
-    if (socket) socket.emit("unified:update");   // ⬅ 공용 소켓으로 이벤트 발송
+    if (socket && socket.connected) socket.emit("unified:update");
   }
 
   if (!rows.length)
@@ -90,8 +88,10 @@ export default function UnifiedGrid() {
 
   return (
     <div className="px-2">
-      <div className="border rounded bg-white overflow-auto w-full"
-           style={{ height: "calc(100vh - 210px)" }}>
+      <div
+        className="border rounded bg-white overflow-auto w-full"
+        style={{ height: "calc(100vh - 210px)" }}
+      >
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
@@ -124,7 +124,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
 
