@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { io } from "socket.io-client";
+import socket from "../../../moyulab-socket/socket-client.js";   // ← 공용 소켓 사용
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -12,28 +12,21 @@ const unifiedColumns = [
   "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
 ];
 
-let socket: any = null;
-
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    if (!socket) {
-      socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
-        transports: ["websocket"],
-        reconnection: true,
-      });
+    socket.on("unified:update", () => fastReload());
 
-      socket.on("connect", () => {
-        socket.emit("join", "global");
-      });
-
-      socket.on("unified:update", () => fastReload());
-    }
+    return () => {
+      socket.off("unified:update");
+    };
   }, []);
 
+  /* --------------------- 최초 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -45,6 +38,7 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
+  /* --------------------- 초고속 전체 동기화 --------------------- */
   async function fastReload() {
     if (lock.current) return;
     lock.current = true;
@@ -58,6 +52,7 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
+  /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
     const local = snapshot.current.find((r) => r.id === id);
     if (!local) return;
@@ -80,7 +75,7 @@ export default function UnifiedGrid() {
       body: JSON.stringify({ [key]: value }),
     });
 
-    if (socket && socket.connected) socket.emit("unified:update");
+    socket.emit("unified:update");
   }
 
   if (!rows.length)
@@ -124,6 +119,7 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
 
