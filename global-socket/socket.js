@@ -1,28 +1,27 @@
 import { io } from "socket.io-client";
 
-// 타입 오류 제거용 선언
-// (TS가 window 객체 확장 허용하도록 강제)
-declare const window: any;
+// JS 환경 전용 window 확장 (TS 문법 아님)
+if (typeof window !== "undefined" && !window.__GLOBAL_SOCKET__) {
+  const SOCKET_URL = "wss://moyulab-socket.onrender.com";
 
-const SOCKET_URL = "wss://moyulab-socket.onrender.com";
+  const s = io(SOCKET_URL, {
+    transports: ["websocket"],
+    reconnection: true,
+    reconnectionAttempts: 20,
+    reconnectionDelay: 1500,
+  });
 
-if (typeof window !== "undefined") {
-  if (!window.__GLOBAL_SOCKET__) {
-    const s = io(SOCKET_URL, {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 20,
-      reconnectionDelay: 1500,
-    });
+  s.on("connect", () => {
+    s.emit("join", "global");
+  });
 
-    s.on("connect", () => {
-      s.emit("join", "global");
-    });
-
-    window.__GLOBAL_SOCKET__ = s;
-  }
+  window.__GLOBAL_SOCKET__ = s;
 }
 
-const socket = typeof window !== "undefined" ? window.__GLOBAL_SOCKET__ : null;
+// 브라우저일 때만 반환
+const socket =
+  typeof window !== "undefined" ? window.__GLOBAL_SOCKET__ : null;
+
 export default socket;
+
 
