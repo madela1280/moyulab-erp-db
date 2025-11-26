@@ -3,8 +3,8 @@
 
 const { io } = require("socket.io-client");
 
-// Render에서는 https:// 로 접속해야 WebSocket 업그레이드가 정상 작동함
-const SOCKET_URL = "https://moyulab-socket.onrender.com";
+// 👉 실제 동작하는 소켓 서버 주소는 오직 이것뿐
+const SOCKET_URL = "wss://moulab.kr:4001";
 
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
@@ -15,7 +15,9 @@ const socket = io(SOCKET_URL, {
 
 socket.on("connect", () => {
   socket.emit("join", "global");
+  console.log("🔌 connected to socket server");
 });
 
 module.exports = socket;
+
 
