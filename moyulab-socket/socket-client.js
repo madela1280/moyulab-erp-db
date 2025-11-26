@@ -3,10 +3,9 @@
 
 const { io } = require("socket.io-client");
 
-// 서버 소켓 주소 - 바꾸지 말 것
-const SOCKET_URL = "wss://moyulab-socket.onrender.com";
+// Render에서는 https:// 로 접속해야 WebSocket 업그레이드가 정상 작동함
+const SOCKET_URL = "https://moyulab-socket.onrender.com";
 
-// 단 하나의 socket 인스턴스 (절대 여러 번 만들지 않음)
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
   reconnection: true,
@@ -14,10 +13,9 @@ const socket = io(SOCKET_URL, {
   reconnectionDelay: 1500,
 });
 
-// 글로벌 룸 참여
 socket.on("connect", () => {
   socket.emit("join", "global");
 });
 
-// 모듈에서 socket 하나만 export
 module.exports = socket;
+
