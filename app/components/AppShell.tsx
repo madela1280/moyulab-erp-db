@@ -8,7 +8,7 @@ import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
 // 🔥 동기화 전용 공용 소켓 (1줄만 추가)
-import socket from "../../../moyulab-socket/socket-client.js";
+import socket from "../../moyulab-socket/socket-client.js";
 
 export default function AppShell() {
   const [top, setTop] = useState<TopMenu | null>(null);
