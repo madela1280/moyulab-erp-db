@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { io } from "@/global-socket/server-io";  // 🔥 추가
 
 function getId(req: Request) {
   const url = new URL(req.url);
