@@ -1,15 +1,16 @@
-/* global-socket/socket.js (CJS 싱글톤 완성본) */
+import { io } from "socket.io-client";
 
-const { io } = require("socket.io-client");
 const SOCKET_URL = "wss://moyulab-socket.onrender.com";
 
-// 싱글톤 저장공간 (브라우저 전용)
+// 싱글톤 전역 저장 (브라우저 전용)
+let socket;
+
 if (typeof window !== "undefined") {
   if (!window.__MOYULAB_SOCKET__) {
     const s = io(SOCKET_URL, {
       transports: ["websocket"],
       reconnection: true,
-      reconnectionAttempts: 20,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1500,
     });
 
@@ -20,11 +21,12 @@ if (typeof window !== "undefined") {
     window.__MOYULAB_SOCKET__ = s;
   }
 
-  module.exports = window.__MOYULAB_SOCKET__;
-} else {
-  // SSR 환경에서는 빈 객체 반환
-  module.exports = {};
+  socket = window.__MOYULAB_SOCKET__;
 }
+
+// default export 필수
+export default socket;
+
 
 
 
