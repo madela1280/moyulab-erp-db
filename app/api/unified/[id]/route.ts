@@ -3,8 +3,7 @@ import { query } from "@/lib/db";
 
 function getId(req: Request) {
   const url = new URL(req.url);
-  const parts = url.pathname.split("/");
-  return parts[parts.length - 1];
+  return url.pathname.split("/").pop();
 }
 
 export async function GET(req: Request) {
@@ -21,28 +20,19 @@ export async function PATCH(req: Request) {
   const body = await req.json();
 
   const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
-  const source = old.rows[0].data;
-
-  // ⭐ null(삭제)도 정확하게 반영되는 merge
-  const merged: Record<string, any> = { ...source };
-  for (const key in body) {
-    merged[key] = body[key]; // value === null → 그대로 null 저장
-  }
+  const merged = { ...old.rows[0].data, ...body };
 
   const r = await query(
     `UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data`,
     [merged, id]
   );
 
-    return NextResponse.json(r.rows[0]);
+  return NextResponse.json(r.rows[0]);
 }
 
 export async function DELETE(req: Request) {
   const id = getId(req);
   await query(`DELETE FROM unified WHERE id=$1`, [id]);
-
-  // 🔥 삭제도 즉시 동기화
-  
   return NextResponse.json({ ok: true });
 }
 
