@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "../../../../moyulab-socket/socket-client.js"; // ← 타입 any 로 취급됨
+import socket from "../../../moyulab-socket/socket-client.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
