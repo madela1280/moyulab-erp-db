@@ -22,9 +22,7 @@ export default function UnifiedGrid() {
     const handler = () => fastReload();
 
     socket.on("unified:update", handler);
-    return () => {
-      socket.off("unified:update", handler);
-    };
+    return () => socket.off("unified:update", handler);
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -62,21 +60,17 @@ export default function UnifiedGrid() {
     const server = await r.json();
 
     if (!server || server.error) {
-  await fastReload();
-  return;
-}
+      await fastReload();
+      return;
+    }
 
-// 🔥 삭제(빈 문자열)도 변경으로 인식하도록 강제 비교
-const latest = { ...local.data, [key]: value };
+    // 🔥 삭제(빈 문자열)도 null로 전송 → 삭제 동기화 해결
+    await fetch(`/api/unified/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ [key]: value === "" ? null : value }),
+    });
 
-await fetch(`/api/unified/${id}`, {
-  method: "PATCH",
-  body: JSON.stringify({ [key]: value === "" ? null : value }),
-});
-
-// 🔥 업데이트 브로드캐스트
-socket.emit("unified:update");
-
+    // 🔥 동기화 전파
     socket.emit("unified:update");
   }
 
@@ -119,6 +113,7 @@ socket.emit("unified:update");
     </div>
   );
 }
+
 
 
 
