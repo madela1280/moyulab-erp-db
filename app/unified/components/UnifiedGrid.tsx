@@ -62,20 +62,20 @@ export default function UnifiedGrid() {
     const server = await r.json();
 
     if (!server || server.error) {
-      fastReload();
-      return;
-    }
+  await fastReload();
+  return;
+}
 
-    if (JSON.stringify(server.data) !== JSON.stringify(local.data)) {
-      alert("⚠️ 다른 사용자가 먼저 수정했습니다.");
-      fastReload();
-      return;
-    }
+// 🔥 삭제(빈 문자열)도 변경으로 인식하도록 강제 비교
+const latest = { ...local.data, [key]: value };
 
-    await fetch(`/api/unified/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ [key]: value }),
-    });
+await fetch(`/api/unified/${id}`, {
+  method: "PATCH",
+  body: JSON.stringify({ [key]: value === "" ? null : value }),
+});
+
+// 🔥 업데이트 브로드캐스트
+socket.emit("unified:update");
 
     socket.emit("unified:update");
   }
