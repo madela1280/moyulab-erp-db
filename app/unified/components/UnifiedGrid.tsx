@@ -20,11 +20,10 @@ export default function UnifiedGrid() {
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => fastReload();
-    socket.on("unified:update", handler);
-
-    return () => {
-      socket.off("unified:update", handler);
-    };
+  if (socket) socket.on("unified:update", handler);
+return () => {
+  if (socket) socket.off("unified:update", handler);
+};
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
