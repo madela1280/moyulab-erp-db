@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { socket } from "../../../global-socket/socket";
+import socket from "../../../global-socket/socket.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -17,14 +17,17 @@ export default function UnifiedGrid() {
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --- 소켓 연결 --- */
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => fastReload();
     socket.on("unified:update", handler);
-    return () => socket.off("unified:update", handler);
+
+    return () => {
+      socket.off("unified:update", handler);
+    };
   }, []);
 
-  /* --- 최초 로딩 --- */
+  /* --------------------- 최초 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -32,9 +35,11 @@ export default function UnifiedGrid() {
     snapshot.current = data;
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
-  /* --- 전체 동기화 --- */
+  /* --------------------- 초고속 전체 동기화 --------------------- */
   async function fastReload() {
     if (lock.current) return;
     lock.current = true;
@@ -48,8 +53,19 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
-  /* --- 셀 저장(입력/삭제 모두 반영) --- */
+  /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
+    const local = snapshot.current.find((r) => r.id === id);
+    if (!local) return;
+
+    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
+    const server = await r.json();
+
+    if (!server || server.error) {
+      await fastReload();
+      return;
+    }
+
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ [key]: value === "" ? null : value }),
@@ -97,7 +113,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
 
