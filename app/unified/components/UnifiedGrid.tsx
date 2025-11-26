@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import socket from "../../../global-socket/socket.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
@@ -14,16 +14,14 @@ const unifiedColumns = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const lock = useRef(false);
 
-    /* --------------------- 소켓 연결 --------------------- */
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => reload();
     socket?.on("unified:update", handler);
 
-    return () => {
-      socket?.off("unified:update", handler);
-    };
+    return () => socket?.off("unified:update", handler);
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -31,18 +29,22 @@ export default function UnifiedGrid() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
     setRows(data);
-    setLoading(false);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  /* --------------------- 소켓으로 받는 즉시 재조회 --------------------- */
+  /* --------------------- 전체 재로딩 --------------------- */
   async function reload() {
+    if (lock.current) return;
+    lock.current = true;
+
     const r = await fetch("/api/unified", { cache: "no-store" });
-    const data = await r.json();
-    setRows(data);
+    const fresh = await r.json();
+    setRows(fresh);
+
+    lock.current = false;
   }
 
   /* --------------------- 셀 저장 --------------------- */
@@ -57,10 +59,10 @@ export default function UnifiedGrid() {
     socket?.emit("unified:update");
   }
 
-  /* --------------------- UI --------------------- */
-  if (loading)
+  if (!rows.length)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
+  /* --------------------- UI --------------------- */
   return (
     <div className="px-2">
       <div
