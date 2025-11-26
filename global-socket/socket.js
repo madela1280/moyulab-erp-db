@@ -1,8 +1,8 @@
+// @ts-nocheck
 import { io } from "socket.io-client";
 
 const SOCKET_URL = "wss://moyulab-socket.onrender.com";
 
-// 싱글톤 전역 저장 (브라우저 전용)
 let socket;
 
 if (typeof window !== "undefined") {
@@ -24,8 +24,8 @@ if (typeof window !== "undefined") {
   socket = window.__MOYULAB_SOCKET__;
 }
 
-// default export 필수
 export default socket;
+
 
 
 
