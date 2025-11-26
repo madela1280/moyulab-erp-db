@@ -1,4 +1,4 @@
-// socket-server.cjs  (Render 전용 안정화 버전)
+// socket-server.cjs  (Render 전용 안정화 풀버전)
 
 const express = require("express");
 const { createServer } = require("http");
@@ -6,23 +6,23 @@ const { Server } = require("socket.io");
 
 const app = express();
 
-// ⭐ Render health check 대응: 기본 라우팅
+// Render health check
 app.get("/", (req, res) => {
   res.send("Socket server running");
 });
 
-// HTTP 서버 생성
+// HTTP 서버
 const httpServer = createServer(app);
 
-// ⭐ Socket.IO 서버 설정
+// Socket.IO 서버
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
   },
-  transports: ["websocket"],     // 🔥 websocket 전용 → 끊김 감소 핵심
-  pingInterval: 10000,           // 생존신호(클라이언트와 동일)
-  pingTimeout: 20000             // 🔥 Render 지연 대비 timeout 증가
+  transports: ["websocket", "polling"],   // 안정성 위해 복원
+  pingInterval: 25000,                    // Render/Cloudflare 최적값
+  pingTimeout: 60000                      // 지연 대비 확장
 });
 
 io.on("connection", (socket) => {
@@ -42,12 +42,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// ⭐ Render가 부여하는 PORT 사용
+// Render 제공 PORT 사용
 const PORT = process.env.PORT || 10000;
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Socket.IO 서버 실행중 (Render PORT=${PORT})`);
 });
+
 
 
 
