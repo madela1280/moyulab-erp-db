@@ -19,8 +19,15 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const id = getId(req);
   const body = await req.json();
+
   const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
-  const merged = { ...old.rows[0].data, ...body };
+  const source = old.rows[0].data;
+
+  // ⭐ null(삭제)도 정확하게 반영되는 merge
+  const merged: Record<string, any> = { ...source };
+  for (const key in body) {
+    merged[key] = body[key];  // value === null → 그대로 null 저장
+  }
 
   const r = await query(
     `UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data`,
@@ -34,6 +41,7 @@ export async function DELETE(req: Request) {
   await query(`DELETE FROM unified WHERE id=$1`, [id]);
   return NextResponse.json({ ok: true });
 }
+
 
 
 
