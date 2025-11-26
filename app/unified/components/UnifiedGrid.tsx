@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "../../../moyulab-socket/socket-client.js";
+import { socket } from "../../../global-socket/socket";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -17,19 +17,14 @@ export default function UnifiedGrid() {
   const snapshot = useRef<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 연결 --------------------- */
+  /* --- 소켓 연결 --- */
   useEffect(() => {
     const handler = () => fastReload();
-
     socket.on("unified:update", handler);
-
-    // 🔥 빌드 에러 해결: 반드시 void 함수 반환
-    return () => {
-      socket.off("unified:update", handler);
-    };
+    return () => socket.off("unified:update", handler);
   }, []);
 
-  /* --------------------- 최초 로딩 --------------------- */
+  /* --- 최초 로딩 --- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -37,11 +32,9 @@ export default function UnifiedGrid() {
     snapshot.current = data;
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  /* --------------------- 초고속 전체 동기화 --------------------- */
+  /* --- 전체 동기화 --- */
   async function fastReload() {
     if (lock.current) return;
     lock.current = true;
@@ -55,19 +48,8 @@ export default function UnifiedGrid() {
     lock.current = false;
   }
 
-  /* --------------------- 셀 저장 --------------------- */
+  /* --- 셀 저장(입력/삭제 모두 반영) --- */
   async function saveCell(id: number, key: string, value: string) {
-    const local = snapshot.current.find((r) => r.id === id);
-    if (!local) return;
-
-    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
-    const server = await r.json();
-
-    if (!server || server.error) {
-      await fastReload();
-      return;
-    }
-
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ [key]: value === "" ? null : value }),
@@ -82,7 +64,7 @@ export default function UnifiedGrid() {
   return (
     <div className="px-2">
       <div className="border rounded bg-white overflow-auto w-full"
-        style={{ height: "calc(100vh - 210px)" }}>
+           style={{ height: "calc(100vh - 210px)" }}>
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
