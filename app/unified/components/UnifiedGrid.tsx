@@ -17,14 +17,14 @@ export default function UnifiedGrid() {
   const lock = useRef(false);
 
   /* --------------------- 소켓 연결 --------------------- */
-useEffect(() => {
-  const handler = () => reload();
-  socket?.on("unified:update", handler);
+  useEffect(() => {
+    const handler = () => reload();
+    socket?.on("unified:update", handler);
 
-  return () => { 
-    socket?.off("unified:update", handler); 
-  };
-}, []);
+    return () => { 
+      socket?.off("unified:update", handler); 
+    };
+  }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
@@ -37,7 +37,7 @@ useEffect(() => {
     load();
   }, []);
 
-  /* --------------------- 전체 재로딩 --------------------- */
+  /* --------------------- reload: DB 최신값으로 다시 세팅 --------------------- */
   async function reload() {
     if (lock.current) return;
     lock.current = true;
