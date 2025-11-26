@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "../../../moyulab-socket/socket-client.js";
+import socket from "../../../global-socket/socket.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -20,12 +20,8 @@ export default function UnifiedGrid() {
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const handler = () => fastReload();
-
-    if (socket) socket.on("unified:update", handler);
-
-    return () => {
-      if (socket) socket.off("unified:update", handler);
-    };
+    socket.on("unified:update", handler);
+    return () => socket.off("unified:update", handler);
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -56,9 +52,6 @@ export default function UnifiedGrid() {
 
   /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
-    const local = snapshot.current.find((r) => r.id === id);
-    if (!local) return;
-
     const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
     const server = await r.json();
 
@@ -67,14 +60,16 @@ export default function UnifiedGrid() {
       return;
     }
 
-    // 🔥 입력, 삭제 모두 반영
+    // 🔥 기존 데이터와 병합 + 삭제(null) 완전 반영
+    const payload = value === "" ? { [key]: null } : { [key]: value };
+
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ [key]: value === "" ? null : value }),
+      body: JSON.stringify(payload),
     });
 
-    // 🔥 전체 업데이트 브로드캐스트
-    if (socket) socket.emit("unified:update");
+    // 🔥 모든 화면 즉시 업데이트
+    socket.emit("unified:update");
   }
 
   if (!rows.length)
