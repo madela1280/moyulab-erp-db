@@ -70,6 +70,10 @@ return () => {
       body: JSON.stringify({ [key]: value === "" ? null : value }),
     });
 
+ // 🔥 여기에 단 1줄만 추가
+  if (socket) socket.emit("unified:update");
+}
+
     socket.emit("unified:update");
   }
 
