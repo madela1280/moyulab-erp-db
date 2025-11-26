@@ -22,7 +22,11 @@ export default function UnifiedGrid() {
     const handler = () => fastReload();
 
     socket.on("unified:update", handler);
-    return () => socket.off("unified:update", handler);
+
+    // 🔥 빌드 에러 해결: 반드시 void 함수 반환
+    return () => {
+      socket.off("unified:update", handler);
+    };
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -64,13 +68,11 @@ export default function UnifiedGrid() {
       return;
     }
 
-    // 🔥 삭제(빈 문자열)도 null로 전송 → 삭제 동기화 해결
     await fetch(`/api/unified/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ [key]: value === "" ? null : value }),
     });
 
-    // 🔥 동기화 전파
     socket.emit("unified:update");
   }
 
@@ -80,7 +82,7 @@ export default function UnifiedGrid() {
   return (
     <div className="px-2">
       <div className="border rounded bg-white overflow-auto w-full"
-           style={{ height: "calc(100vh - 210px)" }}>
+        style={{ height: "calc(100vh - 210px)" }}>
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
