@@ -1,5 +1,5 @@
-// 🔥 영구불변 소켓 클라이언트
-const { io } = require("socket.io-client");
+// 🔥 ESM 방식으로 완전 재작성 (Next.js 100% 호환)
+import { io } from "socket.io-client";
 
 const SOCKET_URL = "wss://moyulab-socket.onrender.com";
 
@@ -14,7 +14,7 @@ socket.on("connect", () => {
   socket.emit("join", "global");
 });
 
-// 🔥 default + named 둘 다 export
-module.exports = socket;
-module.exports.socket = socket;
+// 🔥 default export 1개만
+export default socket;
+
 
