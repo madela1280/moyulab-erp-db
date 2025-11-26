@@ -45,8 +45,7 @@ export async function DELETE(req: Request) {
   await query(`DELETE FROM unified WHERE id=$1`, [id]);
 
   // 🔥 삭제도 즉시 동기화
-  io.to("global").emit("unified:update");
-
+  
   return NextResponse.json({ ok: true });
 }
 
