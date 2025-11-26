@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import socket from "../../../global-socket/socket.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
@@ -14,55 +14,36 @@ const unifiedColumns = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const snapshot = useRef<UnifiedRow[]>([]);
-  const lock = useRef(false);
+  const [loading, setLoading] = useState(true);
 
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-  const handler = () => fastReload();
-  socket?.on("unified:update", handler);
-
-  return () => {
-    socket?.off("unified:update", handler);
-  };
-}, []);
+    const handler = () => reload();
+    socket?.on("unified:update", handler);
+    return () => socket?.off("unified:update", handler);
+  }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
     setRows(data);
-    snapshot.current = data;
+    setLoading(false);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  /* --------------------- 초고속 전체 동기화 --------------------- */
-  async function fastReload() {
-    if (lock.current) return;
-    lock.current = true;
-
+  /* --------------------- 소켓으로 받는 즉시 재조회 --------------------- */
+  async function reload() {
     const r = await fetch("/api/unified", { cache: "no-store" });
-    const fresh = await r.json();
-
-    setRows(fresh);
-    snapshot.current = fresh;
-
-    lock.current = false;
+    const data = await r.json();
+    setRows(data);
   }
 
   /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
-    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
-    const server = await r.json();
-
-    if (!server || server.error) {
-      await fastReload();
-      return;
-    }
-
-    // 🔥 기존 데이터와 병합 + 삭제(null) 완전 반영
     const payload = value === "" ? { [key]: null } : { [key]: value };
 
     await fetch(`/api/unified/${id}`, {
@@ -70,11 +51,11 @@ export default function UnifiedGrid() {
       body: JSON.stringify(payload),
     });
 
-    // 🔥 모든 화면 즉시 업데이트
     socket?.emit("unified:update");
   }
 
-  if (!rows.length)
+  /* --------------------- UI --------------------- */
+  if (loading)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
@@ -117,6 +98,7 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
 
