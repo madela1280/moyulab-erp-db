@@ -2,7 +2,6 @@
 
 // @ts-ignore
 import socket from "@/global-socket/socket-client.js";
-
 // @ts-ignore
 import { useEffect, useState, useRef } from "react";
 
@@ -21,21 +20,21 @@ export default function UnifiedGrid() {
   const reloadTimer = useRef<NodeJS.Timeout | null>(null);
 
   /* --------------------- 소켓 연결 --------------------- */
-useEffect(() => {
-// @ts-ignore
+  useEffect(() => {
+    // @ts-ignore
     if (!socket) return;
 
     const handler = () => reload();
+    // @ts-ignore
     socket.on("unified:update", handler);
 
     return () => {
       try {
+        // @ts-ignore
         socket?.off("unified:update", handler);
-      } catch (e) {
-        console.error("socket cleanup error", e);
-      }
+      } catch (e) {}
     };
-}, []);
+  }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
