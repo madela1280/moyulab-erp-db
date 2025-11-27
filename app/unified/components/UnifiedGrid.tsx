@@ -1,9 +1,11 @@
 "use client";
 
 // @ts-ignore
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import socket from "@/global-socket/socket-client.js";
-const socketAny: any = socket;
 
+// @ts-ignore
 import { useEffect, useState, useRef } from "react";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
