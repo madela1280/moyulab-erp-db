@@ -3,7 +3,7 @@
 
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "ws://121.78.183.227:4001";
+const SOCKET_URL = "wss://moulab.kr/socket.io";
 
 let socket = null;
 
