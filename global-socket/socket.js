@@ -24,7 +24,8 @@ if (typeof window !== "undefined") {
   socket = window.__MOYULAB_SOCKET__;
 }
 
-export default socket;
+export default socket || {};
+
 
 
 
