@@ -1,24 +1,27 @@
-// 🔥 영구불변 소켓 클라이언트
-// 모든 ERP 화면은 여기서 만든 socket 하나만 사용한다.
+// 브라우저 전용 안정형 socket client
+import { io } from "socket.io-client";
 
-const { io } = require("socket.io-client");
+let socket = null;
 
-// 👉 실제 동작하는 소켓 서버 주소는 오직 이것뿐
-const SOCKET_URL = "wss://moyulab-socket.onrender.com";
+if (typeof window !== "undefined") {
+  if (!window.__MOYULAB_SOCKET__) {
+    window.__MOYULAB_SOCKET__ = io("https://moyulab-socket.onrender.com", {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1500,
+    });
 
-const socket = io(SOCKET_URL, {
-  transports: ["websocket"],
-  reconnection: true,
-  reconnectionAttempts: 10,
-  reconnectionDelay: 1500,
-});
+    window.__MOYULAB_SOCKET__.on("connect", () => {
+      window.__MOYULAB_SOCKET__.emit("join", "global");
+    });
+  }
 
-socket.on("connect", () => {
-  socket.emit("join", "global");
-  console.log("🔌 connected to socket server");
-});
+  socket = window.__MOYULAB_SOCKET__;
+}
 
-module.exports = socket;
+export default socket;
+
 
 
 
