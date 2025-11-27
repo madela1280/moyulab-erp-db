@@ -1,8 +1,6 @@
-// @ts-ignore
 "use client";
-
-import { useEffect, useState, useRef } from "react";
-import socket from "@/global-socket/socket-client.js";   // ✅ 오직 이 1줄만 교체
+// @ts-ignore
+import socket from "@/global-socket/socket-client.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
