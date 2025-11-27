@@ -1,5 +1,5 @@
 // @ts-nocheck
-"use client";   // ✅ 이 한 줄이 문제 해결의 핵심
+"use client";
 
 import { io } from "socket.io-client";
 
@@ -27,6 +27,7 @@ if (typeof window !== "undefined") {
 }
 
 export default socket;
+
 
 
 
