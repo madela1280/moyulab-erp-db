@@ -3,7 +3,7 @@
 
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "https://moyulab-socket.onrender.com";
+const SOCKET_URL = "wss://121.78.183.227:4001";
 
 let socket = null;
 
