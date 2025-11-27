@@ -1,8 +1,6 @@
 "use client";
 
 // @ts-ignore
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
 import socket from "@/global-socket/socket-client.js";
 
 // @ts-ignore
@@ -16,6 +14,10 @@ const unifiedColumns = [
   "반납요청일","반납완료일","특이사항1","특이사항2","총연장횟수","신청일",
   "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
 ];
+
+// ⛔ 타입 문제 해결을 위한 단 1줄
+// @ts-ignore
+const socketAny: any = socket;
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
