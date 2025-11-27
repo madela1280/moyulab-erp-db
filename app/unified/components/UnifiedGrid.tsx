@@ -21,11 +21,11 @@ export default function UnifiedGrid() {
   const reloadTimer = useRef<NodeJS.Timeout | null>(null);
 
   /* --------------------- 소켓 연결 --------------------- */
-  useEffect(() => {
+useEffect(() => {
+// @ts-ignore
     if (!socket) return;
 
     const handler = () => reload();
-
     socket.on("unified:update", handler);
 
     return () => {
@@ -35,7 +35,7 @@ export default function UnifiedGrid() {
         console.error("socket cleanup error", e);
       }
     };
-  }, []);
+}, []);
 
   /* --------------------- 최초 로딩 --------------------- */
   async function load() {
