@@ -2,7 +2,8 @@
 
 // @ts-ignore
 import socket from "@/global-socket/socket-client.js";
-// @ts-ignore
+const socketAny: any = socket;
+
 import { useEffect, useState, useRef } from "react";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
@@ -21,18 +22,17 @@ export default function UnifiedGrid() {
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
-    // @ts-ignore
-    if (!socket) return;
+    if (!socketAny) return;
 
     const handler = () => reload();
-    // @ts-ignore
-    socket.on("unified:update", handler);
+    socketAny.on("unified:update", handler);
 
     return () => {
       try {
-        // @ts-ignore
-        socket?.off("unified:update", handler);
-      } catch (e) {}
+        socketAny?.off("unified:update", handler);
+      } catch (e) {
+        console.error("socket cleanup error", e);
+      }
     };
   }, []);
 
@@ -71,7 +71,7 @@ export default function UnifiedGrid() {
     });
 
     setTimeout(() => {
-      socket?.emit("unified:update");
+      socketAny?.emit("unified:update");
     }, 120);
   }
 
@@ -119,8 +119,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
-
 
 
 
