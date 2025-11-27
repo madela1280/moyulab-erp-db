@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import socket from "@/moyulab-socket/socket-client.js";
+import socket from "../../../moyulab-socket/socket-client.js";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
