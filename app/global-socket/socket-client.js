@@ -3,13 +3,12 @@
 
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "wss://moulab.kr";
-
 let socket = null;
 
 if (typeof window !== "undefined") {
   if (!window.__MOYULAB_SOCKET__) {
-    const s = io(SOCKET_URL, {
+    const s = io("https://moulab.kr", {
+      path: "/socket.io/",
       transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: 10,
@@ -27,6 +26,7 @@ if (typeof window !== "undefined") {
 }
 
 export default socket;
+
 
 
 
