@@ -81,7 +81,8 @@ export default function UnifiedGrid() {
                     <input
                       key={row.data[key] ?? ""}
                       className="w-full text-xs"
-                      defaultValue={row.data[key] ?? ""}
+                      value={row.data[key] ?? ""}
+                      onChange={(e) => saveCell(row.id, key, e.target.value)}
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
