@@ -16,10 +16,7 @@ export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 LISTEN --------------------- */
-  useEffect(() => syncListen(reload), []);
-
-  /* --------------------- 최초 로딩 --------------------- */
+  /* --------------------- 초기 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -30,7 +27,7 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
-  /* --------------------- reload --------------------- */
+  /* --------------------- 소켓 reload --------------------- */
   async function reload() {
     if (lock.current) return;
     lock.current = true;
@@ -44,9 +41,14 @@ export default function UnifiedGrid() {
     }, 50);
   }
 
+  useEffect(() => {
+    const off = syncListen(reload);
+    return () => off && off();
+  }, []);
+
   /* --------------------- 셀 저장 --------------------- */
-  async function saveCell(id: number, key: string, value: string) {
-    await syncPatch(id, key, value);
+  function handleChange(id: number, key: string, value: any) {
+    syncPatch(id, key, value);
   }
 
   /* --------------------- UI --------------------- */
@@ -79,11 +81,11 @@ export default function UnifiedGrid() {
                 {unifiedColumns.map((key) => (
                   <td key={key} className="border px-2 py-1">
                     <input
-                      key={row.data[key] ?? ""}
                       className="w-full text-xs"
                       value={row.data[key] ?? ""}
-                      onChange={(e) => saveCell(row.id, key, e.target.value)}
-                      onBlur={(e) => saveCell(row.id, key, e.target.value)}
+                      onChange={(e) =>
+                        handleChange(row.id, key, e.target.value)
+                      }
                     />
                   </td>
                 ))}
@@ -95,6 +97,7 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
 
 
 
