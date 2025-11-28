@@ -17,10 +17,7 @@ export async function syncPatch(id: number, key: string, value: any) {
 
 export function syncListen(reload: Function) {
   if (!socket) return;
-
   socket.on("unified:update", reload);
-
-  return () => {
-    socket.off("unified:update", reload);
-  };
+  return () => socket.off("unified:update", reload);
 }
+
