@@ -1,5 +1,5 @@
-// @ts-nocheck
 "use client";
+// @ts-nocheck
 
 import { io } from "socket.io-client";
 
@@ -21,15 +21,8 @@ if (typeof window !== "undefined") {
 
     window.__MOYULAB_SOCKET__ = s;
   }
-
   socket = window.__MOYULAB_SOCKET__;
 }
 
 export default socket;
-
-
-
-
-
-
 
