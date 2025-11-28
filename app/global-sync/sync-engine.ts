@@ -3,7 +3,9 @@
 // @ts-ignore
 import socket from "@/global-socket/socket-client.js";
 
-// 셀 PATCH + 소켓 emit
+// @ts-ignore
+const socketAny: any = socket;
+
 export async function syncPatch(id: number, key: string, value: any) {
   const payload = value === "" ? { [key]: null } : { [key]: value };
 
@@ -13,16 +15,16 @@ export async function syncPatch(id: number, key: string, value: any) {
   });
 
   setTimeout(() => {
-    socket?.emit("unified:update");
+    // @ts-ignore
+    socketAny?.emit("unified:update");
   }, 120);
 }
 
-// 소켓 구독
 export function syncListen(handler: () => void) {
-  if (!socket) return;
+  if (!socketAny) return;
 
-  socket.on("unified:update", handler);
-  return () => socket.off("unified:update", handler);
+  socketAny.on("unified:update", handler);
+  return () => socketAny.off("unified:update", handler);
 }
 
 
