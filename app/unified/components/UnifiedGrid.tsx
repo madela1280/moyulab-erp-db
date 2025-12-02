@@ -46,9 +46,9 @@ export default function UnifiedGrid() {
     return () => off && off();
   }, []);
 
-  /* --------------------- 셀 저장 --------------------- */
-  function handleChange(id: number, key: string, value: any) {
-    const normalized = value === "" ? null : value; // ← 추가: 빈 값은 null 로 저장
+  /* --------------------- 셀 저장 (편집 끝났을 때만) --------------------- */
+  function handleBlur(id: number, key: string, value: any) {
+    const normalized = value === "" ? null : value;
     syncPatch(id, key, normalized);
   }
 
@@ -83,10 +83,8 @@ export default function UnifiedGrid() {
                   <td key={key} className="border px-2 py-1">
                     <input
                       className="w-full text-xs"
-                      value={row.data[key] ?? ""}
-                      onChange={(e) =>
-                        handleChange(row.id, key, e.target.value)
-                      }
+                      defaultValue={row.data[key] ?? ""}
+                      onBlur={(e) => handleBlur(row.id, key, e.target.value)}
                     />
                   </td>
                 ))}
@@ -98,7 +96,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
 
