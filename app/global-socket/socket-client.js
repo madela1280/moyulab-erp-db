@@ -9,7 +9,7 @@ if (typeof window !== "undefined") {
   if (!window.__MOYULAB_SOCKET__) {
     const s = io("https://moulab.kr", {
       path: "/socket.io/",
-      transports: ["websocket"],
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1500,
@@ -25,4 +25,5 @@ if (typeof window !== "undefined") {
 }
 
 export default socket;
+
 
