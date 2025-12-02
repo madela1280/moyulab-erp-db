@@ -46,8 +46,19 @@ export default function UnifiedGrid() {
     return () => off && off();
   }, []);
 
-  /* --------------------- 셀 저장 (편집 끝났을 때만) --------------------- */
-  function handleBlur(id: number, key: string, value: any) {
+  /* --------------------- 로컬 편집 상태 반영 --------------------- */
+  function updateLocalCell(id: number, key: string, value: string) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? { ...row, data: { ...row.data, [key]: value } }
+          : row
+      )
+    );
+  }
+
+  /* --------------------- 셀 저장 (편집 종료 시) --------------------- */
+  function handleBlur(id: number, key: string, value: string) {
     const normalized = value === "" ? null : value;
     syncPatch(id, key, normalized);
   }
@@ -83,8 +94,13 @@ export default function UnifiedGrid() {
                   <td key={key} className="border px-2 py-1">
                     <input
                       className="w-full text-xs"
-                      defaultValue={row.data[key] ?? ""}
-                      onBlur={(e) => handleBlur(row.id, key, e.target.value)}
+                      value={row.data[key] ?? ""}
+                      onChange={(e) =>
+                        updateLocalCell(row.id, key, e.target.value)
+                      }
+                      onBlur={(e) =>
+                        handleBlur(row.id, key, e.target.value)
+                      }
                     />
                   </td>
                 ))}
@@ -96,8 +112,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
-
 
 
 
