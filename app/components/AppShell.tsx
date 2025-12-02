@@ -1,5 +1,6 @@
 "use client";
 
+import "@/global-socket/socket-client.js";
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import { TOP_MENUS, TopMenu } from "@/menus/topMenus";
