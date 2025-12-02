@@ -48,7 +48,8 @@ export default function UnifiedGrid() {
 
   /* --------------------- 셀 저장 --------------------- */
   function handleChange(id: number, key: string, value: any) {
-    syncPatch(id, key, value);
+    const normalized = value === "" ? null : value; // ← 추가: 빈 값은 null 로 저장
+    syncPatch(id, key, normalized);
   }
 
   /* --------------------- UI --------------------- */
@@ -97,7 +98,6 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
 
 
 
