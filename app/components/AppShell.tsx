@@ -7,6 +7,16 @@ import { TOP_MENUS, TopMenu } from "@/menus/topMenus";
 import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
+import NoAccess from "@/components/NoAccess";
+
+type MeUser = {
+  username: string;
+  role: string;
+  name: string;
+  phone: string;
+};
+
+type PermissionMap = Record<string, { can_read: boolean; can_write: boolean }>;
 
 // 기본 대카테고리/소카테고리: 통합관리
 const DEFAULT_TOP: TopMenu = "통합관리";
@@ -19,8 +29,115 @@ export default function AppShell() {
   const [dropdownLeft, setDropdownLeft] = useState(0);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 인증/권한 관련 상태
+  const [me, setMe] = useState<MeUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const [perms, setPerms] = useState<PermissionMap>({});
+  const [permsLoading, setPermsLoading] = useState(false);
+
+  // 권한 없음으로 진입한 대카테고리 이름
+  const [noAccessMenu, setNoAccessMenu] = useState<string | null>(null);
+
+  const isAdmin = me?.role === "admin";
+
   const CurrentView =
     top && sub ? VIEW_MAP[makeRouteKey(top, sub)] : () => <div />;
+
+  /* ---------------- 인증/권한 로딩 ---------------- */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        // 1) 현재 로그인 사용자 정보
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = (await res.json()) as any;
+
+        if (!res.ok || !data?.ok) {
+          // 토큰이 잘못된 경우 등은 root page에서 이미 처리하므로
+          if (!cancelled) {
+            setMe(null);
+          }
+          return;
+        }
+
+        const user = data.user as MeUser;
+        if (cancelled) return;
+
+        setMe(user);
+
+        // 2) 일반 사용자면 권한 로딩
+        if (user.role !== "admin") {
+          setPermsLoading(true);
+          try {
+            const pres = await fetch(
+              `/api/permissions?username=${encodeURIComponent(user.username)}`,
+              { cache: "no-store" }
+            );
+            const pdata = (await pres.json()) as any;
+            if (pres.ok && pdata?.ok) {
+              setPerms(pdata.permissions as PermissionMap);
+            } else {
+              setPerms({});
+            }
+          } catch (e) {
+            console.error("load permissions error:", e);
+            setPerms({});
+          } finally {
+            if (!cancelled) setPermsLoading(false);
+          }
+        } else {
+          // admin 은 모든 메뉴 허용
+          setPerms({});
+        }
+      } catch (e) {
+        console.error("auth load error:", e);
+        if (!cancelled) {
+          setMe(null);
+          setPerms({});
+        }
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 특정 대카테고리에 대해 읽기 권한 있는지
+  const canRead = (menu: TopMenu): boolean => {
+    if (isAdmin) return true;
+    if (!me) return false;
+
+    if (menu === "사용자관리") {
+      // 사용자관리는 항상 관리자 전용
+      return false;
+    }
+
+    const p = perms[menu];
+    return !!p && !!p.can_read;
+  };
+
+  // 권한 정보가 준비된 후, 기본 메뉴 접근 불가면 자물쇠로 처리
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAdmin && !permsLoading) {
+      if (!canRead(DEFAULT_TOP)) {
+        setNoAccessMenu(DEFAULT_TOP);
+        setTop(DEFAULT_TOP);
+        setSub(null);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, permsLoading, me, perms]);
+
+  /* ---------------- 서브메뉴 타이머 ---------------- */
 
   const startTimer = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -37,6 +154,15 @@ export default function AppShell() {
     };
   }, []);
 
+  /* ---------------- 렌더링 ---------------- */
+
+  // 일반 사용자는 "사용자관리" 대카테고리 자체를 숨김
+  const visibleTopMenus: TopMenu[] = isAdmin
+    ? TOP_MENUS
+    : (TOP_MENUS.filter((m) => m !== "사용자관리") as TopMenu[]);
+
+  const loading = authLoading || (!isAdmin && permsLoading);
+
   return (
     <div className="min-h-screen bg-gray-50 w-full">
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
@@ -48,10 +174,21 @@ export default function AppShell() {
 
           <nav className="flex-grow flex text-[0.90rem] font-semibold text-gray-700 ml-40">
             <div className="flex items-center gap-8 relative">
-              {TOP_MENUS.map((m) => (
+              {visibleTopMenus.map((m) => (
                 <button
                   key={m}
                   onClick={(e) => {
+                    // 권한 체크
+                    if (!canRead(m)) {
+                      setNoAccessMenu(m);
+                      setTop(m);
+                      setSub(null);
+                      setShowSub(false);
+                      stopTimer();
+                      return;
+                    }
+
+                    setNoAccessMenu(null);
                     setTop(m);
                     setSub(SUB_MENUS[m][0]);
                     setShowSub(true);
@@ -68,7 +205,7 @@ export default function AppShell() {
                 </button>
               ))}
 
-              {top && showSub && (
+              {top && showSub && canRead(top) && (
                 <div
                   className="flex gap-2 absolute w-max"
                   style={{ top: "40px", left: `${dropdownLeft}px` }}
@@ -98,7 +235,13 @@ export default function AppShell() {
       </header>
 
       <main className="px-6 py-4 w-full">
-        <CurrentView key={`${top}-${sub}`} />
+        {loading ? (
+          <div className="text-sm text-gray-500">Loading...</div>
+        ) : noAccessMenu ? (
+          <NoAccess menuLabel={noAccessMenu} />
+        ) : (
+          <CurrentView key={`${top}-${sub}`} />
+        )}
       </main>
     </div>
   );
