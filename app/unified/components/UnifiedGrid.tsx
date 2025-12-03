@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { syncListen, syncPatch } from "@/global-sync/sync-engine";
+import {
+  acquireLock,
+  releaseLock,
+} from "@/global-lock/lock-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -14,6 +18,8 @@ const unifiedColumns = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
+  // 내가 잡은 행 락 정보 (row.id 기준)
+  const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
@@ -55,6 +61,29 @@ export default function UnifiedGrid() {
     await syncPatch(id, key, value);
   }
 
+  /* --------------------- 포커스 시 락 획득 --------------------- */
+  async function handleFocus(rowId: number, e: React.FocusEvent<HTMLInputElement>) {
+    const result = await acquireLock("unified", rowId);
+
+    if (result.ok) {
+      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      return;
+    }
+
+    if (result.reason === "locked_by_other" && (result as any).lock) {
+      const lock = (result as any).lock;
+      alert(`${lock.locked_by_name}님이 이 행을 편집 중입니다.`);
+    } else if (result.reason === "unauthorized") {
+      alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
+    } else {
+      alert("이 행을 편집할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    // 편집 차단
+    e.target.blur();
+    reload();
+  }
+
   /* --------------------- UI --------------------- */
   if (!rows.length)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
@@ -87,10 +116,22 @@ export default function UnifiedGrid() {
                     <input
                       className="w-full text-xs"
                       value={row.data[key] ?? ""}
-                      onChange={(e) =>
-                        updateLocalCell(row.id, key, e.target.value)
-                      }
-                      onBlur={(e) => saveCell(row.id, key, e.target.value)}
+                      onFocus={(e) => handleFocus(row.id, e)}
+                      onChange={(e) => {
+                        // 내가 이 행에 대한 락을 갖고 있을 때만 편집 허용
+                        if (!myRowLocks[row.id]) return;
+                        updateLocalCell(row.id, key, e.target.value);
+                      }}
+                      onBlur={(e) => {
+                        // 저장 + 락 해제
+                        saveCell(row.id, key, e.target.value);
+                        releaseLock("unified", row.id);
+                        setMyRowLocks((prev) => {
+                          const copy = { ...prev };
+                          delete copy[row.id];
+                          return copy;
+                        });
+                      }}
                     />
                   </td>
                 ))}
