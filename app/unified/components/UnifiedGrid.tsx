@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { subscribeUnified, notifyUnifiedChanged } from "@/global-sync/sync-engine";
+import { syncListen, syncNotify } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -16,11 +16,10 @@ export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 연결 --------------------- */
+  /* --------------------- 소켓 수신 --------------------- */
   useEffect(() => {
-    const stop = subscribeUnified(() => reload());
+    const stop = syncListen(() => reload());
     return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* --------------------- 최초 로딩 --------------------- */
@@ -48,15 +47,16 @@ export default function UnifiedGrid() {
     }, 50);
   }
 
-  /* --------------------- 로컬 편집 반영 --------------------- */
-  function updateLocalCell(id: number, key: string, value: string) {
-    setRows((prev) =>
-      prev.map((row) =>
-        row.id === id
-          ? { ...row, data: { ...row.data, [key]: value } }
-          : row
-      )
-    );
+  /* --------------------- 셀 저장 --------------------- */
+  async function saveCell(id: number, key: string, value: string) {
+    const payload = value === "" ? { [key]: null } : { [key]: value };
+
+    await fetch(`/api/unified/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+
+    syncNotify(); // 즉시 모든 탭 새로고침
   }
 
   /* --------------------- UI --------------------- */
@@ -92,11 +92,15 @@ export default function UnifiedGrid() {
                       className="w-full text-xs"
                       value={row.data[key] ?? ""}
                       onChange={(e) =>
-                        updateLocalCell(row.id, key, e.target.value)
+                        setRows((prev) =>
+                          prev.map((r) =>
+                            r.id === row.id
+                              ? { ...r, data: { ...r.data, [key]: e.target.value } }
+                              : r
+                          )
+                        )
                       }
-                      onBlur={(e) =>
-                        saveCell(row.id, key, e.target.value)
-                      }
+                      onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
                 ))}
@@ -108,3 +112,4 @@ export default function UnifiedGrid() {
     </div>
   );
 }
+
