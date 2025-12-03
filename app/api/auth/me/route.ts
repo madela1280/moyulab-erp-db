@@ -5,7 +5,6 @@ import { query } from "@/lib/db";
 
 export async function GET() {
   try {
-    // 🔥 너의 Next.js 환경은 cookies()가 Promise 이므로 await 필요
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
 
@@ -25,22 +24,9 @@ export async function GET() {
       );
     }
 
-    const username = (decoded as any).username;
+    const username = (decoded as any).username as string;
 
-    // 🟦 임시 관리자 계정은 DB 조회 없이 통과
-    if (username === "medela1280") {
-      return NextResponse.json({
-        ok: true,
-        user: {
-          username: "medela1280",
-          role: "admin",
-          name: "관리자",
-          phone: "01000000000",
-        },
-      });
-    }
-
-    // 🟦 일반 사용자 DB 조회
+    // 항상 DB에서 사용자 정보 조회
     const sql = `
       SELECT username, role, name, phone
       FROM users
