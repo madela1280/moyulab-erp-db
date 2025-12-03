@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { syncListen, syncPatch } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
@@ -14,7 +14,6 @@ const unifiedColumns = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const lock = useRef(false);
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
@@ -35,16 +34,9 @@ export default function UnifiedGrid() {
 
   /* --------------------- reload --------------------- */
   async function reload() {
-    if (lock.current) return;
-    lock.current = true;
-
     const r = await fetch("/api/unified", { cache: "no-store" });
     const fresh = await r.json();
     setRows(fresh);
-
-    setTimeout(() => {
-      lock.current = false;
-    }, 50);
   }
 
   /* --------------------- 로컬 셀 값 반영 --------------------- */
@@ -110,4 +102,3 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
