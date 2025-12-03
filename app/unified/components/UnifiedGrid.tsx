@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { syncListen, notifyUnifiedChanged } from "@/global-sync/sync-engine";
+import { syncListen, syncPatch } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -49,15 +49,7 @@ export default function UnifiedGrid() {
 
   /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
-    const payload = value === "" ? { [key]: null } : { [key]: value };
-
-    await fetch(`/api/unified/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-
-    // 저장 직후 즉시 broadcast
-    notifyUnifiedChanged();
+    await syncPatch(id, key, value);
   }
 
   /* --------------------- UI --------------------- */
