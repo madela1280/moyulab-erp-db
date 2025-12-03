@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { syncPatch, syncListen } from "@/global-sync/sync-engine";
+import { subscribeUnified, notifyUnifiedChanged } from "@/sync-core/client/unifiedSync";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -16,7 +16,14 @@ export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 초기 로딩 --------------------- */
+  /* --------------------- 소켓 연결 --------------------- */
+  useEffect(() => {
+    const stop = subscribeUnified(() => reload());
+    return () => stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* --------------------- 최초 로딩 --------------------- */
   async function load() {
     const r = await fetch("/api/unified", { cache: "no-store" });
     const data = await r.json();
@@ -27,7 +34,7 @@ export default function UnifiedGrid() {
     load();
   }, []);
 
-  /* --------------------- 소켓 reload --------------------- */
+  /* --------------------- reload --------------------- */
   async function reload() {
     if (lock.current) return;
     lock.current = true;
@@ -41,12 +48,7 @@ export default function UnifiedGrid() {
     }, 50);
   }
 
-  useEffect(() => {
-    const off = syncListen(reload);
-    return () => off && off();
-  }, []);
-
-  /* --------------------- 로컬 편집 상태 반영 --------------------- */
+  /* --------------------- 로컬 편집 반영 --------------------- */
   function updateLocalCell(id: number, key: string, value: string) {
     setRows((prev) =>
       prev.map((row) =>
@@ -55,12 +57,6 @@ export default function UnifiedGrid() {
           : row
       )
     );
-  }
-
-  /* --------------------- 셀 저장 (편집 종료 시) --------------------- */
-  function handleBlur(id: number, key: string, value: string) {
-    const normalized = value === "" ? null : value;
-    syncPatch(id, key, normalized);
   }
 
   /* --------------------- UI --------------------- */
@@ -99,7 +95,7 @@ export default function UnifiedGrid() {
                         updateLocalCell(row.id, key, e.target.value)
                       }
                       onBlur={(e) =>
-                        handleBlur(row.id, key, e.target.value)
+                        saveCell(row.id, key, e.target.value)
                       }
                     />
                   </td>
@@ -112,7 +108,3 @@ export default function UnifiedGrid() {
     </div>
   );
 }
-
-
-
-
