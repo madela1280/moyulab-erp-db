@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { subscribeUnified, notifyUnifiedChanged } from "@/sync-core/client/unifiedSync";
+import { subscribeUnified, notifyUnifiedChanged } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
