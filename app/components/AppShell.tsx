@@ -8,9 +8,13 @@ import { SUB_MENUS } from "@/menus/subMenus";
 import { makeRouteKey } from "@/menus/menuRouter";
 import { VIEW_MAP } from "@/menus/viewMap";
 
+// 기본 대카테고리/소카테고리: 통합관리
+const DEFAULT_TOP: TopMenu = "통합관리";
+const DEFAULT_SUB: string = SUB_MENUS[DEFAULT_TOP][0];
+
 export default function AppShell() {
-  const [top, setTop] = useState<TopMenu | null>(null);
-  const [sub, setSub] = useState<string | null>(null);
+  const [top, setTop] = useState<TopMenu | null>(DEFAULT_TOP);
+  const [sub, setSub] = useState<string | null>(DEFAULT_SUB);
   const [showSub, setShowSub] = useState(false);
   const [dropdownLeft, setDropdownLeft] = useState(0);
 
@@ -99,4 +103,3 @@ export default function AppShell() {
     </div>
   );
 }
-
