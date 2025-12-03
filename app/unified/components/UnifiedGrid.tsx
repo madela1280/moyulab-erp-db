@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { syncListen, syncNotify } from "@/global-sync/sync-engine";
+import { syncListen, notifyUnifiedChanged } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -16,7 +16,7 @@ export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const lock = useRef(false);
 
-  /* --------------------- 소켓 수신 --------------------- */
+  /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const stop = syncListen(() => reload());
     return () => stop();
@@ -56,7 +56,8 @@ export default function UnifiedGrid() {
       body: JSON.stringify(payload),
     });
 
-    syncNotify(); // 즉시 모든 탭 새로고침
+    // 저장 직후 즉시 broadcast
+    notifyUnifiedChanged();
   }
 
   /* --------------------- UI --------------------- */
@@ -90,16 +91,7 @@ export default function UnifiedGrid() {
                   <td key={key} className="border px-2 py-1">
                     <input
                       className="w-full text-xs"
-                      value={row.data[key] ?? ""}
-                      onChange={(e) =>
-                        setRows((prev) =>
-                          prev.map((r) =>
-                            r.id === row.id
-                              ? { ...r, data: { ...r.data, [key]: e.target.value } }
-                              : r
-                          )
-                        )
-                      }
+                      defaultValue={row.data[key] ?? ""}
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
