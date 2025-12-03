@@ -47,6 +47,17 @@ export default function UnifiedGrid() {
     }, 50);
   }
 
+  /* --------------------- 로컬 셀 값 반영 --------------------- */
+  function updateLocalCell(id: number, key: string, value: string) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? { ...row, data: { ...row.data, [key]: value } }
+          : row
+      )
+    );
+  }
+
   /* --------------------- 셀 저장 --------------------- */
   async function saveCell(id: number, key: string, value: string) {
     await syncPatch(id, key, value);
@@ -83,7 +94,10 @@ export default function UnifiedGrid() {
                   <td key={key} className="border px-2 py-1">
                     <input
                       className="w-full text-xs"
-                      defaultValue={row.data[key] ?? ""}
+                      value={row.data[key] ?? ""}
+                      onChange={(e) =>
+                        updateLocalCell(row.id, key, e.target.value)
+                      }
                       onBlur={(e) => saveCell(row.id, key, e.target.value)}
                     />
                   </td>
