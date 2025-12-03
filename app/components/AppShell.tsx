@@ -156,10 +156,10 @@ export default function AppShell() {
 
   /* ---------------- 렌더링 ---------------- */
 
-  // 일반 사용자는 "사용자관리" 대카테고리 자체를 숨김
+    // 일반 사용자는 "사용자관리" 대카테고리 자체를 숨김
   const visibleTopMenus: TopMenu[] = isAdmin
-    ? TOP_MENUS
-    : (TOP_MENUS.filter((m) => m !== "사용자관리") as TopMenu[]);
+    ? [...TOP_MENUS] // readonly → 새로운 배열로 복사
+    : TOP_MENUS.filter((m) => m !== "사용자관리");
 
   const loading = authLoading || (!isAdmin && permsLoading);
 
