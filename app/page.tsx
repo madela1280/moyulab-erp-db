@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { verifyToken } from "@/lib/auth";
 
 export default async function Page() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // ✅ await 추가
   const token = cookieStore.get("token")?.value;
 
   // 토큰이 없으면 로그인 페이지로
