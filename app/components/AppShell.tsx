@@ -116,12 +116,26 @@ export default function AppShell() {
     if (!me) return false;
 
     if (menu === "사용자관리") {
-      // 사용자관리는 항상 관리자 전용
+      // 사용자관리는 항상 관리자 전용 (일반 사용자는 읽기/쓰기 모두 불가)
       return false;
     }
 
     const p = perms[menu];
     return !!p && !!p.can_read;
+  };
+
+  // 특정 대카테고리에 대해 쓰기 권한 있는지
+  const canWrite = (menu: TopMenu): boolean => {
+    if (isAdmin) return true;
+    if (!me) return false;
+
+    if (menu === "사용자관리") {
+      // 사용자관리는 항상 관리자 전용 (일반 사용자는 읽기/쓰기 모두 불가)
+      return false;
+    }
+
+    const p = perms[menu];
+    return !!p && !!p.can_write;
   };
 
   // 권한 정보가 준비된 후, 기본 메뉴 접근 불가면 자물쇠로 처리
@@ -156,12 +170,13 @@ export default function AppShell() {
 
   /* ---------------- 렌더링 ---------------- */
 
-    // 일반 사용자는 "사용자관리" 대카테고리 자체를 숨김
-  const visibleTopMenus: TopMenu[] = isAdmin
-    ? [...TOP_MENUS] // readonly → 새로운 배열로 복사
-    : TOP_MENUS.filter((m) => m !== "사용자관리");
+  // 대카테고리는 항상 모두 표시 (권한은 클릭 시/화면에서만 제어)
+  const visibleTopMenus: TopMenu[] = [...TOP_MENUS];
 
   const loading = authLoading || (!isAdmin && permsLoading);
+
+  const currentCanRead = top ? canRead(top) : false;
+  const currentCanWrite = top ? canWrite(top) : false;
 
   return (
     <div className="min-h-screen bg-gray-50 w-full">
@@ -240,7 +255,29 @@ export default function AppShell() {
         ) : noAccessMenu ? (
           <NoAccess menuLabel={noAccessMenu} />
         ) : (
-          <CurrentView key={`${top}-${sub}`} />
+          <div
+            className="relative w-full"
+            onClickCapture={(e) => {
+              // 읽기 전용일 때(읽기 O, 쓰기 X, 관리자 아님) 수정 시도 막기
+              if (!currentCanRead || currentCanWrite || isAdmin) return;
+
+              const target = e.target as HTMLElement | null;
+              if (!(target instanceof HTMLElement)) return;
+
+              const interactive = target.closest(
+                'button, input, select, textarea, a, [role="button"], [contenteditable="true"]'
+              );
+              if (!interactive) return;
+
+              e.preventDefault();
+              e.stopPropagation();
+              alert(
+                `(${top}) 메뉴는 읽기 전용입니다.\n쓰기 권한이 없습니다.\n서비스를 이용하려면 회사 마스터에게 문의 바랍니다.`
+              );
+            }}
+          >
+            <CurrentView key={`${top}-${sub}`} />
+          </div>
         )}
       </main>
     </div>
