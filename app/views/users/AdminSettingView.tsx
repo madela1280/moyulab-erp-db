@@ -165,70 +165,72 @@ export default function AdminSettingView() {
     return <NoAccess menuLabel="관리자설정" />;
   }
 
-  // 가로 중앙 정렬(mx-auto) + 전체 글자 약 15% 확대(text-base)
+  // 전체 높이 사용 + 내부 스크롤 가능
   return (
-    <div className="px-4 py-3 text-base text-gray-700 max-w-xl mx-auto">
-      <div className="font-semibold mb-3">관리자(회사 마스터) 설정</div>
+    <div className="w-full h-full overflow-auto">
+      <div className="px-4 py-3 text-base text-gray-700 max-w-xl mx-auto">
+        <div className="font-semibold mb-3">관리자(회사 마스터) 설정</div>
 
-      {loadingAdmin || !admin ? (
-        <div className="text-sm text-gray-500">관리자 정보를 불러오는 중...</div>
-      ) : (
-        <>
-          <div className="mb-3">
-            <label className="block text-sm mb-1">관리자 아이디</label>
-            <div className="px-2 py-1 border rounded bg-gray-100 text-sm">
-              {admin.username}
+        {loadingAdmin || !admin ? (
+          <div className="text-sm text-gray-500">관리자 정보를 불러오는 중...</div>
+        ) : (
+          <>
+            <div className="mb-3">
+              <label className="block text-sm mb-1">관리자 아이디</label>
+              <div className="px-2 py-1 border rounded bg-gray-100 text-sm">
+                {admin.username}
+              </div>
             </div>
-          </div>
 
-          <div className="mb-3">
-            <label className="block text-sm mb-1">이름 *</label>
-            <input
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={form.name}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, name: e.target.value }))
-              }
-            />
-          </div>
+            <div className="mb-3">
+              <label className="block text-sm mb-1">이름 *</label>
+              <input
+                className="w-full border rounded px-2 py-1 text-sm"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name: e.target.value }))
+                }
+              />
+            </div>
 
-          <div className="mb-3">
-            <label className="block text-sm mb-1">연락처</label>
-            <input
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={form.phone}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, phone: e.target.value }))
-              }
-            />
-          </div>
+            <div className="mb-3">
+              <label className="block text-sm mb-1">연락처</label>
+              <input
+                className="w-full border rounded px-2 py-1 text-sm"
+                value={form.phone}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, phone: e.target.value }))
+                }
+              />
+            </div>
 
-          <div className="mb-4">
-            <label className="block text-sm mb-1">
-              비밀번호 (변경 시에만 입력)
-            </label>
-            <input
-              type="password"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={form.password}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, password: e.target.value }))
-              }
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              비밀번호를 변경하지 않으려면 빈칸으로 두세요.
-            </p>
-          </div>
+            <div className="mb-4">
+              <label className="block text-sm mb-1">
+                비밀번호 (변경 시에만 입력)
+              </label>
+              <input
+                type="password"
+                className="w-full border rounded px-2 py-1 text-sm"
+                value={form.password}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, password: e.target.value }))
+                }
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                비밀번호를 변경하지 않으려면 빈칸으로 두세요.
+              </p>
+            </div>
 
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-1 rounded bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
-          >
-            {saving ? '저장 중...' : '저장'}
-          </button>
-        </>
-      )}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-1 rounded bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
+            >
+              {saving ? '저장 중...' : '저장'}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

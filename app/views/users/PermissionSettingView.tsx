@@ -169,107 +169,112 @@ export default function PermissionSettingView() {
     return <NoAccess menuLabel="권한설정" />;
   }
 
+  // 전체 높이 사용 + 내부 스크롤 가능
   return (
-    <div className="px-4 py-3 text-sm text-gray-700 flex gap-6">
-      {/* 왼쪽: 사용자 리스트 */}
-      <div className="w-1/3 border rounded bg-white p-3">
-        <div className="font-semibold mb-2">사용자 목록</div>
-        {loadingUsers ? (
-          <div className="text-gray-500 text-xs">목록을 불러오는 중...</div>
-        ) : users.length === 0 ? (
-          <div className="text-gray-400 text-xs">등록된 사용자가 없습니다.</div>
-        ) : (
-          <ul className="text-xs max-h-[400px] overflow-auto">
-            {users.map((u) => (
-              <li key={u.id}>
-                <button
-                  className={`w-full text-left px-2 py-1 rounded ${
-                    selectedUser === u.username
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'hover:bg-gray-100'
-                  }`}
-                  onClick={() => {
-                    setSelectedUser(u.username);
-                    loadPermissions(u.username);
-                  }}
-                >
-                  <span className="font-semibold">{u.username}</span>
-                  {u.name && <span className="ml-1 text-gray-500">({u.name})</span>}
-                  <span className="ml-2 text-gray-400">[{u.role}]</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* 오른쪽: 선택된 사용자 권한 설정 */}
-      <div className="w-2/3 border rounded bg-white p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold">
-            권한 설정
-            {selectedUser && (
-              <span className="ml-2 text-blue-700 text-xs">
-                ({selectedUser} 사용자)
-              </span>
-            )}
-          </div>
-          {saving && (
-            <div className="text-xs text-gray-500">저장 중...</div>
+    <div className="w-full h-full overflow-auto">
+      <div className="px-4 py-3 text-sm text-gray-700 flex gap-6">
+        {/* 왼쪽: 사용자 리스트 */}
+        <div className="w-1/3 border rounded bg-white p-3">
+          <div className="font-semibold mb-2">사용자 목록</div>
+          {loadingUsers ? (
+            <div className="text-gray-500 text-xs">목록을 불러오는 중...</div>
+          ) : users.length === 0 ? (
+            <div className="text-gray-400 text-xs">등록된 사용자가 없습니다.</div>
+          ) : (
+            <ul className="text-xs max-h-[800px] overflow-auto">
+              {users.map((u) => (
+                <li key={u.id}>
+                  <button
+                    className={`w-full text-left px-2 py-1 rounded ${
+                      selectedUser === u.username
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'hover:bg-gray-100'
+                    }`}
+                    onClick={() => {
+                      setSelectedUser(u.username);
+                      loadPermissions(u.username);
+                    }}
+                  >
+                    <span className="font-semibold">{u.username}</span>
+                    {u.name && (
+                      <span className="ml-1 text-gray-500">({u.name})</span>
+                    )}
+                    <span className="ml-2 text-gray-400">[{u.role}]</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 
-        {!selectedUser ? (
-          <div className="text-gray-400 text-xs">
-            왼쪽에서 사용자를 선택하면 대카테고리별 권한을 설정할 수 있습니다.
+        {/* 오른쪽: 선택된 사용자 권한 설정 */}
+        <div className="w-2/3 border rounded bg-white p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold">
+              권한 설정
+              {selectedUser && (
+                <span className="ml-2 text-blue-700 text-xs">
+                  ({selectedUser} 사용자)
+                </span>
+              )}
+            </div>
+            {saving && (
+              <div className="text-xs text-gray-500">저장 중...</div>
+            )}
           </div>
-        ) : loadingPerms ? (
-          <div className="text-gray-500 text-xs">권한 정보를 불러오는 중...</div>
-        ) : (
-          <table className="w-full text-xs border-collapse">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-2 py-1 w-40">대카테고리</th>
-                <th className="border px-2 py-1 w-20">읽기</th>
-                <th className="border px-2 py-1 w-20">쓰기</th>
-              </tr>
-            </thead>
-            <tbody>
-              {TOP_MENUS.map((menu) => {
-                // 필요하면 여기서 "사용자관리"는 항상 읽기/쓰기 허용하거나 별도 처리 가능
-                const p = permMap[menu] || {
-                  can_read: false,
-                  can_write: false,
-                };
-                return (
-                  <tr key={menu}>
-                    <td className="border px-2 py-1">{menu}</td>
-                    <td className="border px-2 py-1 text-center">
-                      <input
-                        type="checkbox"
-                        checked={p.can_read}
-                        onChange={(e) =>
-                          togglePerm(menu, 'can_read', e.target.checked)
-                        }
-                      />
-                    </td>
-                    <td className="border px-2 py-1 text-center">
-                      <input
-                        type="checkbox"
-                        checked={p.can_write}
-                        onChange={(e) =>
-                          togglePerm(menu, 'can_write', e.target.checked)
-                        }
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+
+          {!selectedUser ? (
+            <div className="text-gray-400 text-xs">
+              왼쪽에서 사용자를 선택하면 대카테고리별 권한을 설정할 수 있습니다.
+            </div>
+          ) : loadingPerms ? (
+            <div className="text-gray-500 text-xs">
+              권한 정보를 불러오는 중...
+            </div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-2 py-1 w-40">대카테고리</th>
+                  <th className="border px-2 py-1 w-20">읽기</th>
+                  <th className="border px-2 py-1 w-20">쓰기</th>
+                </tr>
+              </thead>
+              <tbody>
+                {TOP_MENUS.map((menu) => {
+                  const p = permMap[menu] || {
+                    can_read: false,
+                    can_write: false,
+                  };
+                  return (
+                    <tr key={menu}>
+                      <td className="border px-2 py-1">{menu}</td>
+                      <td className="border px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={p.can_read}
+                          onChange={(e) =>
+                            togglePerm(menu, 'can_read', e.target.checked)
+                          }
+                        />
+                      </td>
+                      <td className="border px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={p.can_write}
+                          onChange={(e) =>
+                            togglePerm(menu, 'can_write', e.target.checked)
+                          }
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
