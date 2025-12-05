@@ -95,8 +95,8 @@ export default function UnifiedGrid() {
         <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
-              {/* 행 높이 줄이려고 py-[3px] 로 살짝 축소 */}
-              <th className="border px-2 py-[3px] w-10">ID</th>
+              {/* 첫 번째 열: 표시용 행 번호 헤더 (엑셀처럼 제목 없음, 회색 배경) */}
+              <th className="border px-1 py-[3px] w-10 bg-gray-100" />
               {unifiedColumns.map((c) => (
                 <th key={c} className="border px-2 py-[3px]">
                   {c}
@@ -106,9 +106,12 @@ export default function UnifiedGrid() {
           </thead>
 
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row, rowIndex) => (
               <tr key={row.id}>
-                <td className="border px-2 py-[3px]">{row.id}</td>
+                {/* 표시용 행 번호: 1,2,3... / 약간 더 작고 옅게, 회색 배경 */}
+                <td className="border px-1 py-[3px] bg-gray-100 text-[0.68rem] text-gray-500 text-center">
+                  {rowIndex + 1}
+                </td>
 
                 {unifiedColumns.map((key) => (
                   <td key={key} className="border px-2 py-[3px]">
