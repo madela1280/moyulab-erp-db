@@ -69,6 +69,23 @@ export async function syncPatch(id: number, key: string, value: any) {
   });
 }
 
+/* ------------------------------ DELETE (row) ------------------------------ */
+export async function syncDeleteRow(id: number) {
+  await fetch(`/api/unified/${id}`, {
+    method: "DELETE",
+  });
+
+  waitForSocket((s) => {
+    setTimeout(() => {
+      try {
+        s.emit("unified:update");
+      } catch (err) {
+        console.warn("socket emit error (ignored):", err);
+      }
+    }, 120);
+  });
+}
+
 /* ------------------------------ LISTEN ------------------------------ */
 export function syncListen(handler: () => void) {
   let currentSocket: any = null;

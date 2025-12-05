@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { syncListen, syncPatch } from "@/global-sync/sync-engine";
+import { syncListen, syncPatch, syncDeleteRow } from "@/global-sync/sync-engine";
 import {
   acquireLock,
   releaseLock,
@@ -227,13 +227,12 @@ export default function UnifiedGrid() {
     }
 
     for (const row of slice) {
-      await fetch(`/api/unified/${row.id}`, {
-        method: "DELETE",
-      });
+      await syncDeleteRow(row.id);
     }
 
     setRowContextMenu(null);
     setSelectedRowRange(null);
+    // 이 탭도 바로 새로고침
     await reload();
   }
 
