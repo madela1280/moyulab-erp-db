@@ -179,7 +179,7 @@ export default function AppShell() {
   const currentCanWrite = top ? canWrite(top) : false;
 
   return (
-    <div className="min-h-screen bg-gray-50 w-full">
+    <div className="min-h-screen bg-gray-50 w-full flex flex-col">
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
         <div className="flex items-center">
           <div className="flex items-center gap-3 mr-12">
@@ -249,14 +249,14 @@ export default function AppShell() {
         </div>
       </header>
 
-      <main className="px-6 py-4 w-full">
+      <main className="px-6 py-4 w-full flex-1 flex flex-col min-h-0">
         {loading ? (
           <div className="text-sm text-gray-500">Loading...</div>
         ) : noAccessMenu ? (
           <NoAccess menuLabel={noAccessMenu} />
         ) : (
           <div
-            className="relative w-full"
+            className="relative w-full h-full"
             onClickCapture={(e) => {
               // 읽기 전용일 때(읽기 O, 쓰기 X, 관리자 아님) 수정 시도 막기
               if (!currentCanRead || currentCanWrite || isAdmin) return;

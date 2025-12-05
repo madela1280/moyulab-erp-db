@@ -89,10 +89,9 @@ export default function UnifiedGrid() {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    <div className="px-2">
+    <div className="px-2 h-full flex flex-col">
       <div
-        className="border rounded bg-white overflow-auto w-full"
-        style={{ height: "calc(100vh - 210px)" }}
+        className="border rounded bg-white overflow-auto w-full flex-1"
       >
         <table className="min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
