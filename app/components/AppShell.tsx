@@ -52,7 +52,6 @@ export default function AppShell() {
 
     const load = async () => {
       try {
-        // 1) 현재 로그인 사용자 정보
         const res = await fetch("/api/auth/me", { cache: "no-store" });
         const data = (await res.json()) as any;
 
@@ -68,7 +67,6 @@ export default function AppShell() {
 
         setMe(user);
 
-        // 2) 일반 사용자면 권한 로딩
         if (user.role !== "admin") {
           setPermsLoading(true);
           try {
@@ -115,7 +113,7 @@ export default function AppShell() {
     if (!me) return false;
 
     if (menu === "사용자관리") {
-      // 사용자관리는 항상 관리자 전용 (일반 사용자는 읽기/쓰기 모두 불가)
+      // 사용자관리는 항상 관리자 전용
       return false;
     }
 
@@ -129,7 +127,6 @@ export default function AppShell() {
     if (!me) return false;
 
     if (menu === "사용자관리") {
-      // 사용자관리는 항상 관리자 전용
       return false;
     }
 
@@ -176,7 +173,7 @@ export default function AppShell() {
   const currentCanWrite = top ? canWrite(top) : false;
 
   return (
-    // 한 화면 고정 (엑셀 느낌 유지)
+    // 화면 전체를 쓰되, 내부에서만 스크롤 나도록
     <div className="w-full h-screen bg-gray-50 flex flex-col overflow-hidden">
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
         <div className="flex items-center">
@@ -191,7 +188,6 @@ export default function AppShell() {
                 <button
                   key={m}
                   onClick={(e) => {
-                    // 권한 체크
                     if (!canRead(m)) {
                       setNoAccessMenu(m);
                       setTop(m);
@@ -245,16 +241,14 @@ export default function AppShell() {
         </div>
       </header>
 
-      {/* 헤더 아래 전체 영역 */}
-      <main className="px-6 py-4 w-full flex-1 flex flex-col min-h-0">
+      <main className="px-6 py-4 w-full flex-1 flex flex-col min-h-0 overflow-hidden">
         {loading ? (
           <div className="text-sm text-gray-500">Loading...</div>
         ) : noAccessMenu ? (
           <NoAccess menuLabel={noAccessMenu} />
         ) : (
           <div
-            // 여기서 mt-6 하나만 추가해서, 소카테고리와 아래 페이지 간격만 벌림
-            className="relative w-full mt-6"
+            className="relative w-full h-full"
             onClickCapture={(e) => {
               // 읽기 전용일 때(읽기 O, 쓰기 X, 관리자 아님) 수정 시도 막기
               if (!currentCanRead || currentCanWrite || isAdmin) return;
