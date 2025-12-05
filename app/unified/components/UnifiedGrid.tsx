@@ -27,6 +27,9 @@ export default function UnifiedGrid() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // 행 컨텍스트 메뉴
+  const [rowContextMenu, setRowContextMenu] = useState<{ x: number; y: number } | null>(null);
+
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
     const stop = syncListen(() => reload());
@@ -99,6 +102,7 @@ export default function UnifiedGrid() {
     setIsRowDragging(true);
     setRowDragAnchor(rowIndex);
     setSelectedRowRange({ start: rowIndex, end: rowIndex });
+    setRowContextMenu(null);
   }
 
   function handleRowHeaderMouseEnter(rowIndex: number) {
@@ -129,7 +133,6 @@ export default function UnifiedGrid() {
         container.scrollTop -= speed;
       }
 
-      // 마우스 위치 기준으로 현재 행 계산
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
       if (!el || rowDragAnchor === null) return;
 
@@ -172,20 +175,209 @@ export default function UnifiedGrid() {
     return rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end;
   }
 
+  /* --------------------- 선택된 행 범위 유틸 --------------------- */
+
+  function getSelectedRowRangeInfo() {
+    if (!selectedRowRange) return { start: 0, end: -1, slice: [] as UnifiedRow[] };
+    const { start, end } = selectedRowRange;
+    const safeStart = Math.max(0, start);
+    const safeEnd = Math.min(rows.length - 1, end);
+    return {
+      start: safeStart,
+      end: safeEnd,
+      slice: rows.slice(safeStart, safeEnd + 1),
+    };
+  }
+
+  /* --------------------- 행 컨텍스트 메뉴 --------------------- */
+
+  function handleRowHeaderContextMenu(
+    rowIndex: number,
+    e: React.MouseEvent<HTMLTableCellElement>
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!isRowSelected(rowIndex)) {
+      setSelectedRowRange({ start: rowIndex, end: rowIndex });
+    }
+    setRowContextMenu({ x: e.clientX, y: e.clientY });
+  }
+
+  useEffect(() => {
+    function handleClick() {
+      setRowContextMenu(null);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setRowContextMenu(null);
+    }
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, []);
+
+  async function handleDeleteSelectedRows() {
+    const { slice } = getSelectedRowRangeInfo();
+    if (!slice.length) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    for (const row of slice) {
+      await fetch(`/api/unified/${row.id}`, {
+        method: "DELETE",
+      });
+    }
+
+    setRowContextMenu(null);
+    setSelectedRowRange(null);
+    await reload();
+  }
+
+  async function handleClearSelectedRows() {
+    const { start, end, slice } = getSelectedRowRangeInfo();
+    if (!slice.length) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    setRows((prev) => {
+      const next = [...prev];
+      for (let i = start; i <= end; i++) {
+        const row = next[i];
+        if (!row) continue;
+        const newData = { ...row.data };
+        unifiedColumns.forEach((key) => {
+          newData[key] = "";
+        });
+        next[i] = { ...row, data: newData };
+      }
+      return next;
+    });
+
+    for (const row of slice) {
+      for (const key of unifiedColumns) {
+        await syncPatch(row.id, key, "");
+      }
+    }
+
+    setRowContextMenu(null);
+  }
+
+  async function handleCopySelectedRowsToClipboard() {
+    const { slice } = getSelectedRowRangeInfo();
+    if (!slice.length) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    const lines = slice.map((row) =>
+      unifiedColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
+    );
+    const text = lines.join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.error(e);
+    }
+
+    setRowContextMenu(null);
+  }
+
+  async function handlePasteToSelectedRowsFromClipboard() {
+    const { start, slice } = getSelectedRowRangeInfo();
+    if (!slice.length) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {
+      console.error(e);
+      setRowContextMenu(null);
+      return;
+    }
+    if (!text) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 0);
+
+    if (!lines.length) {
+      setRowContextMenu(null);
+      return;
+    }
+
+    const parsed = lines.map((line) => line.split("\t"));
+
+    const targetCount = slice.length;
+    const sourceCount = parsed.length;
+
+    // 로컬 상태 반영
+    setRows((prev) => {
+      const next = [...prev];
+      for (let offset = 0; offset < targetCount; offset++) {
+        const rowIndex = start + offset;
+        const row = next[rowIndex];
+        if (!row) continue;
+
+        const src = parsed[offset % sourceCount];
+        const newData = { ...row.data };
+
+        unifiedColumns.forEach((key, colIndex) => {
+          const v = src[colIndex] ?? "";
+          newData[key] = v;
+        });
+
+        next[rowIndex] = { ...row, data: newData };
+      }
+      return next;
+    });
+
+    // DB 반영
+    for (let offset = 0; offset < targetCount; offset++) {
+      const row = slice[offset];
+      if (!row) continue;
+
+      const src = parsed[offset % sourceCount];
+      for (let colIndex = 0; colIndex < unifiedColumns.length; colIndex++) {
+        const key = unifiedColumns[colIndex];
+        const v = src[colIndex] ?? "";
+        await syncPatch(row.id, key, v);
+      }
+    }
+
+    setRowContextMenu(null);
+  }
+
   /* --------------------- UI --------------------- */
   if (!rows.length)
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    // 브라우저 기본 우클릭 메뉴 막기 + 빈 곳 클릭 시 선택 해제
     <div
       className="w-full h-full flex flex-col"
       onContextMenu={(e) => e.preventDefault()}
       onMouseDown={(e) => {
+        if (e.button !== 0) return;
         const target = e.target as HTMLElement;
-        if (!target.closest('[data-row-header="1"]')) {
-          setSelectedRowRange(null);
-        }
+        if (
+          target.closest('[data-row-header="1"]') ||
+          target.closest('[data-context-menu="1"]')
+        )
+          return;
+        setSelectedRowRange(null);
+        setRowContextMenu(null);
       }}
     >
       <div
@@ -226,15 +418,17 @@ export default function UnifiedGrid() {
                     data-row-index={rowIndex}
                     onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
                     onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
+                    onContextMenu={(e) => handleRowHeaderContextMenu(rowIndex, e)}
                   >
                     {rowIndex + 1}
                   </td>
 
-                  {unifiedColumns.map((key) => (
+                  {unifiedColumns.map((key, colIndex) => (
                     <td
                       key={key}
                       className={dataCellBase}
                       data-row-index={rowIndex}
+                      data-col-index={colIndex}
                     >
                       <input
                         className="w-full text-xs bg-transparent outline-none"
@@ -262,6 +456,39 @@ export default function UnifiedGrid() {
           </tbody>
         </table>
       </div>
+
+      {rowContextMenu && (
+        <div
+          className="fixed z-50 bg-white border shadow text-xs"
+          style={{ top: rowContextMenu.y, left: rowContextMenu.x }}
+          data-context-menu="1"
+        >
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+            onClick={handleDeleteSelectedRows}
+          >
+            행 삭제
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+            onClick={handleClearSelectedRows}
+          >
+            내용 지우기
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+            onClick={handleCopySelectedRowsToClipboard}
+          >
+            복사(클립보드)
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+            onClick={handlePasteToSelectedRowsFromClipboard}
+          >
+            붙여넣기(클립보드)
+          </button>
+        </div>
+      )}
     </div>
   );
 }
