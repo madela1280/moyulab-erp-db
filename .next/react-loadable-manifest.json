@@ -1,8 +1,134 @@
 {
-  "node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts": {
-    "id": "node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts",
+  "app\\menus\\viewMap.ts -> @/views/dataUpload/SignupView": {
+    "id": 8127,
     "files": [
-      "static/chunks/_app-pages-browser_node_modules_next_dist_client_dev_noop-turbopack-hmr_js.js"
+      "static/chunks/127.b6891312107b298c.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/FreestyleView": {
+    "id": 4200,
+    "files": [
+      "static/chunks/200.85bfa187cef9761d.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/GaksiMilView": {
+    "id": 2,
+    "files": [
+      "static/chunks/2.f647490ff48f8c41.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/LactinaView": {
+    "id": 395,
+    "files": [
+      "static/chunks/395.0a584288f7954305.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/SimileView": {
+    "id": 7846,
+    "files": [
+      "static/chunks/846.b6c5b3eae469e53c.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/SwingMaxiView": {
+    "id": 1800,
+    "files": [
+      "static/chunks/800.8e970afca3948351.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/SwingView": {
+    "id": 6679,
+    "files": [
+      "static/chunks/679.98722cd0675a9e07.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/devices/SymphonyView": {
+    "id": 5218,
+    "files": [
+      "static/chunks/218.94b8d351c39f1a05.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/packaging/PackagingView": {
+    "id": 9464,
+    "files": [
+      "static/chunks/464.1835929099944ee2.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/pumpStatus/PumpStatusView": {
+    "id": 7334,
+    "files": [
+      "static/chunks/334.dac39ac58f1c365d.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/rentals/RentalsView": {
+    "id": 4864,
+    "files": [
+      "static/chunks/864.31e62d85021985ed.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/sms/SmsView": {
+    "id": 7376,
+    "files": [
+      "static/chunks/376.9dc9ae10dbd64a73.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/statistics/StatisticsView": {
+    "id": 4000,
+    "files": [
+      "static/chunks/0.58d604c73ea663b0.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/unified/HealthCenterView": {
+    "id": 9289,
+    "files": [
+      "static/chunks/289.dcaf4d0c733ea116.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/unified/OnlineView": {
+    "id": 8729,
+    "files": [
+      "static/chunks/729.65bf5188abafc63a.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/unified/PostpartumCareView": {
+    "id": 4216,
+    "files": [
+      "static/chunks/216.df2f7e04aa2375fc.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/unified/UnifiedMainView": {
+    "id": 4936,
+    "files": [
+      "static/chunks/936.c9fc23bfe1260c25.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/users/AdminSettingView": {
+    "id": 2417,
+    "files": [
+      "static/chunks/417.e54605bf9d7d0dcd.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/users/PermissionSettingView": {
+    "id": 2731,
+    "files": [
+      "static/chunks/112.35561a15c47ff278.js"
+    ]
+  },
+  "app\\menus\\viewMap.ts -> @/views/users/UserAddView": {
+    "id": 238,
+    "files": [
+      "static/chunks/238.0ae9f02d2dfa2dd6.js"
+    ]
+  },
+  "node_modules\\next\\dist\\client\\index.js -> ../pages/_app": {
+    "id": 5139,
+    "files": [
+      "static/chunks/139.7a5a8e93a21948c1.js"
+    ]
+  },
+  "node_modules\\next\\dist\\client\\index.js -> ../pages/_error": {
+    "id": 1646,
+    "files": [
+      "static/chunks/646.f342b7cffc01feb0.js"
     ]
   }
 }

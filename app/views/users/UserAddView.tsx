@@ -259,194 +259,199 @@ export default function UserAddView() {
     return <NoAccess menuLabel="사용자추가" />;
   }
 
-  // 관리자일 때만 아래 화면 표시
+  // 전체 높이 사용 + 내부 스크롤 가능
   return (
-    <div className="px-4 py-3 text-sm text-gray-700 flex gap-6">
-      {/* 왼쪽: 기존 사용자 목록 */}
-      <div className="w-1/2 border rounded bg-white p-3">
-        <div className="font-semibold mb-2">기존 사용자</div>
-        {loadingUsers ? (
-          <div className="text-gray-500 text-xs">목록을 불러오는 중...</div>
-        ) : users.length === 0 ? (
-          <div className="text-gray-400 text-xs">등록된 사용자가 없습니다.</div>
-        ) : (
-          <table className="w-full text-xs border-collapse">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-2 py-1 w-10">ID</th>
-                <th className="border px-2 py-1">아이디</th>
-                <th className="border px-2 py-1">이름</th>
-                <th className="border px-2 py-1">권한</th>
-                <th className="border px-2 py-1">연락처</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr
-                  key={u.id}
-                  onClick={() => handleSelectUser(u)}
-                  className={`cursor-pointer hover:bg-blue-50 ${
-                    selectedUser?.id === u.id ? 'bg-blue-100' : ''
-                  }`}
-                >
-                  <td className="border px-2 py-1 text-center">{u.id}</td>
-                  <td className="border px-2 py-1">{u.username}</td>
-                  <td className="border px-2 py-1">{u.name || ''}</td>
-                  <td className="border px-2 py-1">{u.role}</td>
-                  <td className="border px-2 py-1">{u.phone || ''}</td>
+    <div className="w-full h-full overflow-auto">
+      {/* 관리자일 때만 아래 화면 표시 */}
+      <div className="px-4 py-3 text-sm text-gray-700 flex gap-6">
+        {/* 왼쪽: 기존 사용자 목록 */}
+        <div className="w-1/2 border rounded bg-white p-3">
+          <div className="font-semibold mb-2">기존 사용자</div>
+          {loadingUsers ? (
+            <div className="text-gray-500 text-xs">목록을 불러오는 중...</div>
+          ) : users.length === 0 ? (
+            <div className="text-gray-400 text-xs">
+              등록된 사용자가 없습니다.
+            </div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-2 py-1 w-10">ID</th>
+                  <th className="border px-2 py-1">아이디</th>
+                  <th className="border px-2 py-1">이름</th>
+                  <th className="border px-2 py-1">권한</th>
+                  <th className="border px-2 py-1">연락처</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* 오른쪽: 사용자 추가 폼 또는 정보변경 폼 */}
-      <div className="w-1/2 border rounded bg-white p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold">
-            {selectedUser ? '사용자 정보변경' : '사용자 추가'}
-          </div>
-          {selectedUser && (
-            <button
-              type="button"
-              onClick={resetSelection}
-              className="text-xs text-blue-600 underline"
-            >
-              + 새 사용자 추가
-            </button>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr
+                    key={u.id}
+                    onClick={() => handleSelectUser(u)}
+                    className={`cursor-pointer hover:bg-blue-50 ${
+                      selectedUser?.id === u.id ? 'bg-blue-100' : ''
+                    }`}
+                  >
+                    <td className="border px-2 py-1 text-center">{u.id}</td>
+                    <td className="border px-2 py-1">{u.username}</td>
+                    <td className="border px-2 py-1">{u.name || ''}</td>
+                    <td className="border px-2 py-1">{u.role}</td>
+                    <td className="border px-2 py-1">{u.phone || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
 
-        {selectedUser ? (
-          <>
-            <div className="mb-2">
-              <label className="block text-xs mb-1">아이디</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
-                value={selectedUser.username}
-                readOnly
-              />
+        {/* 오른쪽: 사용자 추가 폼 또는 정보변경 폼 */}
+        <div className="w-1/2 border rounded bg-white p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold">
+              {selectedUser ? '사용자 정보변경' : '사용자 추가'}
             </div>
-
-            <div className="mb-2">
-              <label className="block text-xs mb-1">권한</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
-                value={selectedUser.role}
-                readOnly
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="block text-xs mb-1">
-                새 비밀번호 (변경 시에만 입력)
-              </label>
-              <input
-                type="password"
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={editForm.password}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, password: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="block text-xs mb-1">이름</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, name: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-xs mb-1">연락처</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={editForm.phone}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, phone: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="flex gap-2">
+            {selectedUser && (
               <button
-                onClick={handleUpdate}
-                disabled={updating || deleting}
+                type="button"
+                onClick={resetSelection}
+                className="text-xs text-blue-600 underline"
+              >
+                + 새 사용자 추가
+              </button>
+            )}
+          </div>
+
+          {selectedUser ? (
+            <>
+              <div className="mb-2">
+                <label className="block text-xs mb-1">아이디</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
+                  value={selectedUser.username}
+                  readOnly
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-xs mb-1">권한</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
+                  value={selectedUser.role}
+                  readOnly
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-xs mb-1">
+                  새 비밀번호 (변경 시에만 입력)
+                </label>
+                <input
+                  type="password"
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={editForm.password}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, password: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-xs mb-1">이름</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={editForm.name}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs mb-1">연락처</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={editForm.phone}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, phone: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleUpdate}
+                  disabled={updating || deleting}
+                  className="px-4 py-1 rounded bg-blue-600 text-white text-xs font-semibold disabled:opacity-60"
+                >
+                  {updating ? '저장 중...' : '저장'}
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={updating || deleting}
+                  className="px-4 py-1 rounded bg-red-600 text-white text-xs font-semibold disabled:opacity-60"
+                >
+                  {deleting ? '삭제 중...' : '삭제'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-2">
+                <label className="block text-xs mb-1">아이디 *</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={form.username}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, username: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-xs mb-1">비밀번호 *</label>
+                <input
+                  type="password"
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={form.password}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, password: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-xs mb-1">이름</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs mb-1">연락처</label>
+                <input
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value={form.phone}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, phone: e.target.value }))
+                  }
+                />
+              </div>
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
                 className="px-4 py-1 rounded bg-blue-600 text-white text-xs font-semibold disabled:opacity-60"
               >
-                {updating ? '저장 중...' : '저장'}
+                {saving ? '저장 중...' : '저장'}
               </button>
-              <button
-                onClick={handleDelete}
-                disabled={updating || deleting}
-                className="px-4 py-1 rounded bg-red-600 text-white text-xs font-semibold disabled:opacity-60"
-              >
-                {deleting ? '삭제 중...' : '삭제'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="mb-2">
-              <label className="block text-xs mb-1">아이디 *</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={form.username}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, username: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="block text-xs mb-1">비밀번호 *</label>
-              <input
-                type="password"
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={form.password}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, password: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="block text-xs mb-1">이름</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, name: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-xs mb-1">연락처</label>
-              <input
-                className="w-full border rounded px-2 py-1 text-xs"
-                value={form.phone}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, phone: e.target.value }))
-                }
-              />
-            </div>
-
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-1 rounded bg-blue-600 text-white text-xs font-semibold disabled:opacity-60"
-            >
-              {saving ? '저장 중...' : '저장'}
-            </button>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
