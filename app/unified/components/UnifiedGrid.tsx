@@ -113,26 +113,50 @@ export default function UnifiedGrid() {
     }
   }
 
-  // 드래그 중 자동 스크롤(위/아래)
+  // 드래그 중 자동 스크롤 + 마우스 위치 기준으로 선택 업데이트
   useEffect(() => {
     function handleMouseMove(e: MouseEvent) {
       if (!isRowDragging || !scrollRef.current) return;
 
       const container = scrollRef.current;
       const rect = container.getBoundingClientRect();
-      const margin = 40; // 가장자리에서 몇 px 안쪽부터 스크롤 시작
-      const speed = 20;  // 한번에 움직일 스크롤 양
+      const margin = 40;
+      const speed = 20;
 
       if (e.clientY > rect.bottom - margin) {
         container.scrollTop += speed;
       } else if (e.clientY < rect.top + margin) {
         container.scrollTop -= speed;
       }
+
+      // 마우스 위치 기준으로 현재 행 계산
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      if (!el || rowDragAnchor === null) return;
+
+      let td: HTMLElement | null = el;
+      while (td && td.tagName !== "TD") {
+        td = td.parentElement;
+      }
+      if (!td) return;
+
+      const indexAttr = td.getAttribute("data-row-index");
+      if (indexAttr == null) return;
+
+      const rowIndex = Number(indexAttr);
+      if (Number.isNaN(rowIndex)) return;
+
+      const start = rowDragAnchor;
+      const end = rowIndex;
+      if (start <= end) {
+        setSelectedRowRange({ start, end });
+      } else {
+        setSelectedRowRange({ start: end, end: start });
+      }
     }
 
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [isRowDragging]);
+  }, [isRowDragging, rowDragAnchor]);
 
   useEffect(() => {
     function handleWindowMouseUp() {
@@ -153,10 +177,16 @@ export default function UnifiedGrid() {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    // 브라우저 기본 우클릭 메뉴 막기
+    // 브라우저 기본 우클릭 메뉴 막기 + 빈 곳 클릭 시 선택 해제
     <div
       className="w-full h-full flex flex-col"
       onContextMenu={(e) => e.preventDefault()}
+      onMouseDown={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('[data-row-header="1"]')) {
+          setSelectedRowRange(null);
+        }
+      }}
     >
       <div
         ref={scrollRef}
@@ -192,6 +222,8 @@ export default function UnifiedGrid() {
                 <tr key={row.id}>
                   <td
                     className={headerCellBase}
+                    data-row-header="1"
+                    data-row-index={rowIndex}
                     onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
                     onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
                   >
@@ -199,7 +231,11 @@ export default function UnifiedGrid() {
                   </td>
 
                   {unifiedColumns.map((key) => (
-                    <td key={key} className={dataCellBase}>
+                    <td
+                      key={key}
+                      className={dataCellBase}
+                      data-row-index={rowIndex}
+                    >
                       <input
                         className="w-full text-xs bg-transparent outline-none"
                         value={row.data[key] ?? ""}
