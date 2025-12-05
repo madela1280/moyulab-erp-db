@@ -18,10 +18,9 @@ const unifiedColumns = [
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
-  // 내가 잡은 행 락 정보 (row.id 기준)
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
-  // 행 선택(3번 기능): 행 번호 헤더 기준 범위 선택
+  // 행 범위 선택 상태
   const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(null);
   const [isRowDragging, setIsRowDragging] = useState(false);
   const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
@@ -84,21 +83,22 @@ export default function UnifiedGrid() {
       alert("이 행을 편집할 수 없습니다. 잠시 후 다시 시도해 주세요.");
     }
 
-    // 편집 차단
     e.target.blur();
     reload();
   }
 
-  /* --------------------- 행 헤더 선택(3번) --------------------- */
+  /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
-  // 행 번호 셀 클릭(드래그 시작 포함)
-  function handleRowHeaderMouseDown(rowIndex: number) {
+  function handleRowHeaderMouseDown(
+    rowIndex: number,
+    e: React.MouseEvent<HTMLTableCellElement>
+  ) {
+    if (e.button !== 0) return; // 좌클릭만 선택/드래그
     setIsRowDragging(true);
     setRowDragAnchor(rowIndex);
     setSelectedRowRange({ start: rowIndex, end: rowIndex });
   }
 
-  // 행 번호 셀 위로 드래그하면서 이동
   function handleRowHeaderMouseEnter(rowIndex: number) {
     if (!isRowDragging || rowDragAnchor === null) return;
 
@@ -111,7 +111,6 @@ export default function UnifiedGrid() {
     }
   }
 
-  // 마우스가 화면 어디서든 올라가면 드래그 종료
   useEffect(() => {
     function handleWindowMouseUp() {
       setIsRowDragging(false);
@@ -131,13 +130,15 @@ export default function UnifiedGrid() {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    // 좌우 여백 제거, 세로는 부모 높이 전부 사용
-    <div className="w-full h-full flex flex-col">
+    // 브라우저 기본 우클릭 메뉴 막기
+    <div
+      className="w-full h-full flex flex-col"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="border-t border-x bg-white w-full flex-1 overflow-auto">
         <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
-              {/* 첫 번째 열: 표시용 행 번호 헤더 (엑셀처럼 제목 없음, 회색 배경) */}
               <th className="border px-1 py-[3px] w-10 bg-gray-100" />
               {unifiedColumns.map((c) => (
                 <th key={c} className="border px-2 py-[3px]">
@@ -150,20 +151,22 @@ export default function UnifiedGrid() {
           <tbody>
             {rows.map((row, rowIndex) => {
               const rowSelected = isRowSelected(rowIndex);
+
+              const headerCellBase =
+                "border px-1 py-[3px] text-[0.68rem] text-center select-none" +
+                (rowSelected
+                  ? " bg-blue-200 text-gray-800"
+                  : " bg-gray-100 text-gray-500");
+
               const dataCellBase =
                 "border px-2 py-[3px]" +
                 (rowSelected ? " bg-blue-50" : "");
 
-              const headerCellBase =
-                "border px-1 py-[3px] text-[0.68rem] text-center" +
-                (rowSelected ? " bg-blue-200 text-gray-800" : " bg-gray-100 text-gray-500");
-
               return (
                 <tr key={row.id}>
-                  {/* 표시용 행 번호: 1,2,3... / 클릭·드래그로 행 선택 */}
                   <td
                     className={headerCellBase}
-                    onMouseDown={() => handleRowHeaderMouseDown(rowIndex)}
+                    onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
                     onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
                   >
                     {rowIndex + 1}
@@ -172,16 +175,14 @@ export default function UnifiedGrid() {
                   {unifiedColumns.map((key) => (
                     <td key={key} className={dataCellBase}>
                       <input
-                        className="w-full text-xs"
+                        className="w-full text-xs bg-transparent outline-none"
                         value={row.data[key] ?? ""}
                         onFocus={(e) => handleFocus(row.id, e)}
                         onChange={(e) => {
-                          // 내가 이 행에 대한 락을 갖고 있을 때만 편집 허용
                           if (!myRowLocks[row.id]) return;
                           updateLocalCell(row.id, key, e.target.value);
                         }}
                         onBlur={(e) => {
-                          // 저장 + 락 해제
                           saveCell(row.id, key, e.target.value);
                           releaseLock("unified", row.id);
                           setMyRowLocks((prev) => {
