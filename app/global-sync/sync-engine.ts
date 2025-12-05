@@ -69,11 +69,10 @@ export async function syncPatch(id: number, key: string, value: any) {
   });
 }
 
-/* ------------------------------ DELETE (row) ------------------------------ */
-export async function syncDeleteRow(id: number) {
-  await fetch(`/api/unified/${id}`, {
-    method: "DELETE",
-  });
+/* -------------------------- BROADCAST ONLY -------------------------- */
+/** DB 작업은 다른 코드에서 하고, 여기서는 unified:update 이벤트만 쏠 때 사용 */
+export function syncEmitUnifiedUpdate() {
+  if (typeof window === "undefined") return;
 
   waitForSocket((s) => {
     setTimeout(() => {

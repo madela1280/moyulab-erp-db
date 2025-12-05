@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { syncListen, syncPatch, syncDeleteRow } from "@/global-sync/sync-engine";
+import { syncListen, syncPatch, syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 import {
   acquireLock,
   releaseLock,
@@ -226,13 +226,20 @@ export default function UnifiedGrid() {
       return;
     }
 
+    // DB 삭제
     for (const row of slice) {
-      await syncDeleteRow(row.id);
+      await fetch(`/api/unified/${row.id}`, {
+        method: "DELETE",
+      });
     }
+
+    // 모든 탭에 갱신 신호
+    syncEmitUnifiedUpdate();
 
     setRowContextMenu(null);
     setSelectedRowRange(null);
-    // 이 탭도 바로 새로고침
+
+    // 이 탭 새로고침
     await reload();
   }
 
