@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { syncListen, syncPatch } from "@/global-sync/sync-engine";
 import {
   acquireLock,
@@ -24,6 +24,8 @@ export default function UnifiedGrid() {
   const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(null);
   const [isRowDragging, setIsRowDragging] = useState(false);
   const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
@@ -111,6 +113,27 @@ export default function UnifiedGrid() {
     }
   }
 
+  // 드래그 중 자동 스크롤(위/아래)
+  useEffect(() => {
+    function handleMouseMove(e: MouseEvent) {
+      if (!isRowDragging || !scrollRef.current) return;
+
+      const container = scrollRef.current;
+      const rect = container.getBoundingClientRect();
+      const margin = 40; // 가장자리에서 몇 px 안쪽부터 스크롤 시작
+      const speed = 20;  // 한번에 움직일 스크롤 양
+
+      if (e.clientY > rect.bottom - margin) {
+        container.scrollTop += speed;
+      } else if (e.clientY < rect.top + margin) {
+        container.scrollTop -= speed;
+      }
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [isRowDragging]);
+
   useEffect(() => {
     function handleWindowMouseUp() {
       setIsRowDragging(false);
@@ -135,7 +158,10 @@ export default function UnifiedGrid() {
       className="w-full h-full flex flex-col"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="border-t border-x bg-white w-full flex-1 overflow-auto">
+      <div
+        ref={scrollRef}
+        className="border-t border-x bg-white w-full flex-1 overflow-auto"
+      >
         <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
