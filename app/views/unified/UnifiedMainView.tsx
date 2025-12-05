@@ -12,6 +12,7 @@ export default function UnifiedMainView() {
 
       <div style={{ height: "0.5cm" }} />
 
+      {/* 남은 세로 공간 전체를 그리드가 차지 */}
       <div className="flex-1 min-h-0">
         <UnifiedGrid />
       </div>

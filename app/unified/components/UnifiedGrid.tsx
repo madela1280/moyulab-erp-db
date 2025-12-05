@@ -89,11 +89,10 @@ export default function UnifiedGrid() {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
   return (
-    <div className="px-2 h-full flex flex-col">
-      <div
-        className="border rounded bg-white overflow-auto w-full flex-1"
-      >
-        <table className="min-w-[2800px] table-fixed border-collapse text-xs">
+    // 좌우 여백 제거, 세로는 부모 높이 전부 사용
+    <div className="w-full h-full flex flex-col">
+      <div className="border-t border-x bg-white w-full flex-1 overflow-auto">
+        <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-2 py-1 w-10">ID</th>

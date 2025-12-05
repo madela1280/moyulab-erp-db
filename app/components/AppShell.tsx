@@ -179,7 +179,8 @@ export default function AppShell() {
   const currentCanWrite = top ? canWrite(top) : false;
 
   return (
-    <div className="min-h-screen bg-gray-50 w-full flex flex-col">
+    // 한 화면에 고정, 좌우 여백 제거, 페이지 스크롤 숨기기
+    <div className="w-full h-screen bg-gray-50 flex flex-col overflow-hidden">
       <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
         <div className="flex items-center">
           <div className="flex items-center gap-3 mr-12">
@@ -249,9 +250,10 @@ export default function AppShell() {
         </div>
       </header>
 
-      <main className="px-6 py-4 w-full flex-1 flex flex-col min-h-0">
+      {/* 헤더 제외 전체 영역: 내부 뷰만 스크롤 */}
+      <main className="w-full flex-1 flex flex-col min-h-0 overflow-hidden">
         {loading ? (
-          <div className="text-sm text-gray-500">Loading...</div>
+          <div className="text-sm text-gray-500 p-4">Loading...</div>
         ) : noAccessMenu ? (
           <NoAccess menuLabel={noAccessMenu} />
         ) : (
