@@ -98,7 +98,7 @@ export default function UnifiedGrid() {
     rowIndex: number,
     e: React.MouseEvent<HTMLTableCellElement>
   ) {
-    if (e.button !== 0) return; // 좌클릭만 선택/드래그
+    if (e.button !== 0) return; // 좌클릭만
     setIsRowDragging(true);
     setRowDragAnchor(rowIndex);
     setSelectedRowRange({ start: rowIndex, end: rowIndex });
@@ -211,10 +211,10 @@ export default function UnifiedGrid() {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") setRowContextMenu(null);
     }
-    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("click", handleClick);
     window.addEventListener("keydown", handleKey);
     return () => {
-      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("click", handleClick);
       window.removeEventListener("keydown", handleKey);
     };
   }, []);
@@ -323,7 +323,6 @@ export default function UnifiedGrid() {
     const targetCount = slice.length;
     const sourceCount = parsed.length;
 
-    // 로컬 상태 반영
     setRows((prev) => {
       const next = [...prev];
       for (let offset = 0; offset < targetCount; offset++) {
@@ -344,7 +343,6 @@ export default function UnifiedGrid() {
       return next;
     });
 
-    // DB 반영
     for (let offset = 0; offset < targetCount; offset++) {
       const row = slice[offset];
       if (!row) continue;
