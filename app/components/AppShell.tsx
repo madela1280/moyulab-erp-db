@@ -115,7 +115,7 @@ export default function AppShell() {
     if (!me) return false;
 
     if (menu === "사용자관리") {
-      // 사용자관리는 항상 관리자 전용
+      // 사용자관리는 항상 관리자 전용 (일반 사용자는 읽기/쓰기 모두 불가)
       return false;
     }
 
@@ -129,6 +129,7 @@ export default function AppShell() {
     if (!me) return false;
 
     if (menu === "사용자관리") {
+      // 사용자관리는 항상 관리자 전용
       return false;
     }
 
@@ -175,23 +176,22 @@ export default function AppShell() {
   const currentCanWrite = top ? canWrite(top) : false;
 
   return (
-    // 한 화면 고정
+    // 한 화면 고정 (엑셀 느낌 유지)
     <div className="w-full h-screen bg-gray-50 flex flex-col overflow-hidden">
-      <header className="w-full bg-gray-100 border-b px-8 py-3">
+      <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
         <div className="flex items-center">
           <div className="flex items-center gap-3 mr-12">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
-          {/* nav를 세로(col)로: 위는 대카테고리, 아래는 소카테고리 줄 */}
-          <nav className="flex-grow flex flex-col text-[0.90rem] font-semibold text-gray-700 ml-40">
-            {/* 대카테고리 줄 */}
-            <div className="flex items-center gap-8">
+          <nav className="flex-grow flex text-[0.90rem] font-semibold text-gray-700 ml-40">
+            <div className="flex items-center gap-8 relative">
               {visibleTopMenus.map((m) => (
                 <button
                   key={m}
                   onClick={(e) => {
+                    // 권한 체크
                     if (!canRead(m)) {
                       setNoAccessMenu(m);
                       setTop(m);
@@ -206,7 +206,6 @@ export default function AppShell() {
                     setSub(SUB_MENUS[m][0]);
                     setShowSub(true);
                     startTimer();
-                    // 클릭한 버튼의 x 위치를 기억 → 아래 소카테고리 줄 margin-left로 사용
                     setDropdownLeft(e.currentTarget.offsetLeft);
                   }}
                   className={
@@ -218,45 +217,46 @@ export default function AppShell() {
                   {m}
                 </button>
               ))}
-            </div>
 
-            {/* 소카테고리 줄: 헤더 아래에 항상 온전히 보이게 */}
-            {top && showSub && canRead(top) && (
-              <div
-                className="flex gap-2 mt-2"
-                style={{ marginLeft: dropdownLeft }}
-                onMouseEnter={stopTimer}
-                onMouseLeave={startTimer}
-              >
-                {SUB_MENUS[top].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setSub(s);
-                      setShowSub(false);
-                      stopTimer();
-                    }}
-                    className="px-3 py-1 text-xs rounded-full border bg-gray-300 border-gray-500 text-gray-800"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
+              {top && showSub && canRead(top) && (
+                <div
+                  className="flex gap-2 absolute w-max"
+                  style={{ top: "40px", left: `${dropdownLeft}px` }}
+                  onMouseEnter={stopTimer}
+                  onMouseLeave={startTimer}
+                >
+                  {SUB_MENUS[top].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        setSub(s);
+                        setShowSub(false);
+                        stopTimer();
+                      }}
+                      className="px-3 py-1 text-xs rounded-full border bg-gray-300 border-gray-500 text-gray-800"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </nav>
         </div>
       </header>
 
       {/* 헤더 아래 전체 영역 */}
-      <main className="w-full flex-1 flex flex-col min-h-0 overflow-hidden">
+      <main className="px-6 py-4 w-full flex-1 flex flex-col min-h-0">
         {loading ? (
-          <div className="text-sm text-gray-500 p-4">Loading...</div>
+          <div className="text-sm text-gray-500">Loading...</div>
         ) : noAccessMenu ? (
           <NoAccess menuLabel={noAccessMenu} />
         ) : (
           <div
-            className="relative w-full h-full"
+            // 여기서 mt-6 하나만 추가해서, 소카테고리와 아래 페이지 간격만 벌림
+            className="relative w-full mt-6"
             onClickCapture={(e) => {
+              // 읽기 전용일 때(읽기 O, 쓰기 X, 관리자 아님) 수정 시도 막기
               if (!currentCanRead || currentCanWrite || isAdmin) return;
 
               const target = e.target as HTMLElement | null;
