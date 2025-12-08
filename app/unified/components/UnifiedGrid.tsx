@@ -1,34 +1,75 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { syncListen, syncPatch, syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
+import {
+  syncListen,
+  syncPatch,
+  syncEmitUnifiedUpdate,
+} from "@/global-sync/sync-engine";
 import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
 const unifiedColumns = [
-  "거래처분류","상태","안내분류","구매/렌탈","기기번호","기종","에러횟수","제품",
-  "수취인명","연락처1","연락처2","계약자주소","택배발송일","시작일","종료일",
-  "반납요청일","반납완료일","특이사항1","특이사항2","총연장횟수","신청일",
-  "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
+  "거래처분류",
+  "상태",
+  "안내분류",
+  "구매/렌탈",
+  "기기번호",
+  "기종",
+  "에러횟수",
+  "제품",
+  "수취인명",
+  "연락처1",
+  "연락처2",
+  "계약자주소",
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+  "특이사항1",
+  "특이사항2",
+  "총연장횟수",
+  "신청일",
+  "0차연장",
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
 ];
 
-// 화면에 최소로 보여줄 행 수 (실제 행이 적어도 이 숫자만큼은 표시)
+// 화면에 최소로 보여줄 행 수 (실제 행이 적어도 이 숫자만큼 표시)
 const MIN_DISPLAY_ROWS = 100;
 
 export default function UnifiedGrid() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
+  // 가상(여분) 행의 편집 값
+  const [virtualRowData, setVirtualRowData] = useState<
+    Record<number, Record<string, string>>
+  >({});
+  const [virtualRowCommitted, setVirtualRowCommitted] = useState<
+    Record<number, boolean>
+  >({});
+
   // 행 범위 선택 상태
-  const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(null);
+  const [selectedRowRange, setSelectedRowRange] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
   const [isRowDragging, setIsRowDragging] = useState(false);
   const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // 행 컨텍스트 메뉴
-  const [rowContextMenu, setRowContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   /* --------------------- 소켓 연결 --------------------- */
   useEffect(() => {
@@ -58,11 +99,59 @@ export default function UnifiedGrid() {
   function updateLocalCell(id: number, key: string, value: string) {
     setRows((prev) =>
       prev.map((row) =>
-        row.id === id
-          ? { ...row, data: { ...row.data, [key]: value } }
-          : row
+        row.id === id ? { ...row, data: { ...row.data, [key]: value } } : row
       )
     );
+  }
+
+  /* --------------------- 가상 행 셀 값 반영 --------------------- */
+  function updateVirtualCell(rowIndex: number, key: string, value: string) {
+    setVirtualRowData((prev) => {
+      const row = prev[rowIndex] ?? {};
+      return {
+        ...prev,
+        [rowIndex]: { ...row, [key]: value },
+      };
+    });
+  }
+
+  /* --------------------- 가상 행 저장 (INSERT) --------------------- */
+  async function saveVirtualRow(rowIndex: number) {
+    // 이미 INSERT 한 가상 행이면 무시
+    if (virtualRowCommitted[rowIndex]) return;
+
+    const data = virtualRowData[rowIndex];
+    if (!data) return;
+
+    const hasValue = Object.values(data).some(
+      (v) => v != null && String(v).trim() !== ""
+    );
+    if (!hasValue) return; // 아무것도 안 쓴 행은 무시
+
+    // 중복 INSERT 방지 플래그
+    setVirtualRowCommitted((prev) => ({ ...prev, [rowIndex]: true }));
+
+    try {
+      await fetch("/api/unified", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      // 다른 탭에 알림
+      syncEmitUnifiedUpdate();
+
+      // 현재 탭 새로고침
+      await reload();
+    } catch (e) {
+      console.error("saveVirtualRow error", e);
+      // 실패 시 다시 입력 가능하도록 플래그 해제
+      setVirtualRowCommitted((prev) => {
+        const copy = { ...prev };
+        delete copy[rowIndex];
+        return copy;
+      });
+    }
   }
 
   /* --------------------- 셀 저장 --------------------- */
@@ -137,7 +226,10 @@ export default function UnifiedGrid() {
         container.scrollTop -= speed;
       }
 
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const el = document.elementFromPoint(
+        e.clientX,
+        e.clientY
+      ) as HTMLElement | null;
       if (!el || rowDragAnchor === null) return;
 
       let td: HTMLElement | null = el;
@@ -177,13 +269,16 @@ export default function UnifiedGrid() {
 
   function isRowSelected(rowIndex: number) {
     if (!selectedRowRange) return false;
-    return rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end;
+    return (
+      rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end
+    );
   }
 
   /* --------------------- 선택된 행 범위 유틸 --------------------- */
 
   function getSelectedRowRangeInfo() {
-    if (!selectedRowRange) return { start: 0, end: -1, slice: [] as UnifiedRow[] };
+    if (!selectedRowRange)
+      return { start: 0, end: -1, slice: [] as UnifiedRow[] };
     const { start, end } = selectedRowRange;
     const safeStart = Math.max(0, start);
     const safeEnd = Math.min(rows.length - 1, end); // 실제 데이터 행까지만
@@ -292,7 +387,9 @@ export default function UnifiedGrid() {
     }
 
     const lines = slice.map((row) =>
-      unifiedColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
+      unifiedColumns
+        .map((key) => (row.data[key] ?? "") as string)
+        .join("\t")
     );
     const text = lines.join("\n");
 
@@ -440,50 +537,69 @@ export default function UnifiedGrid() {
                       ? {
                           "data-row-header": "1",
                           "data-row-index": rowIndex,
-                          onMouseDown: (e: React.MouseEvent<HTMLTableCellElement>) =>
-                            handleRowHeaderMouseDown(rowIndex, e),
-                          onMouseEnter: () => handleRowHeaderMouseEnter(rowIndex),
-                          onContextMenu: (e: React.MouseEvent<HTMLTableCellElement>) =>
-                            handleRowHeaderContextMenu(rowIndex, e),
+                          onMouseDown: (
+                            e: React.MouseEvent<HTMLTableCellElement>
+                          ) => handleRowHeaderMouseDown(rowIndex, e),
+                          onMouseEnter: () =>
+                            handleRowHeaderMouseEnter(rowIndex),
+                          onContextMenu: (
+                            e: React.MouseEvent<HTMLTableCellElement>
+                          ) => handleRowHeaderContextMenu(rowIndex, e),
                         }
                       : {})}
                   >
                     {rowIndex + 1}
                   </td>
 
-                  {unifiedColumns.map((key, colIndex) => (
-                    <td
-                      key={key}
-                      className={dataCellBase}
-                      {...(isReal
-                        ? {
-                            "data-row-index": rowIndex,
-                            "data-col-index": colIndex,
-                          }
-                        : {})}
-                    >
-                      {isReal ? (
+                  {unifiedColumns.map((key, colIndex) => {
+                    if (isReal) {
+                      return (
+                        <td
+                          key={key}
+                          className={dataCellBase}
+                          data-row-index={rowIndex}
+                          data-col-index={colIndex}
+                        >
+                          <input
+                            className="w-full text-xs bg-transparent outline-none"
+                            value={row!.data[key] ?? ""}
+                            onFocus={(e) => handleFocus(row!.id, e)}
+                            onChange={(e) => {
+                              if (!myRowLocks[row!.id]) return;
+                              updateLocalCell(row!.id, key, e.target.value);
+                            }}
+                            onBlur={(e) => {
+                              saveCell(row!.id, key, e.target.value);
+                              releaseLock("unified", row!.id);
+                              setMyRowLocks((prev) => {
+                                const copy = { ...prev };
+                                delete copy[row!.id];
+                                return copy;
+                              });
+                            }}
+                          />
+                        </td>
+                      );
+                    }
+
+                    // 가상(여분) 행: 로컬 state 에만 저장, onBlur 시 전체 행 INSERT
+                    const vRow = virtualRowData[rowIndex] ?? {};
+                    return (
+                      <td key={key} className={dataCellBase}>
                         <input
                           className="w-full text-xs bg-transparent outline-none"
-                          value={row!.data[key] ?? ""}
-                          onFocus={(e) => handleFocus(row!.id, e)}
-                          onChange={(e) => {
-                            if (!myRowLocks[row!.id]) return;
-                            updateLocalCell(row!.id, key, e.target.value);
-                          }}
-                          onBlur={(e) => {
-                            saveCell(row!.id, key, e.target.value);
-                            releaseLock("unified", row!.id);
-                            setMyRowLocks((prev) => {
-                              const copy = { ...prev };
-                              delete copy[row!.id];
-                              return copy;
-                            });
+                          value={vRow[key] ?? ""}
+                          onChange={(e) =>
+                            updateVirtualCell(rowIndex, key, e.target.value)
+                          }
+                          onBlur={() => {
+                            // 이 가상 행 전체를 INSERT 시도
+                            saveVirtualRow(rowIndex);
                           }}
                         />
-                      ) : null}
-                    </td>
-                  ))}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
