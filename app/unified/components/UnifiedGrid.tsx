@@ -304,6 +304,83 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
+    /* --------------------- 행 삽입 (엑셀식: 선택 범위 아래에 N행 삽입) --------------------- */
+
+    async function handleInsertRows() {
+      const info = getSelectedRowRangeInfo();
+      let { start, end } = info;
+
+      if (end < start) {
+        // 선택이 없으면: 현재 우클릭한 행 1개 기준 (selectedRowRange에 저장돼 있음)
+        if (!selectedRowRange) {
+          setRowContextMenu(null);
+          return;
+        }
+        start = selectedRowRange.start;
+        end = selectedRowRange.end;
+      }
+
+      const oldRows = rows;
+      const oldLen = oldRows.length;
+      if (oldLen === 0) {
+        await appendBlankRows(1);
+        setRowContextMenu(null);
+        return;
+      }
+
+      const N = Math.max(1, end - start + 1);
+      const insertPos = end; // 이 인덱스 '아래'에 삽입
+
+      // 1) 새 빈 행 N개를 DB에 추가 (맨 아래 컨테이너 확보)
+      await appendBlankRows(N);
+
+      // 2) 최신 rows 다시 조회
+      const r = await fetch("/api/unified", { cache: "no-store" });
+      const afterAppend: UnifiedRow[] = await r.json();
+      const newLen = afterAppend.length; // oldLen + N 이어야 함
+
+      const next = [...afterAppend];
+      const updates: { id: number; data: Record<string, any> }[] = [];
+
+      // 3) 삽입 위치 아래의 데이터들을 아래로 N칸씩 밀기
+      //    대상: oldRows 의 (insertPos+1 .. oldLen-1) → newRows 의 (insertPos+1+N .. oldLen-1+N)
+      for (let i = oldLen - 1; i > insertPos; i--) {
+        const src = oldRows[i];
+        const destIndex = i + N;
+        const destRow = next[destIndex];
+        if (!destRow || !src) continue;
+
+        const newData = { ...src.data };
+        next[destIndex] = { ...destRow, data: newData };
+        updates.push({ id: destRow.id, data: newData });
+      }
+
+      // 4) 삽입된 구간( insertPos+1 .. insertPos+N )은 모두 빈 행
+      for (let i = insertPos + 1; i <= insertPos + N; i++) {
+        const destRow = next[i];
+        if (!destRow) continue;
+        const blankData: Record<string, any> = {};
+        next[i] = { ...destRow, data: blankData };
+        updates.push({ id: destRow.id, data: blankData });
+      }
+
+      // 5) 화면 먼저 반영
+      setRows(next);
+
+      // 6) DB에 행 단위 PATCH
+      for (const u of updates) {
+        await fetch(`/api/unified/${u.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(u.data),
+        });
+      }
+
+      // 7) 다른 탭에 알림
+      syncEmitUnifiedUpdate();
+      setRowContextMenu(null);
+    }
+
     /* --------------------- 행 삭제 --------------------- */
 
     async function handleDeleteSelectedRows() {
@@ -335,7 +412,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      // 1) 현재 rows 기준으로 변경 내용 계산
       const updates: { id: number; data: Record<string, any> }[] = [];
       const next = [...rows];
 
@@ -350,10 +426,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         updates.push({ id: row.id, data: newData });
       }
 
-      // 2) 화면 먼저 반영
       setRows(next);
 
-      // 3) DB에 행 단위 PATCH
       for (const u of updates) {
         await fetch(`/api/unified/${u.id}`, {
           method: "PATCH",
@@ -362,7 +436,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 4) 다른 탭에 알림
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
@@ -394,7 +467,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     async function handlePasteToSelectedRowsFromClipboard() {
       const { start } = getSelectedRowRangeInfo();
-      // 선택이 없으면 첫 행부터
       const baseRowIndex = start >= 0 ? start : 0;
 
       let text = "";
@@ -423,20 +495,16 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const parsed = lines.map((line) => line.split("\t"));
       const lineCount = parsed.length;
 
-      // 1) 필요한 전체 행 수 계산
       const requiredRowCount = baseRowIndex + lineCount;
 
-      // 2) 부족하면 실제 행 INSERT
       if (requiredRowCount > rows.length) {
         const need = requiredRowCount - rows.length;
         await appendBlankRows(need);
       }
 
-      // 3) 최신 rows 다시 조회
       const r = await fetch("/api/unified", { cache: "no-store" });
       const fresh: UnifiedRow[] = await r.json();
 
-      // 4) 업데이트 계산
       const next = [...fresh];
       const updates: { id: number; data: Record<string, any> }[] = [];
 
@@ -457,10 +525,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         updates.push({ id: row.id, data: newData });
       }
 
-      // 5) 화면 먼저 반영
       setRows(next);
 
-      // 6) DB에 행 단위 PATCH
       for (const u of updates) {
         await fetch(`/api/unified/${u.id}`, {
           method: "PATCH",
@@ -469,7 +535,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 7) 다른 탭에 알림
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
@@ -581,6 +646,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
             style={{ top: rowContextMenu.y, left: rowContextMenu.x }}
             data-context-menu="1"
           >
+            <button
+              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+              onClick={handleInsertRows}
+            >
+              행 삽입
+            </button>
             <button
               className="block w-full text-left px-3 py-1 hover:bg-gray-100"
               onClick={handleDeleteSelectedRows}
