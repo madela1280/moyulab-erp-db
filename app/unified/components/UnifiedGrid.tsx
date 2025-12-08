@@ -2,18 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { syncListen, syncPatch, syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
-import {
-  acquireLock,
-  releaseLock,
-} from "@/global-lock/lock-engine";
+import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
 const unifiedColumns = [
-  "거래처분류","상태","안내분류","구매/렌탈","기기번호","기종","에러횟수","제품",
-  "수취인명","연락처1","연락처2","계약자주소","택배발송일","시작일","종료일",
-  "반납요청일","반납완료일","특이사항1","특이사항2","총연장횟수","신청일",
-  "0차연장","1차연장","2차연장","3차연장","4차연장","5차연장"
+  "거래처분류", "상태", "안내분류", "구매/렌탈", "기기번호", "기종", "에러횟수", "제품",
+  "수취인명", "연락처1", "연락처2", "계약자주소", "택배발송일", "시작일", "종료일",
+  "반납요청일", "반납완료일", "특이사항1", "특이사항2", "총연장횟수", "신청일",
+  "0차연장", "1차연장", "2차연장", "3차연장", "4차연장", "5차연장",
 ];
 
 export default function UnifiedGrid() {
@@ -56,11 +53,9 @@ export default function UnifiedGrid() {
 
   /* --------------------- 로컬 셀 값 반영 --------------------- */
   function updateLocalCell(id: number, key: string, value: string) {
-    setRows((prev) =>
-      prev.map((row) =>
-        row.id === id
-          ? { ...row, data: { ...row.data, [key]: value } }
-          : row
+    setRows(prev =>
+      prev.map(row =>
+        row.id === id ? { ...row, data: { ...row.data, [key]: value } } : row
       )
     );
   }
@@ -75,7 +70,7 @@ export default function UnifiedGrid() {
     const result = await acquireLock("unified", rowId);
 
     if (result.ok) {
-      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      setMyRowLocks(prev => ({ ...prev, [rowId]: true }));
       return;
     }
 
@@ -250,13 +245,13 @@ export default function UnifiedGrid() {
       return;
     }
 
-    setRows((prev) => {
+    setRows(prev => {
       const next = [...prev];
       for (let i = start; i <= end; i++) {
         const row = next[i];
         if (!row) continue;
         const newData = { ...row.data };
-        unifiedColumns.forEach((key) => {
+        unifiedColumns.forEach(key => {
           newData[key] = "";
         });
         next[i] = { ...row, data: newData };
@@ -280,8 +275,8 @@ export default function UnifiedGrid() {
       return;
     }
 
-    const lines = slice.map((row) =>
-      unifiedColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
+    const lines = slice.map(row =>
+      unifiedColumns.map(key => (row.data[key] ?? "") as string).join("\t")
     );
     const text = lines.join("\n");
 
@@ -316,20 +311,20 @@ export default function UnifiedGrid() {
 
     const lines = text
       .split(/\r?\n/)
-      .map((l) => l.trimEnd())
-      .filter((l) => l.length > 0);
+      .map(l => l.trimEnd())
+      .filter(l => l.length > 0);
 
     if (!lines.length) {
       setRowContextMenu(null);
       return;
     }
 
-    const parsed = lines.map((line) => line.split("\t"));
+    const parsed = lines.map(line => line.split("\t"));
 
     const targetCount = slice.length;
     const sourceCount = parsed.length;
 
-    setRows((prev) => {
+    setRows(prev => {
       const next = [...prev];
       for (let offset = 0; offset < targetCount; offset++) {
         const rowIndex = start + offset;
@@ -371,8 +366,8 @@ export default function UnifiedGrid() {
   return (
     <div
       className="w-full h-full flex flex-col"
-      onContextMenu={(e) => e.preventDefault()}
-      onMouseDown={(e) => {
+      onContextMenu={e => e.preventDefault()}
+      onMouseDown={e => {
         if (e.button !== 0) return;
         const target = e.target as HTMLElement;
         if (
@@ -392,7 +387,7 @@ export default function UnifiedGrid() {
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
               <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-              {unifiedColumns.map((c) => (
+              {unifiedColumns.map(c => (
                 <th key={c} className="border px-2 py-[3px]">
                   {c}
                 </th>
@@ -411,8 +406,7 @@ export default function UnifiedGrid() {
                   : " bg-gray-100 text-gray-500");
 
               const dataCellBase =
-                "border px-2 py-[3px]" +
-                (rowSelected ? " bg-blue-50" : "");
+                "border px-2 py-[3px]" + (rowSelected ? " bg-blue-50" : "");
 
               return (
                 <tr key={row.id}>
@@ -420,9 +414,9 @@ export default function UnifiedGrid() {
                     className={headerCellBase}
                     data-row-header="1"
                     data-row-index={rowIndex}
-                    onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
+                    onMouseDown={e => handleRowHeaderMouseDown(rowIndex, e)}
                     onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
-                    onContextMenu={(e) => handleRowHeaderContextMenu(rowIndex, e)}
+                    onContextMenu={e => handleRowHeaderContextMenu(rowIndex, e)}
                   >
                     {rowIndex + 1}
                   </td>
@@ -437,15 +431,15 @@ export default function UnifiedGrid() {
                       <input
                         className="w-full text-xs bg-transparent outline-none"
                         value={row.data[key] ?? ""}
-                        onFocus={(e) => handleFocus(row.id, e)}
-                        onChange={(e) => {
+                        onFocus={e => handleFocus(row.id, e)}
+                        onChange={e => {
                           if (!myRowLocks[row.id]) return;
                           updateLocalCell(row.id, key, e.target.value);
                         }}
-                        onBlur={(e) => {
+                        onBlur={e => {
                           saveCell(row.id, key, e.target.value);
                           releaseLock("unified", row.id);
-                          setMyRowLocks((prev) => {
+                          setMyRowLocks(prev => {
                             const copy = { ...prev };
                             delete copy[row.id];
                             return copy;
