@@ -304,7 +304,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-    /* --------------------- 행 삽입 (엑셀식: 선택 범위 아래에 N행, 완전 빈행) --------------------- */
+    /* --------------------- 행 삽입 (선택 범위 아래에 N행, 완전 빈행) --------------------- */
 
     async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
@@ -328,7 +328,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const N = Math.max(1, end - start + 1); // 삽입할 행 개수
-      const insertPos = end; // 이 인덱스 '아래'에 삽입
+      const insertPos = end; // 이 인덱스 '아래'에 삽입 (0-based)
 
       // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
       await appendBlankRows(N);
@@ -336,36 +336,36 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 2) 최신 rows 다시 조회
       const r = await fetch("/api/unified", { cache: "no-store" });
       const all: UnifiedRow[] = await r.json();
-      const L = all.length; // oldLen + N 이상
+      const L = all.length; // oldLen + N 이라고 가정
+      const appended = all.slice(oldLen); // 새로 추가된 N개 (맨 아래)
 
       const next: UnifiedRow[] = new Array(L);
       const updates: { id: number; data: Record<string, any> }[] = [];
 
       for (let i = 0; i < L; i++) {
-        const row = all[i];
-        if (!row) continue;
+        let host: UnifiedRow | undefined;
+        let data: Record<string, any>;
 
-        let newData: Record<string, any>;
-
-        if (i <= insertPos && i < oldLen) {
-          // 삽입 위치 위쪽: 그대로 유지
-          newData = { ...(old[i]?.data ?? {}) };
+        if (i <= insertPos) {
+          // 삽입 위치 위: 기존 행 그대로
+          host = old[i];
+          data = { ...(old[i]?.data ?? {}) };
         } else if (i > insertPos && i <= insertPos + N) {
-          // 삽입된 새 행 구간: 완전 빈행
-          newData = {};
+          // 삽입된 N행: 완전 빈행 (새로 추가된 row들을 사용)
+          const idx = i - (insertPos + 1); // 0..N-1
+          host = appended[idx];
+          data = {};
         } else {
+          // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀려감
           const srcIndex = i - N;
-          if (srcIndex >= 0 && srcIndex < oldLen) {
-            // 아래쪽 행: 위에서 N칸 밀려 내려간 데이터
-            newData = { ...(old[srcIndex]?.data ?? {}) };
-          } else {
-            // 그 외(추가 여유분 등): 기존 데이터 유지
-            newData = { ...(row.data ?? {}) };
-          }
+          host = old[srcIndex];
+          data = { ...(old[srcIndex]?.data ?? {}) };
         }
 
-        next[i] = { ...row, data: newData };
-        updates.push({ id: row.id, data: newData });
+        if (!host) continue;
+
+        next[i] = { ...host, data };
+        updates.push({ id: host.id, data });
       }
 
       // 3) 화면 먼저 반영
