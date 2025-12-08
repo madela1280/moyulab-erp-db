@@ -115,6 +115,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 외부에서 행 추가 호출 --------------------- */
     async function appendBlankRows(count: number) {
+      if (count <= 0) return;
       for (let i = 0; i < count; i++) {
         await fetch("/api/unified", {
           method: "POST",
@@ -380,12 +381,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setRowContextMenu(null);
     }
 
+    /* --------------------- 붙여넣기 (필요 시 자동 행 추가) --------------------- */
     async function handlePasteToSelectedRowsFromClipboard() {
-      const { start, slice } = getSelectedRowRangeInfo();
-      if (!slice.length) {
-        setRowContextMenu(null);
-        return;
-      }
+      const { start } = getSelectedRowRangeInfo();
+      // 선택이 없으면 첫 행부터
+      const baseRowIndex = start >= 0 ? start : 0;
 
       let text = "";
       try {
@@ -411,18 +411,31 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const parsed = lines.map((line) => line.split("\t"));
+      const lineCount = parsed.length;
 
-      const targetCount = slice.length;
-      const sourceCount = parsed.length;
+      // 1) 필요한 전체 행 수 계산
+      const requiredRowCount = baseRowIndex + lineCount;
 
+      // 2) 부족하면 실제 행 INSERT
+      if (requiredRowCount > rows.length) {
+        const need = requiredRowCount - rows.length;
+        await appendBlankRows(need);
+      }
+
+      // 3) 최신 rows 다시 조회
+      const r = await fetch("/api/unified", { cache: "no-store" });
+      const fresh: UnifiedRow[] = await r.json();
+      setRows(fresh);
+
+      // 4) 로컬 state 업데이트
       setRows((prev) => {
         const next = [...prev];
-        for (let offset = 0; offset < targetCount; offset++) {
-          const rowIndex = start + offset;
+        for (let offset = 0; offset < lineCount; offset++) {
+          const rowIndex = baseRowIndex + offset;
           const row = next[rowIndex];
           if (!row) continue;
 
-          const src = parsed[offset % sourceCount];
+          const src = parsed[offset];
           const newData = { ...row.data };
 
           unifiedColumns.forEach((key, colIndex) => {
@@ -435,11 +448,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return next;
       });
 
-      for (let offset = 0; offset < targetCount; offset++) {
-        const row = slice[offset];
+      // 5) DB 업데이트 (syncPatch)
+      for (let offset = 0; offset < lineCount; offset++) {
+        const rowIndex = baseRowIndex + offset;
+        const row = fresh[rowIndex];
         if (!row) continue;
 
-        const src = parsed[offset % sourceCount];
+        const src = parsed[offset];
         for (let colIndex = 0; colIndex < unifiedColumns.length; colIndex++) {
           const key = unifiedColumns[colIndex];
           const v = src[colIndex] ?? "";
