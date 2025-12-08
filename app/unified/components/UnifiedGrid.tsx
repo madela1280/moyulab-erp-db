@@ -304,6 +304,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
+    /* --------------------- 행 삭제 --------------------- */
+
     async function handleDeleteSelectedRows() {
       const { slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
@@ -318,15 +320,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 모든 탭에 갱신 신호
       syncEmitUnifiedUpdate();
-
       setRowContextMenu(null);
       setSelectedRowRange(null);
-
-      // 이 탭 새로고침 + 최소 100행 유지
       await reload();
     }
+
+    /* --------------------- 내용 지우기 (행 단위 PATCH) --------------------- */
 
     async function handleClearSelectedRows() {
       const { start, end, slice } = getSelectedRowRangeInfo();
@@ -335,26 +335,35 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      setRows((prev) => {
-        const next = [...prev];
-        for (let i = start; i <= end; i++) {
-          const row = next[i];
-          if (!row) continue;
-          const newData = { ...row.data };
-          unifiedColumns.forEach((key) => {
-            newData[key] = "";
-          });
-          next[i] = { ...row, data: newData };
-        }
-        return next;
-      });
+      // 1) 현재 rows 기준으로 변경 내용 계산
+      const updates: { id: number; data: Record<string, any> }[] = [];
+      const next = [...rows];
 
-      for (const row of slice) {
-        for (const key of unifiedColumns) {
-          await syncPatch(row.id, key, "");
-        }
+      for (let i = start; i <= end; i++) {
+        const row = next[i];
+        if (!row) continue;
+        const newData: Record<string, any> = { ...row.data };
+        unifiedColumns.forEach((key) => {
+          newData[key] = "";
+        });
+        next[i] = { ...row, data: newData };
+        updates.push({ id: row.id, data: newData });
       }
 
+      // 2) 화면 먼저 반영
+      setRows(next);
+
+      // 3) DB에 행 단위 PATCH
+      for (const u of updates) {
+        await fetch(`/api/unified/${u.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(u.data),
+        });
+      }
+
+      // 4) 다른 탭에 알림
+      syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
 
@@ -381,7 +390,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setRowContextMenu(null);
     }
 
-    /* --------------------- 붙여넣기 (필요 시 자동 행 추가) --------------------- */
+    /* --------------------- 붙여넣기 (필요 시 자동 행 추가 + 행 단위 PATCH) --------------------- */
+
     async function handlePasteToSelectedRowsFromClipboard() {
       const { start } = getSelectedRowRangeInfo();
       // 선택이 없으면 첫 행부터
@@ -425,43 +435,42 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 3) 최신 rows 다시 조회
       const r = await fetch("/api/unified", { cache: "no-store" });
       const fresh: UnifiedRow[] = await r.json();
-      setRows(fresh);
 
-      // 4) 로컬 state 업데이트
-      setRows((prev) => {
-        const next = [...prev];
-        for (let offset = 0; offset < lineCount; offset++) {
-          const rowIndex = baseRowIndex + offset;
-          const row = next[rowIndex];
-          if (!row) continue;
+      // 4) 업데이트 계산
+      const next = [...fresh];
+      const updates: { id: number; data: Record<string, any> }[] = [];
 
-          const src = parsed[offset];
-          const newData = { ...row.data };
-
-          unifiedColumns.forEach((key, colIndex) => {
-            const v = src[colIndex] ?? "";
-            newData[key] = v;
-          });
-
-          next[rowIndex] = { ...row, data: newData };
-        }
-        return next;
-      });
-
-      // 5) DB 업데이트 (syncPatch)
       for (let offset = 0; offset < lineCount; offset++) {
         const rowIndex = baseRowIndex + offset;
-        const row = fresh[rowIndex];
+        const row = next[rowIndex];
         if (!row) continue;
 
         const src = parsed[offset];
-        for (let colIndex = 0; colIndex < unifiedColumns.length; colIndex++) {
-          const key = unifiedColumns[colIndex];
+        const newData: Record<string, any> = { ...row.data };
+
+        unifiedColumns.forEach((key, colIndex) => {
           const v = src[colIndex] ?? "";
-          await syncPatch(row.id, key, v);
-        }
+          newData[key] = v;
+        });
+
+        next[rowIndex] = { ...row, data: newData };
+        updates.push({ id: row.id, data: newData });
       }
 
+      // 5) 화면 먼저 반영
+      setRows(next);
+
+      // 6) DB에 행 단위 PATCH
+      for (const u of updates) {
+        await fetch(`/api/unified/${u.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(u.data),
+        });
+      }
+
+      // 7) 다른 탭에 알림
+      syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
 
