@@ -305,7 +305,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-        /* --------------------- 행 삽입 (선택 범위 아래에 N행, 완전 빈행) --------------------- */
+          /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
     async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
@@ -320,8 +320,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         end = selectedRowRange.end;
       }
 
-      const old = rows;
-      const oldLen = old.length;
+      const oldLen = rows.length;
       if (oldLen === 0) {
         await appendBlankRows(1);
         setRowContextMenu(null);
@@ -329,14 +328,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const N = Math.max(1, end - start + 1); // 삽입할 행 개수
-      const insertPos = end; // 이 인덱스 '아래'에 삽입 (0-based)
-
-      // 선택 범위가 마지막 행까지 포함되면, 단순히 맨 아래에만 추가
-      if (insertPos >= oldLen - 1) {
-        await appendBlankRows(N);
-        setRowContextMenu(null);
-        return;
-      }
 
       // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
       await appendBlankRows(N);
@@ -353,13 +344,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         baseData[i] = { ...(all[i]?.data ?? {}) };
       }
 
-      // 3) "id 순서는 그대로, data만 재배치"
+      // 3) "id 순서는 그대로, data만 재배치 (start 위치에 N행 끼워 넣기)"
       const finalData: Record<string, any>[] = new Array(L);
       for (let i = 0; i < L; i++) {
-        if (i <= insertPos) {
+        if (i < start) {
           // 삽입 위치 위: 기존 데이터 그대로
           finalData[i] = { ...(baseData[i] ?? {}) };
-        } else if (i > insertPos && i <= insertPos + N) {
+        } else if (i >= start && i < start + N) {
           // 삽입된 N행: 모든 통합관리 컬럼을 빈 문자열로 채운 완전 빈 행
           finalData[i] = createEmptyData();
         } else {
@@ -397,7 +388,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 6) 다른 탭에 알림
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
-    }
+    }  
 
 // unifiedColumns 정의 바로 아래 등, 컴포넌트 밖에 추가
 function createEmptyData(): Record<string, any> {
