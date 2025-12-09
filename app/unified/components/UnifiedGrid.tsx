@@ -196,7 +196,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
-    function handleRowHeaderMouseDown(
+        function handleRowHeaderMouseDown(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
@@ -204,6 +204,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setIsRowDragging(true);
       setRowDragAnchor(rowIndex);
       setSelectedRowRange({ start: rowIndex, end: rowIndex });
+      // 행 헤더 클릭하면 기존 셀 선택은 해제
+      setSelectedCellRange(null);
       setRowContextMenu(null);
     }
 
@@ -286,7 +288,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 셀 범위 선택 유틸 --------------------- */
 
-    function setCellRangeByPoints(
+       function setCellRangeByPoints(
       r1: number,
       c1: number,
       r2: number,
@@ -297,8 +299,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const startCol = Math.max(0, Math.min(c1, c2));
       const endCol = Math.min(unifiedColumns.length - 1, Math.max(c1, c2));
 
+      // 셀 범위만 관리 (행 선택과는 분리)
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
-      setSelectedRowRange({ start: startRow, end: endRow });
     }
 
    function handleCellMouseDown(
