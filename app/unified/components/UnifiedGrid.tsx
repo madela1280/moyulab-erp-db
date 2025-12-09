@@ -305,7 +305,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-    /* --------------------- 행 삽입 (선택 범위 아래에 N행, 완전 빈행) --------------------- */
+        /* --------------------- 행 삽입 (선택 범위 아래에 N행, 완전 빈행) --------------------- */
 
     async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
@@ -344,12 +344,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 2) 최신 rows 다시 조회 (id ASC)
       const r = await fetch("/api/unified", { cache: "no-store" });
       const all: UnifiedRow[] = await r.json();
-      const L = all.length; // 일반적으로 oldLen + N
+      const L = all.length;      // = oldLen + N
+      const baseLen = L - N;     // 삽입 전 실제 행 개수 (= oldLen)
 
-      // 기존 데이터 스냅샷
-      const sourceData: Record<string, any>[] = new Array(oldLen);
-      for (let i = 0; i < oldLen; i++) {
-        sourceData[i] = { ...(old[i]?.data ?? {}) };
+      // 기존 데이터 스냅샷: "삽입 전" 기준 데이터
+      const baseData: Record<string, any>[] = new Array(baseLen);
+      for (let i = 0; i < baseLen; i++) {
+        baseData[i] = { ...(all[i]?.data ?? {}) };
       }
 
       // 3) "id 순서는 그대로, data만 재배치"
@@ -357,14 +358,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       for (let i = 0; i < L; i++) {
         if (i <= insertPos) {
           // 삽입 위치 위: 기존 데이터 그대로
-          finalData[i] = { ...(sourceData[i] ?? {}) };
-                } else if (i > insertPos && i <= insertPos + N) {
+          finalData[i] = { ...(baseData[i] ?? {}) };
+        } else if (i > insertPos && i <= insertPos + N) {
           // 삽입된 N행: 모든 통합관리 컬럼을 빈 문자열로 채운 완전 빈 행
           finalData[i] = createEmptyData();
         } else {
           // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀림
           const srcIndex = i - N;
-          finalData[i] = { ...(sourceData[srcIndex] ?? {}) };
+          finalData[i] = { ...(baseData[srcIndex] ?? {}) };
         }
       }
 
