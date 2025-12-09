@@ -305,7 +305,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-          /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
+    /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
     async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
@@ -330,7 +330,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const N = Math.max(1, end - start + 1); // 삽입할 행 개수
 
       // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
-      await appendBlankRows(N);
+      //    → 깜빡임 줄이기 위해 여기서는 reload / syncEmitUnifiedUpdate를 호출하지 않음
+      for (let i = 0; i < N; i++) {
+        await fetch("/api/unified", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+      }
 
       // 2) 최신 rows 다시 조회 (id ASC)
       const r = await fetch("/api/unified", { cache: "no-store" });
@@ -385,10 +392,10 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 6) 다른 탭에 알림
+      // 6) 다른 탭에 알림 (최종 1번만)
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
-    }  
+    }         
 
 // unifiedColumns 정의 바로 아래 등, 컴포넌트 밖에 추가
 function createEmptyData(): Record<string, any> {
