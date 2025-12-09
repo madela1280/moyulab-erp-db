@@ -406,6 +406,69 @@ function createEmptyData(): Record<string, any> {
   return obj;
 }
 
+    /* --------------------- 셀 포커스 이동 유틸 --------------------- */
+
+    function focusCell(rowIndex: number, colIndex: number) {
+      const selector = `input[data-row="${rowIndex}"][data-col="${colIndex}"]`;
+      const el = document.querySelector<HTMLInputElement>(selector);
+      if (el) {
+        el.focus();
+        el.select();
+        return true;
+      }
+      return false;
+    }
+
+    function handleCellKeyDown(
+      e: React.KeyboardEvent<HTMLInputElement>,
+      rowIndex: number,
+      colIndex: number
+    ) {
+      let targetRow = rowIndex;
+      let targetCol = colIndex;
+
+      switch (e.key) {
+        case "ArrowDown": {
+          if (rowIndex >= rows.length - 1) return;
+          targetRow = rowIndex + 1;
+          break;
+        }
+        case "ArrowUp": {
+          if (rowIndex <= 0) return;
+          targetRow = rowIndex - 1;
+          break;
+        }
+        case "ArrowRight": {
+          if (colIndex < unifiedColumns.length - 1) {
+            targetCol = colIndex + 1;
+          } else {
+            // 마지막 컬럼에서 → : 다음 행 첫 컬럼
+            if (rowIndex >= rows.length - 1) return;
+            targetRow = rowIndex + 1;
+            targetCol = 0;
+          }
+          break;
+        }
+        case "ArrowLeft": {
+          if (colIndex > 0) {
+            targetCol = colIndex - 1;
+          } else {
+            // 첫 컬럼에서 ← : 위 행 마지막 컬럼
+            if (rowIndex <= 0) return;
+            targetRow = rowIndex - 1;
+            targetCol = unifiedColumns.length - 1;
+          }
+          break;
+        }
+        default:
+          return; // 다른 키는 기본 동작 유지
+      }
+
+      if (focusCell(targetRow, targetCol)) {
+        e.preventDefault();
+      }
+    }
+
     /* --------------------- 행 삭제 --------------------- */
 
     async function handleDeleteSelectedRows() {
@@ -640,6 +703,8 @@ function createEmptyData(): Record<string, any> {
                         <input
                           className="w-full text-xs bg-transparent outline-none"
                           value={row.data[key] ?? ""}
+                          data-row={rowIndex}
+                          data-col={colIndex}
                           onFocus={(e) => handleFocus(row.id, e)}
                           onChange={(e) => {
                             if (!myRowLocks[row.id]) return;
@@ -654,6 +719,9 @@ function createEmptyData(): Record<string, any> {
                               return copy;
                             });
                           }}
+                          onKeyDown={(e) =>
+                            handleCellKeyDown(e, rowIndex, colIndex)
+                          }
                         />
                       </td>
                     ))}
