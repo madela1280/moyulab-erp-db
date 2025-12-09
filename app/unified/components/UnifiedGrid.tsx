@@ -1,3 +1,4 @@
+// app/unified/components/UnifiedGrid.tsx
 "use client";
 
 import {
@@ -213,7 +214,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         }
 
         const el = document.elementFromPoint(
-          e.clientX,
+         e.clientX,
           e.clientY
         ) as HTMLElement | null;
         if (!el || rowDragAnchor === null) return;
@@ -330,48 +331,60 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const N = Math.max(1, end - start + 1); // 삽입할 행 개수
       const insertPos = end; // 이 인덱스 '아래'에 삽입 (0-based)
 
+      // 선택 범위가 마지막 행까지 포함되면, 단순히 맨 아래에만 추가
+      if (insertPos >= oldLen - 1) {
+        await appendBlankRows(N);
+        setRowContextMenu(null);
+        return;
+      }
+
       // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
       await appendBlankRows(N);
 
-      // 2) 최신 rows 다시 조회
+      // 2) 최신 rows 다시 조회 (id ASC)
       const r = await fetch("/api/unified", { cache: "no-store" });
       const all: UnifiedRow[] = await r.json();
-      const L = all.length; // oldLen + N 이라고 가정
-      const appended = all.slice(oldLen); // 새로 추가된 N개 (맨 아래)
+      const L = all.length; // 일반적으로 oldLen + N
 
-      const next: UnifiedRow[] = new Array(L);
-      const updates: { id: number; data: Record<string, any> }[] = [];
-
-      for (let i = 0; i < L; i++) {
-        let host: UnifiedRow | undefined;
-        let data: Record<string, any>;
-
-        if (i <= insertPos) {
-          // 삽입 위치 위: 기존 행 그대로
-          host = old[i];
-          data = { ...(old[i]?.data ?? {}) };
-        } else if (i > insertPos && i <= insertPos + N) {
-          // 삽입된 N행: 완전 빈행 (새로 추가된 row들을 사용)
-          const idx = i - (insertPos + 1); // 0..N-1
-          host = appended[idx];
-          data = {};
-        } else {
-          // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀려감
-          const srcIndex = i - N;
-          host = old[srcIndex];
-          data = { ...(old[srcIndex]?.data ?? {}) };
-        }
-
-        if (!host) continue;
-
-        next[i] = { ...host, data };
-        updates.push({ id: host.id, data });
+      // 기존 데이터 스냅샷
+      const sourceData: Record<string, any>[] = new Array(oldLen);
+      for (let i = 0; i < oldLen; i++) {
+        sourceData[i] = { ...(old[i]?.data ?? {}) };
       }
 
-      // 3) 화면 먼저 반영
+      // 3) "id 순서는 그대로, data만 재배치"
+      const finalData: Record<string, any>[] = new Array(L);
+      for (let i = 0; i < L; i++) {
+        if (i <= insertPos) {
+          // 삽입 위치 위: 기존 데이터 그대로
+          finalData[i] = { ...(sourceData[i] ?? {}) };
+        } else if (i > insertPos && i <= insertPos + N) {
+          // 삽입된 N행: 완전 빈 행
+          finalData[i] = {};
+        } else {
+          // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀림
+          const srcIndex = i - N;
+          finalData[i] = { ...(sourceData[srcIndex] ?? {}) };
+        }
+      }
+
+      // 4) 화면 먼저 반영
+      const next: UnifiedRow[] = all.map((row, idx) => ({
+        ...row,
+        data: finalData[idx] ?? {},
+      }));
       setRows(next);
 
-      // 4) DB에 행 단위 PATCH
+      // 5) DB에 변경된 행만 PATCH
+      const updates: { id: number; data: Record<string, any> }[] = [];
+      for (let i = 0; i < L; i++) {
+        const before = all[i]?.data ?? {};
+        const after = finalData[i] ?? {};
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          updates.push({ id: all[i].id, data: after });
+        }
+      }
+
       for (const u of updates) {
         await fetch(`/api/unified/${u.id}`, {
           method: "PATCH",
@@ -380,7 +393,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 5) 다른 탭에 알림
+      // 6) 다른 탭에 알림
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
