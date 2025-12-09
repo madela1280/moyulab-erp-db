@@ -326,6 +326,36 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       );
     }
 
+// 1) 셀 유틸 근처에 "셀 컨텍스트 메뉴" 핸들러 추가
+// 위치: handleCellMouseEnter, isCellSelected 바로 아래 정도 (같은 블록)
+
+function handleCellContextMenu(
+  rowIndex: number,
+  colIndex: number,
+  e: React.MouseEvent<HTMLTableCellElement>
+) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // 이미 선택된 셀 범위 안에서 우클릭하면 그대로 유지
+  if (
+    selectedCellRange &&
+    rowIndex >= selectedCellRange.startRow &&
+    rowIndex <= selectedCellRange.endRow &&
+    colIndex >= selectedCellRange.startCol &&
+    colIndex <= selectedCellRange.endCol
+  ) {
+    // do nothing, keep selectedCellRange
+  } else {
+    // 범위 밖에서 우클릭하면 해당 셀만 새로 선택
+    setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+  }
+
+  // 셀 기반 메뉴이므로 행 선택은 초기화
+  setSelectedRowRange(null);
+  setRowContextMenu({ x: e.clientX, y: e.clientY });
+}
+
     function isCellSelected(rowIndex: number, colIndex: number) {
       if (!selectedCellRange) return false;
       const { startRow, endRow, startCol, endCol } = selectedCellRange;
@@ -838,42 +868,37 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                           : " bg-white");
 
                       return (
-                        <td
-                          key={key}
-                          className={dataCellBase}
-                          data-row-index={rowIndex}
-                          data-col-index={colIndex}
-                          onMouseDown={(e) =>
-                            handleCellMouseDown(rowIndex, colIndex, e)
-                          }
-                          onMouseEnter={() =>
-                            handleCellMouseEnter(rowIndex, colIndex)
-                          }
-                        >
-                          <input
-                            className="w-full text-xs bg-transparent outline-none"
-                            value={row.data[key] ?? ""}
-                            data-row={rowIndex}
-                            data-col={colIndex}
-                            onFocus={(e) => handleFocus(row.id, e)}
-                            onChange={(e) => {
-                              if (!myRowLocks[row.id]) return;
-                              updateLocalCell(row.id, key, e.target.value);
-                            }}
-                            onBlur={(e) => {
-                              saveCell(row.id, key, e.target.value);
-                              releaseLock("unified", row.id);
-                              setMyRowLocks((prev) => {
-                                const copy = { ...prev };
-                                delete copy[row.id];
-                                return copy;
-                              });
-                            }}
-                            onKeyDown={(e) =>
-                              handleCellKeyDown(e, rowIndex, colIndex)
-                            }
-                          />
-                        </td>
+                     <td
+  key={key}
+  className={dataCellBase}
+  data-row-index={rowIndex}
+  data-col-index={colIndex}
+  onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
+  onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
+  onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
+>
+  <input
+    className="w-full text-xs bg-transparent outline-none"
+    value={row.data[key] ?? ""}
+    data-row={rowIndex}
+    data-col={colIndex}
+    onFocus={(e) => handleFocus(row.id, e)}
+    onChange={(e) => {
+      if (!myRowLocks[row.id]) return;
+      updateLocalCell(row.id, key, e.target.value);
+    }}
+    onBlur={(e) => {
+      saveCell(row.id, key, e.target.value);
+      releaseLock("unified", row.id);
+      setMyRowLocks((prev) => {
+        const copy = { ...prev };
+        delete copy[row.id];
+        return copy;
+      });
+    }}
+    onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+  />
+</td>   
                       );
                     })}
                   </tr>
