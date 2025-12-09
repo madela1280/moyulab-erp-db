@@ -54,6 +54,15 @@ const unifiedColumns = [
 // 항상 DB에 최소로 유지할 실제 행 개수
 const MIN_REAL_ROWS = 100;
 
+// 삽입용 완전 빈 data 생성
+function createEmptyData(): Record<string, any> {
+  const obj: Record<string, any> = {};
+  unifiedColumns.forEach((key) => {
+    obj[key] = "";
+  });
+  return obj;
+}
+
 type UnifiedGridProps = {};
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
@@ -68,6 +77,19 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     } | null>(null);
     const [isRowDragging, setIsRowDragging] = useState(false);
     const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
+
+    // 셀 범위 선택 상태 (사각형)
+    const [selectedCellRange, setSelectedCellRange] = useState<{
+      startRow: number;
+      endRow: number;
+      startCol: number;
+      endCol: number;
+    } | null>(null);
+    const [isCellDragging, setIsCellDragging] = useState(false);
+    const [cellDragAnchor, setCellDragAnchor] = useState<{
+      row: number;
+      col: number;
+    } | null>(null);
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,7 +236,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         }
 
         const el = document.elementFromPoint(
-         e.clientX,
+          e.clientX,
           e.clientY
         ) as HTMLElement | null;
         if (!el || rowDragAnchor === null) return;
@@ -248,6 +270,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       function handleWindowMouseUp() {
         setIsRowDragging(false);
         setRowDragAnchor(null);
+        setIsCellDragging(false);
+        setCellDragAnchor(null);
       }
       window.addEventListener("mouseup", handleWindowMouseUp);
       return () => window.removeEventListener("mouseup", handleWindowMouseUp);
@@ -257,6 +281,59 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       if (!selectedRowRange) return false;
       return (
         rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end
+      );
+    }
+
+    /* --------------------- 셀 범위 선택 유틸 --------------------- */
+
+    function setCellRangeByPoints(
+      r1: number,
+      c1: number,
+      r2: number,
+      c2: number
+    ) {
+      const startRow = Math.max(0, Math.min(r1, r2));
+      const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
+      const startCol = Math.max(0, Math.min(c1, c2));
+      const endCol = Math.min(unifiedColumns.length - 1, Math.max(c1, c2));
+
+      setSelectedCellRange({ startRow, endRow, startCol, endCol });
+      setSelectedRowRange({ start: startRow, end: endRow });
+    }
+
+    function handleCellMouseDown(
+      rowIndex: number,
+      colIndex: number,
+      e: React.MouseEvent<HTMLTableCellElement>
+    ) {
+      if (e.button !== 0) return; // 좌클릭만
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT") return;
+
+      setIsCellDragging(true);
+      setCellDragAnchor({ row: rowIndex, col: colIndex });
+      setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+      setRowContextMenu(null);
+    }
+
+    function handleCellMouseEnter(rowIndex: number, colIndex: number) {
+      if (!isCellDragging || !cellDragAnchor) return;
+      setCellRangeByPoints(
+        cellDragAnchor.row,
+        cellDragAnchor.col,
+        rowIndex,
+        colIndex
+      );
+    }
+
+    function isCellSelected(rowIndex: number, colIndex: number) {
+      if (!selectedCellRange) return false;
+      const { startRow, endRow, startCol, endCol } = selectedCellRange;
+      return (
+        rowIndex >= startRow &&
+        rowIndex <= endRow &&
+        colIndex >= startCol &&
+        colIndex <= endCol
       );
     }
 
@@ -287,6 +364,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       if (!isRowSelected(rowIndex)) {
         setSelectedRowRange({ start: rowIndex, end: rowIndex });
       }
+      setSelectedCellRange(null);
       setRowContextMenu({ x: e.clientX, y: e.clientY });
     }
 
@@ -342,8 +420,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 2) 최신 rows 다시 조회 (id ASC)
       const r = await fetch("/api/unified", { cache: "no-store" });
       const all: UnifiedRow[] = await r.json();
-      const L = all.length;      // = oldLen + N
-      const baseLen = L - N;     // 삽입 전 실제 행 개수 (= oldLen)
+      const L = all.length; // = oldLen + N
+      const baseLen = L - N; // 삽입 전 실제 행 개수 (= oldLen)
 
       // 기존 데이터 스냅샷: "삽입 전" 기준 데이터
       const baseData: Record<string, any>[] = new Array(baseLen);
@@ -395,16 +473,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 6) 다른 탭에 알림 (최종 1번만)
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
-    }         
-
-// unifiedColumns 정의 바로 아래 등, 컴포넌트 밖에 추가
-function createEmptyData(): Record<string, any> {
-  const obj: Record<string, any> = {};
-  unifiedColumns.forEach((key) => {
-    obj[key] = "";
-  });
-  return obj;
-}
+    }
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
 
@@ -643,6 +712,7 @@ function createEmptyData(): Record<string, any> {
           )
             return;
           setSelectedRowRange(null);
+          setSelectedCellRange(null);
           setRowContextMenu(null);
         }}
       >
@@ -662,7 +732,7 @@ function createEmptyData(): Record<string, any> {
               </tr>
             </thead>
 
-                        <tbody>
+            <tbody>
               {rows.map((row, rowIndex) => {
                 const rowSelected = isRowSelected(rowIndex);
 
