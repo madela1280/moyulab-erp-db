@@ -719,11 +719,20 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setRowContextMenu(null);
     }
 
-    /* --------------------- 붙여넣기 (행 단위, 기존 그대로) --------------------- */
+    /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
 
     async function handlePasteToSelectedRowsFromClipboard() {
-      const { start } = getSelectedRowRangeInfo();
-      const baseRowIndex = start >= 0 ? start : 0;
+      let baseRowIndex: number;
+      let baseColIndex: number;
+
+      if (selectedCellRange) {
+        baseRowIndex = selectedCellRange.startRow;
+        baseColIndex = selectedCellRange.startCol;
+      } else {
+        const { start } = getSelectedRowRangeInfo();
+        baseRowIndex = start >= 0 ? start : 0;
+        baseColIndex = 0;
+      }
 
       let text = "";
       try {
@@ -764,18 +773,22 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const next = [...fresh];
       const updates: { id: number; data: Record<string, any> }[] = [];
 
-      for (let offset = 0; offset < lineCount; offset++) {
-        const rowIndex = baseRowIndex + offset;
+      for (let rowOffset = 0; rowOffset < lineCount; rowOffset++) {
+        const rowIndex = baseRowIndex + rowOffset;
         const row = next[rowIndex];
         if (!row) continue;
 
-        const src = parsed[offset];
+        const srcRow = parsed[rowOffset];
         const newData: Record<string, any> = { ...row.data };
 
-        unifiedColumns.forEach((key, colIndex) => {
-          const v = src[colIndex] ?? "";
+        for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
+          const colIndex = baseColIndex + colOffset;
+          if (colIndex >= unifiedColumns.length) break;
+
+          const key = unifiedColumns[colIndex];
+          const v = srcRow[colOffset] ?? "";
           newData[key] = v;
-        });
+        }
 
         next[rowIndex] = { ...row, data: newData };
         updates.push({ id: row.id, data: newData });
@@ -972,6 +985,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                   onClick={handleCopySelectedRowsToClipboard}
                 >
                   복사(클립보드)
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handlePasteToSelectedRowsFromClipboard}
+                >
+                  붙여넣기(클립보드)
                 </button>
               </>
             )}
