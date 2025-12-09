@@ -93,11 +93,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
-    // 행 컨텍스트 메뉴
+    // 컨텍스트 메뉴 위치 + 모드(row / cell)
     const [rowContextMenu, setRowContextMenu] = useState<{
       x: number;
       y: number;
     } | null>(null);
+    const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">(
+      "row"
+    );
 
     /* --------------------- 최소 100개 실제 행 확보 --------------------- */
     async function ensureMinRows() {
@@ -228,7 +231,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
         const container = scrollRef.current;
         const rect = container.getBoundingClientRect();
-        const margin = 40;
+        the const margin = 40;
         const speed = 20;
 
         if (e.clientY > rect.bottom - margin) {
@@ -326,35 +329,33 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       );
     }
 
-// 1) 셀 유틸 근처에 "셀 컨텍스트 메뉴" 핸들러 추가
-// 위치: handleCellMouseEnter, isCellSelected 바로 아래 정도 (같은 블록)
+    function handleCellContextMenu(
+      rowIndex: number,
+      colIndex: number,
+      e: React.MouseEvent<HTMLTableCellElement>
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
 
-function handleCellContextMenu(
-  rowIndex: number,
-  colIndex: number,
-  e: React.MouseEvent<HTMLTableCellElement>
-) {
-  e.preventDefault();
-  e.stopPropagation();
+      // 이미 선택된 셀 범위 안에서 우클릭하면 그대로 유지
+      if (
+        selectedCellRange &&
+        rowIndex >= selectedCellRange.startRow &&
+        rowIndex <= selectedCellRange.endRow &&
+        colIndex >= selectedCellRange.startCol &&
+        colIndex <= selectedCellRange.endCol
+      ) {
+        // keep selection
+      } else {
+        // 범위 밖에서 우클릭하면 해당 셀만 새로 선택
+        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+      }
 
-  // 이미 선택된 셀 범위 안에서 우클릭하면 그대로 유지
-  if (
-    selectedCellRange &&
-    rowIndex >= selectedCellRange.startRow &&
-    rowIndex <= selectedCellRange.endRow &&
-    colIndex >= selectedCellRange.startCol &&
-    colIndex <= selectedCellRange.endCol
-  ) {
-    // do nothing, keep selectedCellRange
-  } else {
-    // 범위 밖에서 우클릭하면 해당 셀만 새로 선택
-    setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-  }
-
-  // 셀 기반 메뉴이므로 행 선택은 초기화
-  setSelectedRowRange(null);
-  setRowContextMenu({ x: e.clientX, y: e.clientY });
-}
+      // 셀 기반 메뉴이므로 행 선택은 초기화, 모드는 "cell"
+      setSelectedRowRange(null);
+      setContextMenuMode("cell");
+      setRowContextMenu({ x: e.clientX, y: e.clientY });
+    }
 
     function isCellSelected(rowIndex: number, colIndex: number) {
       if (!selectedCellRange) return false;
@@ -395,6 +396,7 @@ function handleCellContextMenu(
         setSelectedRowRange({ start: rowIndex, end: rowIndex });
       }
       setSelectedCellRange(null);
+      setContextMenuMode("row");
       setRowContextMenu({ x: e.clientX, y: e.clientY });
     }
 
@@ -868,37 +870,45 @@ function handleCellContextMenu(
                           : " bg-white");
 
                       return (
-                     <td
-  key={key}
-  className={dataCellBase}
-  data-row-index={rowIndex}
-  data-col-index={colIndex}
-  onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
-  onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
-  onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
->
-  <input
-    className="w-full text-xs bg-transparent outline-none"
-    value={row.data[key] ?? ""}
-    data-row={rowIndex}
-    data-col={colIndex}
-    onFocus={(e) => handleFocus(row.id, e)}
-    onChange={(e) => {
-      if (!myRowLocks[row.id]) return;
-      updateLocalCell(row.id, key, e.target.value);
-    }}
-    onBlur={(e) => {
-      saveCell(row.id, key, e.target.value);
-      releaseLock("unified", row.id);
-      setMyRowLocks((prev) => {
-        const copy = { ...prev };
-        delete copy[row.id];
-        return copy;
-      });
-    }}
-    onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-  />
-</td>   
+                        <td
+                          key={key}
+                          className={dataCellBase}
+                          data-row-index={rowIndex}
+                          data-col-index={colIndex}
+                          onMouseDown={(e) =>
+                            handleCellMouseDown(rowIndex, colIndex, e)
+                          }
+                          onMouseEnter={() =>
+                            handleCellMouseEnter(rowIndex, colIndex)
+                          }
+                          onContextMenu={(e) =>
+                            handleCellContextMenu(rowIndex, colIndex, e)
+                          }
+                        >
+                          <input
+                            className="w-full text-xs bg-transparent outline-none"
+                            value={row.data[key] ?? ""}
+                            data-row={rowIndex}
+                            data-col={colIndex}
+                            onFocus={(e) => handleFocus(row.id, e)}
+                            onChange={(e) => {
+                              if (!myRowLocks[row.id]) return;
+                              updateLocalCell(row.id, key, e.target.value);
+                            }}
+                            onBlur={(e) => {
+                              saveCell(row.id, key, e.target.value);
+                              releaseLock("unified", row.id);
+                              setMyRowLocks((prev) => {
+                                const copy = { ...prev };
+                                delete copy[row.id];
+                                return copy;
+                              });
+                            }}
+                            onKeyDown={(e) =>
+                              handleCellKeyDown(e, rowIndex, colIndex)
+                            }
+                          />
+                        </td>
                       );
                     })}
                   </tr>
@@ -914,36 +924,57 @@ function handleCellContextMenu(
             style={{ top: rowContextMenu.y, left: rowContextMenu.x }}
             data-context-menu="1"
           >
-            <button
-              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
-              onClick={handleInsertRows}
-            >
-              행 삽입
-            </button>
-            <button
-              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
-              onClick={handleDeleteSelectedRows}
-            >
-              행 삭제
-            </button>
-            <button
-              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
-              onClick={handleClearSelectedRows}
-            >
-              내용 지우기
-            </button>
-            <button
-              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
-              onClick={handleCopySelectedRowsToClipboard}
-            >
-              복사(클립보드)
-            </button>
-            <button
-              className="block w-full text-left px-3 py-1 hover:bg-gray-100"
-              onClick={handlePasteToSelectedRowsFromClipboard}
-            >
-              붙여넣기(클립보드)
-            </button>
+            {contextMenuMode === "row" && (
+              <>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleInsertRows}
+                >
+                  행 삽입
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleDeleteSelectedRows}
+                >
+                  행 삭제
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleClearSelectedRows}
+                >
+                  내용 지우기
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleCopySelectedRowsToClipboard}
+                >
+                  복사(클립보드)
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handlePasteToSelectedRowsFromClipboard}
+                >
+                  붙여넣기(클립보드)
+                </button>
+              </>
+            )}
+
+            {contextMenuMode === "cell" && (
+              <>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleClearSelectedRows}
+                >
+                  내용 지우기
+                </button>
+                <button
+                  className="block w-full text-left px-3 py-1 hover:bg-gray-100"
+                  onClick={handleCopySelectedRowsToClipboard}
+                >
+                  복사(클립보드)
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
