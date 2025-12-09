@@ -196,7 +196,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
-        function handleRowHeaderMouseDown(
+    function handleRowHeaderMouseDown(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
@@ -204,7 +204,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setIsRowDragging(true);
       setRowDragAnchor(rowIndex);
       setSelectedRowRange({ start: rowIndex, end: rowIndex });
-      // 행 헤더 클릭하면 기존 셀 선택은 해제
+      // 행 헤더 클릭하면 셀 선택은 초기화
       setSelectedCellRange(null);
       setRowContextMenu(null);
     }
@@ -288,7 +288,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 셀 범위 선택 유틸 --------------------- */
 
-       function setCellRangeByPoints(
+    function setCellRangeByPoints(
       r1: number,
       c1: number,
       r2: number,
@@ -299,11 +299,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const startCol = Math.max(0, Math.min(c1, c2));
       const endCol = Math.min(unifiedColumns.length - 1, Math.max(c1, c2));
 
-      // 셀 범위만 관리 (행 선택과는 분리)
+      // 셀 범위만 관리 (행 선택과 분리)
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
     }
 
-   function handleCellMouseDown(
+    function handleCellMouseDown(
       rowIndex: number,
       colIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
@@ -559,9 +559,45 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       await reload();
     }
 
-    /* --------------------- 내용 지우기 (행 단위 PATCH) --------------------- */
+    /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
     async function handleClearSelectedRows() {
+      // 1) 셀 범위가 있으면 셀만 지우기
+      if (selectedCellRange) {
+        const { startRow, endRow, startCol, endCol } = selectedCellRange;
+
+        const next = [...rows];
+        const updates: { id: number; data: Record<string, any> }[] = [];
+
+        for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
+          const row = next[rIndex];
+          if (!row) continue;
+
+          const newData: Record<string, any> = { ...row.data };
+          for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+            const colKey = unifiedColumns[cIndex];
+            if (colKey) newData[colKey] = "";
+          }
+          next[rIndex] = { ...row, data: newData };
+          updates.push({ id: row.id, data: newData });
+        }
+
+        setRows(next);
+
+        for (const u of updates) {
+          await fetch(`/api/unified/${u.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(u.data),
+          });
+        }
+
+        syncEmitUnifiedUpdate();
+        setRowContextMenu(null);
+        return;
+      }
+
+      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
       const { start, end, slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -596,9 +632,39 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setRowContextMenu(null);
     }
 
-    /* --------------------- 복사/붙여넣기 (행 단위 PATCH, 자동 행 추가) --------------------- */
+    /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
 
     async function handleCopySelectedRowsToClipboard() {
+      // 1) 셀 범위가 있으면, 그 셀들만 복사
+      if (selectedCellRange) {
+        const { startRow, endRow, startCol, endCol } = selectedCellRange;
+
+        const lines: string[] = [];
+        for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
+          const row = rows[rIndex];
+          if (!row) continue;
+          const cells: string[] = [];
+          for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+            const colKey = unifiedColumns[cIndex];
+            const v = (row.data[colKey] ?? "") as string;
+            cells.push(v);
+          }
+          lines.push(cells.join("\t"));
+        }
+
+        const text = lines.join("\n");
+
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (e) {
+          console.error(e);
+        }
+
+        setRowContextMenu(null);
+        return;
+      }
+
+      // 2) 셀 범위가 없으면 기존처럼 행 전체 복사
       const { slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -620,6 +686,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
       setRowContextMenu(null);
     }
+
+    /* --------------------- 붙여넣기 (행 단위, 기존 그대로) --------------------- */
 
     async function handlePasteToSelectedRowsFromClipboard() {
       const { start } = getSelectedRowRangeInfo();
