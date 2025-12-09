@@ -662,7 +662,7 @@ function createEmptyData(): Record<string, any> {
               </tr>
             </thead>
 
-            <tbody>
+                        <tbody>
               {rows.map((row, rowIndex) => {
                 const rowSelected = isRowSelected(rowIndex);
 
@@ -671,10 +671,6 @@ function createEmptyData(): Record<string, any> {
                   (rowSelected
                     ? " bg-blue-200 text-gray-800"
                     : " bg-gray-100 text-gray-500");
-
-                const dataCellBase =
-                  "border px-2 py-[3px]" +
-                  (rowSelected ? " bg-blue-50" : " bg-white");
 
                 return (
                   <tr key={row.id}>
@@ -693,38 +689,55 @@ function createEmptyData(): Record<string, any> {
                       {rowIndex + 1}
                     </td>
 
-                    {unifiedColumns.map((key, colIndex) => (
-                      <td
-                        key={key}
-                        className={dataCellBase}
-                        data-row-index={rowIndex}
-                        data-col-index={colIndex}
-                      >
-                        <input
-                          className="w-full text-xs bg-transparent outline-none"
-                          value={row.data[key] ?? ""}
-                          data-row={rowIndex}
-                          data-col={colIndex}
-                          onFocus={(e) => handleFocus(row.id, e)}
-                          onChange={(e) => {
-                            if (!myRowLocks[row.id]) return;
-                            updateLocalCell(row.id, key, e.target.value);
-                          }}
-                          onBlur={(e) => {
-                            saveCell(row.id, key, e.target.value);
-                            releaseLock("unified", row.id);
-                            setMyRowLocks((prev) => {
-                              const copy = { ...prev };
-                              delete copy[row.id];
-                              return copy;
-                            });
-                          }}
-                          onKeyDown={(e) =>
-                            handleCellKeyDown(e, rowIndex, colIndex)
+                    {unifiedColumns.map((key, colIndex) => {
+                      const cellSelected = isCellSelected(rowIndex, colIndex);
+                      const dataCellBase =
+                        "border px-2 py-[3px]" +
+                        (cellSelected
+                          ? " bg-blue-200"
+                          : rowSelected
+                          ? " bg-blue-50"
+                          : " bg-white");
+
+                      return (
+                        <td
+                          key={key}
+                          className={dataCellBase}
+                          data-row-index={rowIndex}
+                          data-col-index={colIndex}
+                          onMouseDown={(e) =>
+                            handleCellMouseDown(rowIndex, colIndex, e)
                           }
-                        />
-                      </td>
-                    ))}
+                          onMouseEnter={() =>
+                            handleCellMouseEnter(rowIndex, colIndex)
+                          }
+                        >
+                          <input
+                            className="w-full text-xs bg-transparent outline-none"
+                            value={row.data[key] ?? ""}
+                            data-row={rowIndex}
+                            data-col={colIndex}
+                            onFocus={(e) => handleFocus(row.id, e)}
+                            onChange={(e) => {
+                              if (!myRowLocks[row.id]) return;
+                              updateLocalCell(row.id, key, e.target.value);
+                            }}
+                            onBlur={(e) => {
+                              saveCell(row.id, key, e.target.value);
+                              releaseLock("unified", row.id);
+                              setMyRowLocks((prev) => {
+                                const copy = { ...prev };
+                                delete copy[row.id];
+                                return copy;
+                              });
+                            }}
+                            onKeyDown={(e) =>
+                              handleCellKeyDown(e, rowIndex, colIndex)
+                            }
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
