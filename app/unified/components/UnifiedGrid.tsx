@@ -301,14 +301,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       setSelectedRowRange({ start: startRow, end: endRow });
     }
 
-    function handleCellMouseDown(
+   function handleCellMouseDown(
       rowIndex: number,
       colIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
       if (e.button !== 0) return; // 좌클릭만
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT") return;
 
       setIsCellDragging(true);
       setCellDragAnchor({ row: rowIndex, col: colIndex });
