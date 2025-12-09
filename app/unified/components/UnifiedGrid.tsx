@@ -358,9 +358,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         if (i <= insertPos) {
           // 삽입 위치 위: 기존 데이터 그대로
           finalData[i] = { ...(sourceData[i] ?? {}) };
-        } else if (i > insertPos && i <= insertPos + N) {
-          // 삽입된 N행: 완전 빈 행
-          finalData[i] = {};
+                } else if (i > insertPos && i <= insertPos + N) {
+          // 삽입된 N행: 모든 통합관리 컬럼을 빈 문자열로 채운 완전 빈 행
+          finalData[i] = createEmptyData();
         } else {
           // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀림
           const srcIndex = i - N;
@@ -397,6 +397,15 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
+
+// unifiedColumns 정의 바로 아래 등, 컴포넌트 밖에 추가
+function createEmptyData(): Record<string, any> {
+  const obj: Record<string, any> = {};
+  unifiedColumns.forEach((key) => {
+    obj[key] = "";
+  });
+  return obj;
+}
 
     /* --------------------- 행 삭제 --------------------- */
 
