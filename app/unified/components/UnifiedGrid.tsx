@@ -231,7 +231,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
         const container = scrollRef.current;
         const rect = container.getBoundingClientRect();
-        the const margin = 40;
+        const margin = 40;
         const speed = 20;
 
         if (e.clientY > rect.bottom - margin) {
