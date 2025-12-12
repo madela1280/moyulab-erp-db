@@ -5,6 +5,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -14,6 +15,8 @@ import {
   syncEmitUnifiedUpdate,
 } from "@/global-sync/sync-engine";
 import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
+import { UNIFIED_COLUMNS } from "@/unified/columns/unifiedColumns";
+import ColumnHeaderControls from "@/unified/components/ColumnHeaderControls";
 
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
@@ -21,52 +24,49 @@ export type UnifiedGridHandle = {
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
-const unifiedColumns = [
-  "거래처분류",
-  "상태",
-  "안내분류",
-  "구매/렌탈",
-  "기기번호",
-  "기종",
-  "에러횟수",
-  "제품",
-  "수취인명",
-  "연락처1",
-  "연락처2",
-  "계약자주소",
-  "택배발송일",
-  "시작일",
-  "종료일",
-  "반납요청일",
-  "반납완료일",
-  "특이사항1",
-  "특이사항2",
-  "총연장횟수",
-  "신청일",
-  "0차연장",
-  "1차연장",
-  "2차연장",
-  "3차연장",
-  "4차연장",
-  "5차연장",
-];
-
 // 항상 DB에 최소로 유지할 실제 행 개수
 const MIN_REAL_ROWS = 100;
 
-// 삽입용 완전 빈 data 생성
-function createEmptyData(): Record<string, any> {
+// 삽입/초기화용 완전 빈 data 생성 (현재 화면 컬럼 기준)
+function createEmptyDataFor(columns: string[]): Record<string, any> {
   const obj: Record<string, any> = {};
-  unifiedColumns.forEach((key) => {
+  columns.forEach((key) => {
     obj[key] = "";
   });
   return obj;
 }
 
-type UnifiedGridProps = {};
+type UnifiedGridProps = {
+  // 열 편집(이동/폭) 모드
+  isColumnEditMode?: boolean;
+
+  // 현재 화면에 보일 컬럼 순서(=양식/컬럼 구성 결과)
+  columnOrder?: string[];
+
+  // 폭 설정(unit/px) + 핸들러
+  colWidthUnitByKey?: Record<string, number>;
+  colWidthPxByKey?: Record<string, number>;
+  onMoveColumnLeft?: (key: string) => void;
+  onMoveColumnRight?: (key: string) => void;
+  onChangeColumnWidthUnit?: (key: string, unit: number) => void;
+};
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
-  function UnifiedGrid(_props, ref) {
+  function UnifiedGrid(props, ref) {
+    const unifiedColumns = useMemo(
+      () => (UNIFIED_COLUMNS as unknown as string[]),
+      []
+    );
+
+    // columnOrder가 없으면 기본 컬럼
+    const viewColumns = useMemo(() => {
+      return props.columnOrder && props.columnOrder.length
+        ? props.columnOrder
+        : unifiedColumns;
+    }, [props.columnOrder, unifiedColumns]);
+
+    const isColumnEditMode = props.isColumnEditMode ?? false;
+
     const [rows, setRows] = useState<UnifiedRow[]>([]);
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
@@ -101,6 +101,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">(
       "row"
     );
+
+    // 열 순서가 바뀌면 선택(인덱스 기반)이 꼬일 수 있으니 초기화
+    useEffect(() => {
+      setSelectedRowRange(null);
+      setSelectedCellRange(null);
+      setRowContextMenu(null);
+    }, [viewColumns]);
 
     /* --------------------- 최소 100개 실제 행 확보 --------------------- */
     async function ensureMinRows() {
@@ -198,7 +205,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
-
     function handleRowHeaderMouseDown(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
@@ -290,7 +296,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 셀 범위 선택 유틸 --------------------- */
-
     function setCellRangeByPoints(
       r1: number,
       c1: number,
@@ -300,9 +305,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const startRow = Math.max(0, Math.min(r1, r2));
       const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
       const startCol = Math.max(0, Math.min(c1, c2));
-      const endCol = Math.min(unifiedColumns.length - 1, Math.max(c1, c2));
+      const endCol = Math.min(viewColumns.length - 1, Math.max(c1, c2));
 
-      // 셀 범위만 관리 (행 선택과 분리)
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
     }
 
@@ -337,7 +341,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       e.preventDefault();
       e.stopPropagation();
 
-      // 이미 선택된 셀 범위 안에서 우클릭하면 그대로 유지
       if (
         selectedCellRange &&
         rowIndex >= selectedCellRange.startRow &&
@@ -345,13 +348,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         colIndex >= selectedCellRange.startCol &&
         colIndex <= selectedCellRange.endCol
       ) {
-        // keep selection
+        // keep
       } else {
-        // 범위 밖에서 우클릭하면 해당 셀만 새로 선택
         setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
       }
 
-      // 셀 기반 메뉴이므로 행 선택은 초기화, 모드는 "cell"
       setSelectedRowRange(null);
       setContextMenuMode("cell");
       setRowContextMenu({ x: e.clientX, y: e.clientY });
@@ -369,7 +370,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 선택된 행 범위 유틸 --------------------- */
-
     function getSelectedRowRangeInfo() {
       if (!selectedRowRange)
         return { start: 0, end: -1, slice: [] as UnifiedRow[] };
@@ -384,7 +384,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 행 컨텍스트 메뉴 --------------------- */
-
     function handleRowHeaderContextMenu(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
@@ -416,11 +415,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }, []);
 
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
-
     async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
 
-      // 선택이 없으면 현재 selectedRowRange 사용
       if (end < start) {
         if (!selectedRowRange) {
           setRowContextMenu(null);
@@ -437,10 +434,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      const N = Math.max(1, end - start + 1); // 삽입할 행 개수
+      const N = Math.max(1, end - start + 1);
 
-      // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
-      //    → 깜빡임 줄이기 위해 여기서는 reload / syncEmitUnifiedUpdate를 호출하지 않음
+      // 1) 새 빈 행 N개를 DB에 추가
       for (let i = 0; i < N; i++) {
         await fetch("/api/unified", {
           method: "POST",
@@ -452,26 +448,22 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       // 2) 최신 rows 다시 조회 (id ASC)
       const r = await fetch("/api/unified", { cache: "no-store" });
       const all: UnifiedRow[] = await r.json();
-      const L = all.length; // = oldLen + N
-      const baseLen = L - N; // 삽입 전 실제 행 개수 (= oldLen)
+      const L = all.length;
+      const baseLen = L - N;
 
-      // 기존 데이터 스냅샷: "삽입 전" 기준 데이터
       const baseData: Record<string, any>[] = new Array(baseLen);
       for (let i = 0; i < baseLen; i++) {
         baseData[i] = { ...(all[i]?.data ?? {}) };
       }
 
-      // 3) "id 순서는 그대로, data만 재배치 (start 위치에 N행 끼워 넣기)"
+      // 3) data 재배치
       const finalData: Record<string, any>[] = new Array(L);
       for (let i = 0; i < L; i++) {
         if (i < start) {
-          // 삽입 위치 위: 기존 데이터 그대로
           finalData[i] = { ...(baseData[i] ?? {}) };
         } else if (i >= start && i < start + N) {
-          // 삽입된 N행: 모든 통합관리 컬럼을 빈 문자열로 채운 완전 빈 행
-          finalData[i] = createEmptyData();
+          finalData[i] = createEmptyDataFor(viewColumns);
         } else {
-          // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀림
           const srcIndex = i - N;
           finalData[i] = { ...(baseData[srcIndex] ?? {}) };
         }
@@ -502,13 +494,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
       }
 
-      // 6) 다른 탭에 알림 (최종 1번만)
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
-
     function focusCell(rowIndex: number, colIndex: number) {
       const selector = `input[data-row="${rowIndex}"][data-col="${colIndex}"]`;
       const el = document.querySelector<HTMLInputElement>(selector);
@@ -540,10 +530,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           break;
         }
         case "ArrowRight": {
-          if (colIndex < unifiedColumns.length - 1) {
+          if (colIndex < viewColumns.length - 1) {
             targetCol = colIndex + 1;
           } else {
-            // 마지막 컬럼에서 → : 다음 행 첫 컬럼
             if (rowIndex >= rows.length - 1) return;
             targetRow = rowIndex + 1;
             targetCol = 0;
@@ -554,15 +543,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           if (colIndex > 0) {
             targetCol = colIndex - 1;
           } else {
-            // 첫 컬럼에서 ← : 위 행 마지막 컬럼
             if (rowIndex <= 0) return;
             targetRow = rowIndex - 1;
-            targetCol = unifiedColumns.length - 1;
+            targetCol = viewColumns.length - 1;
           }
           break;
         }
         default:
-          return; // 다른 키는 기본 동작 유지
+          return;
       }
 
       if (focusCell(targetRow, targetCol)) {
@@ -571,7 +559,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 행 삭제 --------------------- */
-
     async function handleDeleteSelectedRows() {
       const { slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
@@ -592,7 +579,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
-
     async function handleClearSelectedRows() {
       // 1) 셀 범위가 있으면 셀만 지우기
       if (selectedCellRange) {
@@ -607,7 +593,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
           const newData: Record<string, any> = { ...row.data };
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-            const colKey = unifiedColumns[cIndex];
+            const colKey = viewColumns[cIndex];
             if (colKey) newData[colKey] = "";
           }
           next[rIndex] = { ...row, data: newData };
@@ -629,7 +615,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+      // 2) 셀 범위가 없으면 행 전체 지우기(현재 화면 컬럼 기준)
       const { start, end, slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -643,7 +629,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         const row = next[i];
         if (!row) continue;
         const newData: Record<string, any> = { ...row.data };
-        unifiedColumns.forEach((key) => {
+        viewColumns.forEach((key) => {
           newData[key] = "";
         });
         next[i] = { ...row, data: newData };
@@ -665,9 +651,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
-
     async function handleCopySelectedRowsToClipboard() {
-      // 1) 셀 범위가 있으면, 그 셀들만 복사
       if (selectedCellRange) {
         const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
@@ -677,7 +661,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           if (!row) continue;
           const cells: string[] = [];
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-            const colKey = unifiedColumns[cIndex];
+            const colKey = viewColumns[cIndex];
             const v = (row.data[colKey] ?? "") as string;
             cells.push(v);
           }
@@ -696,7 +680,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      // 2) 셀 범위가 없으면 기존처럼 행 전체 복사
       const { slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -704,9 +687,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const lines = slice.map((row) =>
-        unifiedColumns
-          .map((key) => (row.data[key] ?? "") as string)
-          .join("\t")
+        viewColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
       );
       const text = lines.join("\n");
 
@@ -720,7 +701,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
-
     async function handlePasteToSelectedRowsFromClipboard() {
       let baseRowIndex: number;
       let baseColIndex: number;
@@ -761,7 +741,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const lineCount = parsed.length;
 
       const requiredRowCount = baseRowIndex + lineCount;
-
       if (requiredRowCount > rows.length) {
         const need = requiredRowCount - rows.length;
         await appendBlankRows(need);
@@ -783,9 +762,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
         for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
           const colIndex = baseColIndex + colOffset;
-          if (colIndex >= unifiedColumns.length) break;
+          if (colIndex >= viewColumns.length) break;
 
-          const key = unifiedColumns[colIndex];
+          const key = viewColumns[colIndex];
           const v = srcRow[colOffset] ?? "";
           newData[key] = v;
         }
@@ -834,12 +813,36 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
         >
           <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
+            <colgroup>
+              <col style={{ width: 40 }} />
+              {viewColumns.map((c) => (
+                <col
+                  key={c}
+                  style={{ width: props.colWidthPxByKey?.[c] ?? 200 }}
+                />
+              ))}
+            </colgroup>
+
             <thead className="bg-gray-100 sticky top-0 z-10">
               <tr>
                 <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-                {unifiedColumns.map((c) => (
+                {viewColumns.map((c, idx) => (
                   <th key={c} className="border px-2 py-[3px]">
-                    {c}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">{c}</span>
+
+                      <ColumnHeaderControls
+                        visible={isColumnEditMode}
+                        canMoveLeft={idx > 0}
+                        canMoveRight={idx < viewColumns.length - 1}
+                        onMoveLeft={() => props.onMoveColumnLeft?.(c)}
+                        onMoveRight={() => props.onMoveColumnRight?.(c)}
+                        widthUnit={props.colWidthUnitByKey?.[c] ?? 20}
+                        onWidthUnitChange={(n) =>
+                          props.onChangeColumnWidthUnit?.(c, n)
+                        }
+                      />
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -872,7 +875,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                       {rowIndex + 1}
                     </td>
 
-                    {unifiedColumns.map((key, colIndex) => {
+                    {viewColumns.map((key, colIndex) => {
                       const cellSelected = isCellSelected(rowIndex, colIndex);
                       const dataCellBase =
                         "border px-2 py-[3px]" +
