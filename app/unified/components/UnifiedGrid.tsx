@@ -1,6 +1,7 @@
 // app/unified/components/UnifiedGrid.tsx
 "use client";
 
+import type React from "react";
 import {
   forwardRef,
   useEffect,
@@ -63,12 +64,69 @@ function createEmptyData(): Record<string, any> {
   return obj;
 }
 
-type UnifiedGridProps = {};
+type UnifiedGridProps = {
+  isColumnEditMode?: boolean;
+};
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
-  function UnifiedGrid(_props, ref) {
+  function UnifiedGrid(props, ref) {
     const [rows, setRows] = useState<UnifiedRow[]>([]);
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
+
+    // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
+    const isColumnEditMode = !!props.isColumnEditMode;
+
+    const [columnOrder, setColumnOrder] = useState<string[]>(() => [
+      ...unifiedColumns,
+    ]);
+
+    // 폭 unit: 20이 기준(기존 느낌), 1이면 1/20 수준
+    const [colWidthUnitByKey, setColWidthUnitByKey] = useState<
+      Record<string, number>
+    >(() => {
+      const obj: Record<string, number> = {};
+      unifiedColumns.forEach((c) => (obj[c] = 20));
+      return obj;
+    });
+
+    const viewColumns = columnOrder;
+
+    function moveColLeft(key: string) {
+      setColumnOrder((prev) => {
+        const i = prev.indexOf(key);
+        if (i <= 0) return prev;
+        const next = [...prev];
+        [next[i - 1], next[i]] = [next[i], next[i - 1]];
+        return next;
+      });
+    }
+
+    function moveColRight(key: string) {
+      setColumnOrder((prev) => {
+        const i = prev.indexOf(key);
+        if (i < 0 || i >= prev.length - 1) return prev;
+        const next = [...prev];
+        [next[i], next[i + 1]] = [next[i + 1], next[i]];
+        return next;
+      });
+    }
+
+    function setWidthUnit(key: string, unit: number) {
+      const safe = Number.isFinite(unit)
+        ? Math.max(1, Math.min(200, Math.floor(unit)))
+        : 20;
+      setColWidthUnitByKey((prev) => ({ ...prev, [key]: safe }));
+    }
+
+    function getWidthPx(key: string) {
+      // unit=20일 때 기존 체감에 맞추기(너무 커지지 않게 BASE를 보수적으로)
+      const BASE = 140;
+      const MIN = 60;
+      const MAX = 420;
+      const unit = colWidthUnitByKey[key] ?? 20;
+      const px = Math.round((BASE * unit) / 20);
+      return Math.max(MIN, Math.min(MAX, px));
+    }
 
     // 행 범위 선택 상태
     const [selectedRowRange, setSelectedRowRange] = useState<{
@@ -199,7 +257,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
-    function handleRowHeaderMouseDown(
+   function handleRowHeaderMouseDown(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
@@ -300,7 +358,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const startRow = Math.max(0, Math.min(r1, r2));
       const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
       const startCol = Math.max(0, Math.min(c1, c2));
-      const endCol = Math.min(unifiedColumns.length - 1, Math.max(c1, c2));
+      const endCol = Math.min(viewColumns.length - 1, Math.max(c1, c2));
 
       // 셀 범위만 관리 (행 선택과 분리)
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
@@ -539,8 +597,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           targetRow = rowIndex - 1;
           break;
         }
-        case "ArrowRight": {
-          if (colIndex < unifiedColumns.length - 1) {
+                case "ArrowRight": {
+          if (colIndex < viewColumns.length - 1) {
             targetCol = colIndex + 1;
           } else {
             // 마지막 컬럼에서 → : 다음 행 첫 컬럼
@@ -557,7 +615,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
             // 첫 컬럼에서 ← : 위 행 마지막 컬럼
             if (rowIndex <= 0) return;
             targetRow = rowIndex - 1;
-            targetCol = unifiedColumns.length - 1;
+            targetCol = viewColumns.length - 1;
           }
           break;
         }
@@ -607,7 +665,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
           const newData: Record<string, any> = { ...row.data };
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-            const colKey = unifiedColumns[cIndex];
+            const colKey = viewColumns[cIndex];
             if (colKey) newData[colKey] = "";
           }
           next[rIndex] = { ...row, data: newData };
@@ -629,7 +687,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+            // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
       const { start, end, slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -642,10 +700,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       for (let i = start; i <= end; i++) {
         const row = next[i];
         if (!row) continue;
+
         const newData: Record<string, any> = { ...row.data };
-        unifiedColumns.forEach((key) => {
+        viewColumns.forEach((key) => {
           newData[key] = "";
         });
+
         next[i] = { ...row, data: newData };
         updates.push({ id: row.id, data: newData });
       }
@@ -677,7 +737,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           if (!row) continue;
           const cells: string[] = [];
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-            const colKey = unifiedColumns[cIndex];
+            const colKey = viewColumns[cIndex];
             const v = (row.data[colKey] ?? "") as string;
             cells.push(v);
           }
@@ -704,9 +764,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const lines = slice.map((row) =>
-        unifiedColumns
-          .map((key) => (row.data[key] ?? "") as string)
-          .join("\t")
+    viewColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
       );
       const text = lines.join("\n");
 
@@ -783,9 +841,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
         for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
           const colIndex = baseColIndex + colOffset;
-          if (colIndex >= unifiedColumns.length) break;
-
-          const key = unifiedColumns[colIndex];
+          if (colIndex >= viewColumns.length) break;
+          const key = viewColumns[colIndex];
           const v = srcRow[colOffset] ?? "";
           newData[key] = v;
         }
@@ -834,14 +891,54 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
         >
           <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
+           {isColumnEditMode && (
+  <colgroup>
+    <col style={{ width: 40 }} />
+    {viewColumns.map((c) => (
+      <col key={c} style={{ width: getWidthPx(c) }} />
+    ))}
+  </colgroup>
+)}
             <thead className="bg-gray-100 sticky top-0 z-10">
               <tr>
                 <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-                {unifiedColumns.map((c) => (
-                  <th key={c} className="border px-2 py-[3px]">
-                    {c}
-                  </th>
-                ))}
+                {viewColumns.map((c, idx) => (
+  <th key={c} className="border px-2 py-[3px] relative">
+    <div className="text-center">{c}</div>
+
+    {isColumnEditMode && (
+      <div className="absolute right-1 top-1 flex items-center gap-1">
+        <button
+          type="button"
+          className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+          disabled={idx === 0}
+          onClick={() => moveColLeft(c)}
+          title="왼쪽으로 이동"
+        >
+          ←
+        </button>
+        <button
+          type="button"
+          className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+          disabled={idx === viewColumns.length - 1}
+          onClick={() => moveColRight(c)}
+          title="오른쪽으로 이동"
+        >
+          →
+        </button>
+        <input
+          className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
+          type="number"
+          min={1}
+          max={200}
+          value={colWidthUnitByKey[c] ?? 20}
+          onChange={(e) => setWidthUnit(c, Number(e.target.value))}
+          title="열 넓이(unit). 20=기준, 1=1/20 수준"
+        />
+      </div>
+    )}
+  </th>
+))}
               </tr>
             </thead>
 
@@ -872,7 +969,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                       {rowIndex + 1}
                     </td>
 
-                    {unifiedColumns.map((key, colIndex) => {
+                     {viewColumns.map((key, colIndex) => {
                       const cellSelected = isCellSelected(rowIndex, colIndex);
                       const dataCellBase =
                         "border px-2 py-[3px]" +

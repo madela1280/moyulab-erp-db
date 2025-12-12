@@ -22,7 +22,7 @@ export default function UnifiedMainView() {
 
       <div className="flex-1 min-h-0">
         {/* 2단계에서 이 값을 UnifiedGrid로 전달해 실제 헤더 화살표/폭 조절을 붙입니다 */}
-        <UnifiedGrid ref={gridRef} />
+        <UnifiedGrid ref={gridRef} isColumnEditMode={isColumnEditMode} />
       </div>
     </div>
   );
