@@ -899,59 +899,65 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     ))}
   </colgroup>
 )}
-            <thead className="bg-gray-100 sticky top-0 z-10">
-              <tr>
-                <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-                {viewColumns.map((c, idx) => (
-  <th key={c} className="border px-2 py-[3px] relative">
-    <div className="text-center">{c}</div>
+           <thead className="bg-gray-100 sticky top-0 z-10">
+  <tr>
+    <th className="border px-1 py-[3px] w-10 bg-gray-100" />
+    {viewColumns.map((c, idx) => (
+      <th key={c} className="border px-2 py-1 align-top">
+        <div className="flex flex-col items-center gap-1">
+          <div className="w-full text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+            {c}
+          </div>
 
-    {isColumnEditMode && (
-  <div className="flex flex-col items-center gap-1 mt-1">
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-        disabled={idx === 0}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          moveColLeft(c);
-        }}
-        title="왼쪽으로 이동"
-      >
-        ←
-      </button>
+          {isColumnEditMode && (
+            <div className="flex flex-col items-center gap-1 mt-1">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                  disabled={idx === 0}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    moveColLeft(c);
+                  }}
+                  title="왼쪽으로 이동"
+                >
+                  ←
+                </button>
 
-      <button
-        type="button"
-        className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-        disabled={idx === viewColumns.length - 1}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          moveColRight(c);
-        }}
-        title="오른쪽으로 이동"
-      >
-        →
-      </button>
-    </div>
+                <button
+                  type="button"
+                  className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                  disabled={idx === viewColumns.length - 1}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    moveColRight(c);
+                  }}
+                  title="오른쪽으로 이동"
+                >
+                  →
+                </button>
+              </div>
 
-    <input
-      className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
-      type="number"
-      min={1}
-      max={200}
-      value={colWidthUnitByKey[c] ?? 20}
-      onChange={(e) => setWidthUnit(c, Number(e.target.value))}
-      onMouseDown={(e) => e.stopPropagation()}
-      title="열 넓이(unit). 20=기준, 1=1/20 수준"
-    />
-  </div>
-)}
-              </tr>
-            </thead>
+              <input
+                className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
+                type="number"
+                min={1}
+                max={200}
+                value={colWidthUnitByKey[c] ?? 20}
+                onChange={(e) => setWidthUnit(c, Number(e.target.value))}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="열 넓이(unit). 20=기준, 1=1/20 수준"
+              />
+            </div>
+          )}
+        </div>
+      </th>
+    ))}
+  </tr>
+</thead>
 
             <tbody>
               {rows.map((row, rowIndex) => {
