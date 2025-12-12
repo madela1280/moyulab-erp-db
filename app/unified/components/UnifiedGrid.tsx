@@ -121,7 +121,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     function getWidthPx(key: string) {
       // unit=20일 때 기존 체감에 맞추기(너무 커지지 않게 BASE를 보수적으로)
       const BASE = 140;
-      const MIN = 60;
+      const MIN = 40;
       const MAX = 420;
       const unit = colWidthUnitByKey[key] ?? 20;
       const px = Math.round((BASE * unit) / 20);
@@ -907,38 +907,49 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     <div className="text-center">{c}</div>
 
     {isColumnEditMode && (
-      <div className="absolute right-1 top-1 flex items-center gap-1">
-        <button
-          type="button"
-          className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-          disabled={idx === 0}
-          onClick={() => moveColLeft(c)}
-          title="왼쪽으로 이동"
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-          disabled={idx === viewColumns.length - 1}
-          onClick={() => moveColRight(c)}
-          title="오른쪽으로 이동"
-        >
-          →
-        </button>
-        <input
-          className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
-          type="number"
-          min={1}
-          max={200}
-          value={colWidthUnitByKey[c] ?? 20}
-          onChange={(e) => setWidthUnit(c, Number(e.target.value))}
-          title="열 넓이(unit). 20=기준, 1=1/20 수준"
-        />
-      </div>
-    )}
-  </th>
-))}
+  <div className="flex flex-col items-center gap-1 mt-1">
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+        disabled={idx === 0}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          moveColLeft(c);
+        }}
+        title="왼쪽으로 이동"
+      >
+        ←
+      </button>
+
+      <button
+        type="button"
+        className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+        disabled={idx === viewColumns.length - 1}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          moveColRight(c);
+        }}
+        title="오른쪽으로 이동"
+      >
+        →
+      </button>
+    </div>
+
+    <input
+      className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
+      type="number"
+      min={1}
+      max={200}
+      value={colWidthUnitByKey[c] ?? 20}
+      onChange={(e) => setWidthUnit(c, Number(e.target.value))}
+      onMouseDown={(e) => e.stopPropagation()}
+      title="열 넓이(unit). 20=기준, 1=1/20 수준"
+    />
+  </div>
+)}
               </tr>
             </thead>
 
