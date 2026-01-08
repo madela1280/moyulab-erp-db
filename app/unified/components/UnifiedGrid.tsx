@@ -149,7 +149,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       col: number;
     } | null>(null);
 
-    const scrollRef = useRef<HTMLDivElement | null>(null);
+        const scrollRef = useRef<HTMLDivElement | null>(null);
+
+    // 편집 중 syncListen이 들어오면 즉시 reload하지 않고 보류(입력 튕김 방지)
+    const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
+    const pendingReloadRef = useRef(false);
 
     // 컨텍스트 메뉴 위치 + 모드(row / cell)
     const [rowContextMenu, setRowContextMenu] = useState<{
@@ -182,8 +186,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 소켓 연결 --------------------- */
-    useEffect(() => {
-      const stop = syncListen(() => reload());
+        useEffect(() => {
+      const stop = syncListen(() => {
+        if (editingCellRef.current) {
+          pendingReloadRef.current = true; // 편집 끝나면 reload
+          return;
+        }
+        reload();
+      });
       return () => stop();
     }, []);
 
@@ -234,11 +244,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
-    async function handleFocus(rowId: number, e: any) {
+     async function handleFocus(rowId: number, key: string, e: any) {
       const result = await acquireLock("unified", rowId);
 
       if (result.ok) {
         setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        editingCellRef.current = { rowId, key };
         return;
       }
 
@@ -1017,20 +1028,40 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                             value={row.data[key] ?? ""}
                             data-row={rowIndex}
                             data-col={colIndex}
-                            onFocus={(e) => handleFocus(row.id, e)}
+                            onFocus={(e) => handleFocus(row.id, key, e)}
                             onChange={(e) => {
                               if (!myRowLocks[row.id]) return;
                               updateLocalCell(row.id, key, e.target.value);
                             }}
-                            onBlur={(e) => {
-                              saveCell(row.id, key, e.target.value);
-                              releaseLock("unified", row.id);
-                              setMyRowLocks((prev) => {
-                                const copy = { ...prev };
-                                delete copy[row.id];
-                                return copy;
-                              });
-                            }}
+                            onBlur={async (e) => {
+                              const v = e.target.value as string;
+
+                             // 편집 종료 표시(이제 syncListen reload 허용)
+                            editingCellRef.current = null;
+
+                           // 락 없으면(=편집 권한 없음) 저장/해제 시도하지 않음
+                          if (!myRowLocks[row.id]) {
+                            if (pendingReloadRef.current) {
+                             pendingReloadRef.current = false;
+                             await reload();
+                            }
+                            return;
+                          }
+
+                         await saveCell(row.id, key, v);
+                         await releaseLock("unified", row.id);
+
+                         setMyRowLocks((prev) => {
+                           const copy = { ...prev };
+                           delete copy[row.id];
+                           return copy;
+                         });
+
+                        if (pendingReloadRef.current) {
+                        pendingReloadRef.current = false;
+                        await reload();
+                        }
+                       }}
                             onKeyDown={(e) =>
                               handleCellKeyDown(e, rowIndex, colIndex)
                             }
