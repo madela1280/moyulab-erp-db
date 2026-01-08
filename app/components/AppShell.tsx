@@ -182,8 +182,8 @@ export default function AppShell() {
             <h1 className="text-[1.45rem] font-bold text-gray-800">Moulab</h1>
           </div>
 
-          <nav className="flex-grow flex text-[0.90rem] font-semibold text-gray-700 ml-40">
-            <div className="flex items-center gap-8 relative">
+          <nav className="flex-grow flex text-[0.99rem] font-[660] text-gray-700 ml-40">
+            <div className="flex items-center gap-10 relative">
               {visibleTopMenus.map((m) => (
                 <button
                   key={m}
