@@ -183,7 +183,7 @@ export default function AppShell() {
           </div>
 
           <nav className="flex-grow flex text-[0.99rem] font-[660] text-gray-700 ml-40">
-            <div className="flex items-center gap-10 relative">
+            <div className="flex items-center gap-12 relative">
               {visibleTopMenus.map((m) => (
                 <button
                   key={m}
