@@ -558,6 +558,39 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange]);
 
+    // 선택 영역이 있을 때 Ctrl/Cmd+C / Ctrl/Cmd+V로 복사/붙여넣기 (엑셀처럼)
+    useEffect(() => {
+      function onKeyDown(e: KeyboardEvent) {
+        if ((e as any).isComposing) return; // 한글 IME 조합 중이면 무시
+
+        const isMod = e.ctrlKey || e.metaKey; // Windows/Linux: Ctrl, Mac: Cmd
+        if (!isMod) return;
+
+        const key = (e.key || "").toLowerCase();
+
+        // 선택 범위(셀/행)가 있을 때만 "그리드 복사/붙여넣기"로 가로챔
+        const hasRange = !!selectedCellRange || !!selectedRowRange;
+        if (!hasRange) return;
+
+        if (key === "c") {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleCopySelectedRowsToClipboard();
+          return;
+        }
+
+        if (key === "v") {
+          e.preventDefault();
+          e.stopPropagation();
+          void handlePasteToSelectedRowsFromClipboard();
+          return;
+        }
+      }
+
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }, [selectedCellRange, selectedRowRange]);
+
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
         async function handleInsertRows() {
