@@ -542,7 +542,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
-    async function handleInsertRows() {
+        async function handleInsertRows() {
       let { start, end } = getSelectedRowRangeInfo();
 
       // 선택이 없으면 현재 selectedRowRange 사용
@@ -557,79 +557,34 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
       const oldLen = rows.length;
       if (oldLen === 0) {
+        // 빈 상태면 그냥 맨 뒤에 1행 추가
         await appendBlankRows(1);
         setRowContextMenu(null);
         return;
       }
 
-      const N = Math.max(1, end - start + 1); // 삽입할 행 개수
+      const N = Math.max(1, end - start + 1); // 삽입할 행 개수 (선택 행 수만큼)
 
-      // 1) 새 빈 행 N개를 DB에 추가 (맨 아래)
-      //    → 깜빡임 줄이기 위해 여기서는 reload / syncEmitUnifiedUpdate를 호출하지 않음
-      for (let i = 0; i < N; i++) {
-        await fetch("/api/unified", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-      }
+      // "선택 시작 행" 위에 끼워넣기(Excel 스타일)
+      const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
+      const afterId = rows[start]?.id ?? null;
 
-      // 2) 최신 rows 다시 조회 (id ASC)
-      const r = await fetch("/api/unified", { cache: "no-store" });
-      const all: UnifiedRow[] = await r.json();
-      const L = all.length; // = oldLen + N
-      const baseLen = L - N; // 삽입 전 실제 행 개수 (= oldLen)
+      await fetch("/api/unified/insert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: N,
+          beforeId,
+          afterId,
+        }),
+      });
 
-      // 기존 데이터 스냅샷: "삽입 전" 기준 데이터
-      const baseData: Record<string, any>[] = new Array(baseLen);
-      for (let i = 0; i < baseLen; i++) {
-        baseData[i] = { ...(all[i]?.data ?? {}) };
-      }
-
-      // 3) "id 순서는 그대로, data만 재배치 (start 위치에 N행 끼워 넣기)"
-      const finalData: Record<string, any>[] = new Array(L);
-      for (let i = 0; i < L; i++) {
-        if (i < start) {
-          // 삽입 위치 위: 기존 데이터 그대로
-          finalData[i] = { ...(baseData[i] ?? {}) };
-        } else if (i >= start && i < start + N) {
-          // 삽입된 N행: 모든 통합관리 컬럼을 빈 문자열로 채운 완전 빈 행
-          finalData[i] = createEmptyData();
-        } else {
-          // 삽입 위치 아래: 기존 데이터가 N칸 아래로 밀림
-          const srcIndex = i - N;
-          finalData[i] = { ...(baseData[srcIndex] ?? {}) };
-        }
-      }
-
-      // 4) 화면 먼저 반영
-      const next: UnifiedRow[] = all.map((row, idx) => ({
-        ...row,
-        data: finalData[idx] ?? {},
-      }));
-      setRows(next);
-
-      // 5) DB에 변경된 행만 PATCH
-      const updates: { id: number; data: Record<string, any> }[] = [];
-      for (let i = 0; i < L; i++) {
-        const before = all[i]?.data ?? {};
-        const after = finalData[i] ?? {};
-        if (JSON.stringify(before) !== JSON.stringify(after)) {
-          updates.push({ id: all[i].id, data: after });
-        }
-      }
-
-      for (const u of updates) {
-        await fetch(`/api/unified/${u.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(u.data),
-        });
-      }
-
-      // 6) 다른 탭에 알림 (최종 1번만)
+      // 다른 탭에 알림(1번)
       syncEmitUnifiedUpdate();
+
+      // 화면 갱신
       setRowContextMenu(null);
+      await reload();
     }
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
