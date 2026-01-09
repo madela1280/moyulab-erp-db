@@ -540,6 +540,24 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
+    // 선택 영역이 있을 때 Delete 키로 "내용 지우기" 실행 (첫 셀만 지워지는 현상 방지)
+    useEffect(() => {
+      function onKeyDown(e: KeyboardEvent) {
+        if (e.key !== "Delete") return;
+        if ((e as any).isComposing) return; // 한글 IME 조합 중이면 무시
+
+        // 셀 범위 또는 행 범위가 선택된 상태면, Delete는 "내용 지우기"로 동작
+        if (selectedCellRange || selectedRowRange) {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleClearSelectedRows();
+        }
+      }
+
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }, [selectedCellRange, selectedRowRange]);
+
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
         async function handleInsertRows() {
