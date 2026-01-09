@@ -540,35 +540,42 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-    // 선택 영역이 있을 때 Delete 키로 "내용 지우기" 실행 (첫 셀만 지워지는 현상 방지)
+        // 선택 영역이 있을 때 Delete 키로 "내용 지우기" 실행 (편집 draft가 화면에 남는 문제 방지)
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if (e.key !== "Delete") return;
-        if ((e as any).isComposing) return; // 한글 IME 조합 중이면 무시
+        if ((e as any).isComposing) return;
 
-        // 셀 범위 또는 행 범위가 선택된 상태면, Delete는 "내용 지우기"로 동작
         if (selectedCellRange || selectedRowRange) {
           e.preventDefault();
           e.stopPropagation();
+
+          // ★ 현재 편집 draft가 첫 셀에 남아서 "안 지워진 것처럼 보이는" 현상 방지
+          editingCellRef.current = null;
+          setActiveEditCell(null);
+          setActiveEditValue("");
+
+          // 포커스가 input에 있으면 blur로 기본 입력/커서 상태 정리
+          const el = document.activeElement as HTMLElement | null;
+          if (el && el.tagName === "INPUT") el.blur();
+
           void handleClearSelectedRows();
         }
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange]);
+    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
-    // 선택 영역이 있을 때 Ctrl/Cmd+C / Ctrl/Cmd+V로 복사/붙여넣기 (엑셀처럼)
+        // Ctrl/Cmd+C: 선택 범위 복사 (붙여넣기는 paste 이벤트에서 처리)
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
-        if ((e as any).isComposing) return; // 한글 IME 조합 중이면 무시
+        if ((e as any).isComposing) return;
 
-        const isMod = e.ctrlKey || e.metaKey; // Windows/Linux: Ctrl, Mac: Cmd
+        const isMod = e.ctrlKey || e.metaKey;
         if (!isMod) return;
 
         const key = (e.key || "").toLowerCase();
-
-        // 선택 범위(셀/행)가 있을 때만 "그리드 복사/붙여넣기"로 가로챔
         const hasRange = !!selectedCellRange || !!selectedRowRange;
         if (!hasRange) return;
 
@@ -576,20 +583,33 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           e.preventDefault();
           e.stopPropagation();
           void handleCopySelectedRowsToClipboard();
-          return;
         }
 
-        if (key === "v") {
-          e.preventDefault();
-          e.stopPropagation();
-          void handlePasteToSelectedRowsFromClipboard();
-          return;
-        }
+        // ctrl/cmd+v는 여기서 막지 않음(붙여넣기는 paste 이벤트에서 정확히 처리)
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange]);
+   }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
+
+    // paste: 선택 범위가 있을 때 기본 paste(한 셀에 전체 텍스트 들어감)를 막고, 그리드 붙여넣기 실행
+    useEffect(() => {
+      function onPaste(e: ClipboardEvent) {
+        const hasRange = !!selectedCellRange || !!selectedRowRange;
+        if (!hasRange) return;
+
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        if (!text) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        void pasteTextToSelectedRange(text);
+      }
+
+      window.addEventListener("paste", onPaste);
+      return () => window.removeEventListener("paste", onPaste);
+    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
@@ -850,7 +870,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
 
-    async function handlePasteToSelectedRowsFromClipboard() {
+    async function pasteTextToSelectedRange(text: string) {
       let baseRowIndex: number;
       let baseColIndex: number;
 
@@ -861,19 +881,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         const { start } = getSelectedRowRangeInfo();
         baseRowIndex = start >= 0 ? start : 0;
         baseColIndex = 0;
-      }
-
-      let text = "";
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (e) {
-        console.error(e);
-        setRowContextMenu(null);
-        return;
-      }
-      if (!text) {
-        setRowContextMenu(null);
-        return;
       }
 
       const lines = text
@@ -922,7 +929,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         updates.push({ id: row.id, data: newData });
       }
 
-            setRows(next);
+      setRows(next);
 
       const bulkUpdates = updates.map((u) => ({ id: u.id, patch: u.data }));
 
@@ -934,6 +941,23 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
+    }
+
+    async function handlePasteToSelectedRowsFromClipboard() {
+      let text = "";
+      try {
+        text = await navigator.clipboard.readText();
+      } catch (e) {
+        console.error(e);
+        setRowContextMenu(null);
+        return;
+      }
+      if (!text) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      await pasteTextToSelectedRange(text);
     }
 
     /* --------------------- UI --------------------- */
