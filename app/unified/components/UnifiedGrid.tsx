@@ -592,25 +592,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
-    // paste: 선택 범위가 있을 때 기본 paste(한 셀에 전체 텍스트 들어감)를 막고, 그리드 붙여넣기 실행
-    useEffect(() => {
-      function onPaste(e: ClipboardEvent) {
-        const hasRange = !!selectedCellRange || !!selectedRowRange;
-        if (!hasRange) return;
-
-        const text = e.clipboardData?.getData("text/plain") ?? "";
-        if (!text) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        void pasteTextToSelectedRange(text);
-      }
-
-      window.addEventListener("paste", onPaste);
-      return () => window.removeEventListener("paste", onPaste);
-    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
-
+    
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
         async function handleInsertRows() {
@@ -1134,6 +1116,19 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                               if (myRowLocks[row.id]) {
                                 updateLocalCell(row.id, key, e.target.value);
                               }
+                            }}
+                            onPaste={(e) => {
+                              const hasRange =
+                                !!selectedCellRange || !!selectedRowRange;
+                              if (!hasRange) return;
+
+                              const text =
+                                e.clipboardData?.getData("text/plain") ?? "";
+                              if (!text) return;
+
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void pasteTextToSelectedRange(text);
                             }}
                             onBlur={async (e) => {
                               const v = e.target.value as string;
