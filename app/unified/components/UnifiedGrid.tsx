@@ -696,35 +696,37 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 행 삭제 --------------------- */
-
-    async function handleDeleteSelectedRows() {
+      
+   async function handleDeleteSelectedRows() {
       const { slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
         return;
       }
 
-      for (const row of slice) {
-        await fetch(`/api/unified/${row.id}`, {
-          method: "DELETE",
-        });
-      }
+      const ids = slice.map((r) => r.id);
+
+      await fetch(`/api/unified/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
       setSelectedRowRange(null);
       await reload();
     }
-
+    
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
-    async function handleClearSelectedRows() {
+        async function handleClearSelectedRows() {
       // 1) 셀 범위가 있으면 셀만 지우기
       if (selectedCellRange) {
         const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
         const next = [...rows];
-        const updates: { id: number; data: Record<string, any> }[] = [];
+        const updates: { id: number; patch: Record<string, any> }[] = [];
 
         for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
           const row = next[rIndex];
@@ -736,18 +738,16 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
             if (colKey) newData[colKey] = "";
           }
           next[rIndex] = { ...row, data: newData };
-          updates.push({ id: row.id, data: newData });
+          updates.push({ id: row.id, patch: newData });
         }
 
         setRows(next);
 
-        for (const u of updates) {
-          await fetch(`/api/unified/${u.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(u.data),
-          });
-        }
+        await fetch(`/api/unified/bulk-patch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ updates }),
+        });
 
         syncEmitUnifiedUpdate();
         setRowContextMenu(null);
@@ -761,7 +761,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-      const updates: { id: number; data: Record<string, any> }[] = [];
+      const updates: { id: number; patch: Record<string, any> }[] = [];
       const next = [...rows];
 
       for (let i = start; i <= end; i++) {
@@ -774,18 +774,16 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
 
         next[i] = { ...row, data: newData };
-        updates.push({ id: row.id, data: newData });
+        updates.push({ id: row.id, patch: newData });
       }
 
       setRows(next);
 
-      for (const u of updates) {
-        await fetch(`/api/unified/${u.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(u.data),
-        });
-      }
+      await fetch(`/api/unified/bulk-patch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates }),
+      });
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
@@ -918,15 +916,15 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         updates.push({ id: row.id, data: newData });
       }
 
-      setRows(next);
+            setRows(next);
 
-      for (const u of updates) {
-        await fetch(`/api/unified/${u.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(u.data),
-        });
-      }
+      const bulkUpdates = updates.map((u) => ({ id: u.id, patch: u.data }));
+
+      await fetch(`/api/unified/bulk-patch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: bulkUpdates }),
+      });
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
