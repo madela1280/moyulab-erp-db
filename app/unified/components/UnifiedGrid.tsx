@@ -149,11 +149,36 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       col: number;
     } | null>(null);
 
-        const scrollRef = useRef<HTMLDivElement | null>(null);
+    const scrollRef = useRef<HTMLDivElement | null>(null);
 
     // 편집 중 syncListen이 들어오면 즉시 reload하지 않고 보류(입력 튕김 방지)
     const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
     const pendingReloadRef = useRef(false);
+
+    // 빠른 입력(락 획득 전 입력 유실) 방지: 활성 셀 draft
+    const [activeEditCell, setActiveEditCell] = useState<{
+      rowId: number;
+      key: string;
+    } | null>(null);
+    const [activeEditValue, setActiveEditValue] = useState<string>("");
+
+    // 포커스 경쟁/이탈 처리용
+    const focusSeqRef = useRef(0);
+
+    // unified:update 연타/중복 reload로 인한 점멸 완화(디바운스 + suppress)
+    const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const suppressReloadUntilRef = useRef<number>(0);
+
+    function scheduleReload(delayMs = 180) {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        reload();
+      }, delayMs);
+    }
+
+    function suppressReloadFor(ms: number) {
+      suppressReloadUntilRef.current = Date.now() + ms;
+    }
 
     // 컨텍스트 메뉴 위치 + 모드(row / cell)
     const [rowContextMenu, setRowContextMenu] = useState<{
@@ -171,13 +196,17 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
       if (data.length < MIN_REAL_ROWS) {
         const need = MIN_REAL_ROWS - data.length;
-        for (let i = 0; i < need; i++) {
-          await fetch("/api/unified", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-          });
-        }
+
+        await Promise.all(
+          Array.from({ length: need }).map(() =>
+            fetch("/api/unified", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            })
+          )
+        );
+
         const r2 = await fetch("/api/unified", { cache: "no-store" });
         data = await r2.json();
       }
@@ -186,13 +215,16 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 소켓 연결 --------------------- */
-        useEffect(() => {
+    useEffect(() => {
       const stop = syncListen(() => {
+        // 내가 방금 한 작업 직후(emit으로 인한 내 탭의 중복 reload) 점멸 방지
+        if (Date.now() < suppressReloadUntilRef.current) return;
+
         if (editingCellRef.current) {
           pendingReloadRef.current = true; // 편집 끝나면 reload
           return;
         }
-        reload();
+        scheduleReload(180);
       });
       return () => stop();
     }, []);
@@ -244,14 +276,43 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
-     async function handleFocus(rowId: number, key: string, e: any) {
+    async function handleFocus(
+      rowId: number,
+      key: string,
+      initialValue: string,
+      e: any
+    ) {
+      const seq = ++focusSeqRef.current;
+
+      // 락 획득 전이라도 편집중 표시 + draft 세팅(빠른 입력 유실/튕김 방지)
+      editingCellRef.current = { rowId, key };
+      setActiveEditCell({ rowId, key });
+      setActiveEditValue(initialValue ?? "");
+
       const result = await acquireLock("unified", rowId);
+
+      // 포커스가 이미 다른 셀로 이동한 경우(경쟁 상태) 처리
+      const stillActive =
+        focusSeqRef.current === seq &&
+        editingCellRef.current?.rowId === rowId &&
+        editingCellRef.current?.key === key;
+
+      if (!stillActive) {
+        if (result.ok) {
+          await releaseLock("unified", rowId);
+        }
+        return;
+      }
 
       if (result.ok) {
         setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
-        editingCellRef.current = { rowId, key };
         return;
       }
+
+      // 락 실패: 편집 상태/드래프트 정리
+      editingCellRef.current = null;
+      setActiveEditCell(null);
+      setActiveEditValue("");
 
       if (result.reason === "locked_by_other" && (result as any).lock) {
         const lock = (result as any).lock;
@@ -263,12 +324,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       e.target.blur();
-      reload();
+      scheduleReload(120);
     }
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
-   function handleRowHeaderMouseDown(
+    function handleRowHeaderMouseDown(
       rowIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
@@ -360,12 +421,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 셀 범위 선택 유틸 --------------------- */
 
-    function setCellRangeByPoints(
-      r1: number,
-      c1: number,
-      r2: number,
-      c2: number
-    ) {
+    function setCellRangeByPoints(r1: number, c1: number, r2: number, c2: number) {
       const startRow = Math.max(0, Math.min(r1, r2));
       const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
       const startCol = Math.max(0, Math.min(c1, c2));
@@ -608,7 +664,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           targetRow = rowIndex - 1;
           break;
         }
-                case "ArrowRight": {
+        case "ArrowRight": {
           if (colIndex < viewColumns.length - 1) {
             targetCol = colIndex + 1;
           } else {
@@ -698,7 +754,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         return;
       }
 
-            // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
       const { start, end, slice } = getSelectedRowRangeInfo();
       if (!slice.length) {
         setRowContextMenu(null);
@@ -775,7 +831,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
 
       const lines = slice.map((row) =>
-    viewColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
+        viewColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
       );
       const text = lines.join("\n");
 
@@ -902,73 +958,73 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
         >
           <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
-           {isColumnEditMode && (
-  <colgroup>
-    <col style={{ width: 40 }} />
-    {viewColumns.map((c) => (
-      <col key={c} style={{ width: getWidthPx(c) }} />
-    ))}
-  </colgroup>
-)}
-           <thead className="bg-gray-100 sticky top-0 z-10">
-  <tr>
-    <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-    {viewColumns.map((c, idx) => (
-      <th key={c} className="border px-2 py-1 align-top">
-        <div className="flex flex-col items-center gap-1">
-          <div className="w-full text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-            {c}
-          </div>
+            {isColumnEditMode && (
+              <colgroup>
+                <col style={{ width: 40 }} />
+                {viewColumns.map((c) => (
+                  <col key={c} style={{ width: getWidthPx(c) }} />
+                ))}
+              </colgroup>
+            )}
+            <thead className="bg-gray-100 sticky top-0 z-10">
+              <tr>
+                <th className="border px-1 py-[3px] w-10 bg-gray-100" />
+                {viewColumns.map((c, idx) => (
+                  <th key={c} className="border px-2 py-1 align-top">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="w-full text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                        {c}
+                      </div>
 
-          {isColumnEditMode && (
-            <div className="flex flex-col items-center gap-1 mt-1">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-                  disabled={idx === 0}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    moveColLeft(c);
-                  }}
-                  title="왼쪽으로 이동"
-                >
-                  ←
-                </button>
+                      {isColumnEditMode && (
+                        <div className="flex flex-col items-center gap-1 mt-1">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                              disabled={idx === 0}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                moveColLeft(c);
+                              }}
+                              title="왼쪽으로 이동"
+                            >
+                              ←
+                            </button>
 
-                <button
-                  type="button"
-                  className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-                  disabled={idx === viewColumns.length - 1}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    moveColRight(c);
-                  }}
-                  title="오른쪽으로 이동"
-                >
-                  →
-                </button>
-              </div>
+                            <button
+                              type="button"
+                              className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                              disabled={idx === viewColumns.length - 1}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                moveColRight(c);
+                              }}
+                              title="오른쪽으로 이동"
+                            >
+                              →
+                            </button>
+                          </div>
 
-              <input
-                className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
-                type="number"
-                min={1}
-                max={200}
-                value={colWidthUnitByKey[c] ?? 20}
-                onChange={(e) => setWidthUnit(c, Number(e.target.value))}
-                onMouseDown={(e) => e.stopPropagation()}
-                title="열 넓이(unit). 20=기준, 1=1/20 수준"
-              />
-            </div>
-          )}
-        </div>
-      </th>
-    ))}
-  </tr>
-</thead>
+                          <input
+                            className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
+                            type="number"
+                            min={1}
+                            max={200}
+                            value={colWidthUnitByKey[c] ?? 20}
+                            onChange={(e) => setWidthUnit(c, Number(e.target.value))}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            title="열 넓이(unit). 20=기준, 1=1/20 수준"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
 
             <tbody>
               {rows.map((row, rowIndex) => {
@@ -986,9 +1042,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                       className={headerCellBase}
                       data-row-header="1"
                       data-row-index={rowIndex}
-                      onMouseDown={(e) =>
-                        handleRowHeaderMouseDown(rowIndex, e)
-                      }
+                      onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
                       onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
                       onContextMenu={(e) =>
                         handleRowHeaderContextMenu(rowIndex, e)
@@ -997,7 +1051,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                       {rowIndex + 1}
                     </td>
 
-                     {viewColumns.map((key, colIndex) => {
+                    {viewColumns.map((key, colIndex) => {
                       const cellSelected = isCellSelected(rowIndex, colIndex);
                       const dataCellBase =
                         "border px-2 py-[3px]" +
@@ -1025,43 +1079,71 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                         >
                           <input
                             className="w-full text-xs bg-transparent outline-none"
-                            value={row.data[key] ?? ""}
+                            value={
+                              activeEditCell &&
+                              activeEditCell.rowId === row.id &&
+                              activeEditCell.key === key
+                                ? activeEditValue
+                                : (row.data[key] ?? "")
+                            }
                             data-row={rowIndex}
                             data-col={colIndex}
-                            onFocus={(e) => handleFocus(row.id, key, e)}
+                            onFocus={(e) => {
+                              const initial = String(row.data[key] ?? "");
+                              handleFocus(row.id, key, initial, e);
+                            }}
                             onChange={(e) => {
-                              if (!myRowLocks[row.id]) return;
-                              updateLocalCell(row.id, key, e.target.value);
+                              // 락 잡히기 전에도 입력은 draft로 계속 받는다(빠른 입력 유실 방지)
+                              if (
+                                activeEditCell &&
+                                activeEditCell.rowId === row.id &&
+                                activeEditCell.key === key
+                              ) {
+                                setActiveEditValue(e.target.value);
+                              }
+
+                              // 락을 이미 잡은 상태면 rows에도 즉시 반영(시각적 안정)
+                              if (myRowLocks[row.id]) {
+                                updateLocalCell(row.id, key, e.target.value);
+                              }
                             }}
                             onBlur={async (e) => {
                               const v = e.target.value as string;
 
-                             // 편집 종료 표시(이제 syncListen reload 허용)
-                            editingCellRef.current = null;
+                              // 편집 종료 표시(이제 syncListen reload 허용)
+                              editingCellRef.current = null;
+                              setActiveEditCell(null);
+                              setActiveEditValue("");
 
-                           // 락 없으면(=편집 권한 없음) 저장/해제 시도하지 않음
-                          if (!myRowLocks[row.id]) {
-                            if (pendingReloadRef.current) {
-                             pendingReloadRef.current = false;
-                             await reload();
-                            }
-                            return;
-                          }
+                              // 락 없으면(=편집 권한 없음) 저장/해제 시도하지 않음
+                              if (!myRowLocks[row.id]) {
+                                if (pendingReloadRef.current) {
+                                  pendingReloadRef.current = false;
+                                  await reload();
+                                }
+                                return;
+                              }
 
-                         await saveCell(row.id, key, v);
-                         await releaseLock("unified", row.id);
+                              // 내 탭은 저장 직후 emit으로 reload 들어오면 점멸할 수 있으니 잠깐 suppress
+                              suppressReloadFor(800);
 
-                         setMyRowLocks((prev) => {
-                           const copy = { ...prev };
-                           delete copy[row.id];
-                           return copy;
-                         });
+                              // 화면 즉시 반영(혹시 rows 반영이 덜 되었을 때 대비)
+                              updateLocalCell(row.id, key, v);
 
-                        if (pendingReloadRef.current) {
-                        pendingReloadRef.current = false;
-                        await reload();
-                        }
-                       }}
+                              await saveCell(row.id, key, v);
+                              await releaseLock("unified", row.id);
+
+                              setMyRowLocks((prev) => {
+                                const copy = { ...prev };
+                                delete copy[row.id];
+                                return copy;
+                              });
+
+                              if (pendingReloadRef.current) {
+                                pendingReloadRef.current = false;
+                                await reload();
+                              }
+                            }}
                             onKeyDown={(e) =>
                               handleCellKeyDown(e, rowIndex, colIndex)
                             }
