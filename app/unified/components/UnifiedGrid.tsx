@@ -570,7 +570,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
-           // Ctrl/Cmd+C / Ctrl/Cmd+V: 엑셀처럼 범위 복사/붙여넣기
+      // Ctrl/Cmd+C / Ctrl/Cmd+V: 엑셀처럼 범위 복사/붙여넣기
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if ((e as any).isComposing) return;
@@ -590,14 +590,10 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         }
 
         if (key === "v") {
-          // ★ 브라우저 기본 paste(한 셀 몰빵) 차단 + 우리가 직접 붙여넣기
-          e.preventDefault();
-          e.stopPropagation();
-
-          // 곧바로 발생하는 native paste 이벤트 1회 무시하도록 표시
+          // ★ 붙여넣기는 'paste' 이벤트(clipboardData)를 캡처 단계에서 가로채 처리한다.
+          // (navigator.clipboard.readText는 권한/HTTPS 이슈로 실패할 수 있고,
+          //  실패하면 기본 paste가 살아서 "한 셀 몰빵"이 발생할 수 있음)
           skipNextNativePasteRef.current = true;
-
-          void handlePasteToSelectedRowsFromClipboard();
           return;
         }
       }
@@ -606,6 +602,39 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange, rows, viewColumns]); 
 
+      // Ctrl/Cmd+V 포함 모든 Paste 이벤트를 캡처 단계에서 가로채서
+    // "선택 범위" 기준으로 TSV를 분배 입력 (native paste 한 셀 몰빵 방지)
+    useEffect(() => {
+      function onPasteCapture(e: ClipboardEvent) {
+        const hasRange = !!selectedCellRange || !!selectedRowRange;
+        if (!hasRange) return;
+
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        if (!text) return;
+
+        // native paste 차단(한 셀 몰빵 방지)
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 플래그 리셋
+        if (skipNextNativePasteRef.current) {
+          skipNextNativePasteRef.current = false;
+        }
+
+        // 편집 draft가 한 셀에 남는 것 방지(선택범위 붙여넣기 시작 전에 정리)
+        editingCellRef.current = null;
+        setActiveEditCell(null);
+        setActiveEditValue("");
+
+        const el = document.activeElement as HTMLElement | null;
+        if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
+
+        void pasteTextToSelectedRange(text);
+      }
+
+      window.addEventListener("paste", onPasteCapture, true); // ★ capture
+      return () => window.removeEventListener("paste", onPasteCapture, true);
+    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
     
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
@@ -1131,15 +1160,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                                 updateLocalCell(row.id, key, e.target.value);
                               }
                             }}
-                              onPaste={(e) => {
-                                 // Ctrl+V에서 우리가 이미 handlePasteToSelectedRowsFromClipboard()로 처리했으면
-                                 // 곧바로 따라오는 native paste 이벤트는 막기만 하고 종료
-                                 if (skipNextNativePasteRef.current) {
-                                  skipNextNativePasteRef.current = false;
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  return;
-                               }
+                                                          onPaste={(e) => {
+                              // 캡처에서 대부분 처리되지만(권장), 혹시 못 잡는 환경 대비 백업 처리
+                              if (skipNextNativePasteRef.current) {
+                                skipNextNativePasteRef.current = false;
+                              }
 
                               const hasRange = !!selectedCellRange || !!selectedRowRange;
                               if (!hasRange) return;
