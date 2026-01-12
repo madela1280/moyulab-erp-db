@@ -187,6 +187,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     function suppressReloadFor(ms: number) {
       suppressReloadUntilRef.current = Date.now() + ms;
+
+      // ★ 이미 예약된 reload까지 취소하지 않으면, stale 데이터를 다시 받아와서
+      // 방금 붙여넣은 화면을 덮어써 "사라진 것처럼" 보일 수 있음
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
     }
 
     // 컨텍스트 메뉴 위치 + 모드(row / cell)
@@ -615,15 +622,17 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         e.preventDefault();
         e.stopPropagation();
 
+               // ★ paste 시작 즉시 suppress + 예약된 reload 취소(중요)
+        suppressReloadFor(1500);
+
         // 편집 draft 정리(화면 잔상 방지)
         editingCellRef.current = null;
         setActiveEditCell(null);
         setActiveEditValue("");
 
-        const el = document.activeElement as HTMLElement | null;
-        if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
-
-        void pasteTextToSelectedRange(text);
+        // blur를 해버리면 onBlur 저장/emit이 추가로 발생해서 reload 타이밍이 꼬일 수 있음
+        // (native paste는 이미 preventDefault로 막혔으니 blur 불필요)
+        void pasteTextToSelectedRange(text); 
       }
 
       window.addEventListener("paste", onPasteCapture, true); // capture
