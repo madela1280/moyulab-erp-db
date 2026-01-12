@@ -194,8 +194,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }, delayMs);
     }
 
-    function suppressReloadFor(ms: number) {
-      suppressReloadUntilRef.current = Date.now() + ms;
+   function suppressReloadFor(ms: number) {
+      // row 작업(삽입/삭제/지우기) 후에는 tailData reload가 무거워서
+      // 2.5초로는 부족 → 자동으로 8초로 늘려 사용자 다음 동작을 막지 않게 함
+      const effectiveMs = ms >= 2500 ? 8000 : ms;
+
+      suppressReloadUntilRef.current = Date.now() + effectiveMs;
 
       // ★ 이미 예약된 reload까지 취소하지 않으면, stale 데이터를 다시 받아와서
       // 방금 붙여넣은 화면을 덮어써 "사라진 것처럼" 보일 수 있음
