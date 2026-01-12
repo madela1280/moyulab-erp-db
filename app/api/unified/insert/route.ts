@@ -46,10 +46,7 @@ export async function POST(req: Request) {
       [beforeId]
     );
     if (!r.rows.length) {
-      return NextResponse.json(
-        { error: "BEFORE_NOT_FOUND" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "BEFORE_NOT_FOUND" }, { status: 404 });
     }
   }
   if (afterId !== null) {

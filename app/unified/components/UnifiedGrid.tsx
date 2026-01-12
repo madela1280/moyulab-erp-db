@@ -20,7 +20,7 @@ export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
 };
 
-type UnifiedRow = { id: number; data: Record<string, any> };
+type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
 
 const unifiedColumns = [
   "거래처분류",
@@ -54,6 +54,9 @@ const unifiedColumns = [
 
 // 항상 DB에 최소로 유지할 실제 행 개수
 const MIN_REAL_ROWS = 100;
+
+// 화면에 한 번에 로드할 행 개수(성능 핵심)
+const PAGE_SIZE = 500;
 
 // 삽입용 완전 빈 data 생성
 function createEmptyData(): Record<string, any> {
@@ -150,6 +153,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     } | null>(null);
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const didInitialScrollRef = useRef(false);   
 
     // 편집 중 syncListen이 들어오면 즉시 reload하지 않고 보류(입력 튕김 방지)
     const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
@@ -206,27 +210,28 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     );
 
     /* --------------------- 최소 100개 실제 행 확보 --------------------- */
-    async function ensureMinRows() {
-      const r = await fetch("/api/unified", { cache: "no-store" });
-      let data: UnifiedRow[] = await r.json();
+        async function ensureMinRowsInDb() {
+      const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
+      const j = await r.json();
+      const count = Number(j?.count ?? 0);
 
-      if (data.length < MIN_REAL_ROWS) {
-        const need = MIN_REAL_ROWS - data.length;
+      if (count < MIN_REAL_ROWS) {
+        const need = MIN_REAL_ROWS - count;
 
-        await Promise.all(
-          Array.from({ length: need }).map(() =>
-            fetch("/api/unified", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({}),
-            })
-          )
-        );
-
-        const r2 = await fetch("/api/unified", { cache: "no-store" });
-        data = await r2.json();
+        await fetch("/api/unified/insert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ count: need, beforeId: null, afterId: null }),
+        });
       }
+    }
 
+    async function loadTailPage() {
+      await ensureMinRowsInDb();
+      const r = await fetch(`/api/unified?tail=1&limit=${PAGE_SIZE}`, {
+        cache: "no-store",
+      });
+      const data: UnifiedRow[] = await r.json();
       setRows(data);
     }
 
@@ -247,24 +252,37 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     /* --------------------- 최초 로딩 --------------------- */
     useEffect(() => {
-      ensureMinRows();
+      loadTailPage();
     }, []);
 
+        useEffect(() => {
+      if (!rows.length) return;
+      if (didInitialScrollRef.current) return;
+
+      didInitialScrollRef.current = true;
+
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+      });
+    }, [rows.length]);
+
     /* --------------------- reload --------------------- */
-    async function reload() {
-      await ensureMinRows();
+       async function reload() {
+      await loadTailPage();
     }
 
     /* --------------------- 외부에서 행 추가 호출 --------------------- */
-    async function appendBlankRows(count: number) {
+   async function appendBlankRows(count: number) {
       if (count <= 0) return;
-      for (let i = 0; i < count; i++) {
-        await fetch("/api/unified", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-      }
+
+      await fetch("/api/unified/insert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count, beforeId: null, afterId: null }),
+      });
+
       syncEmitUnifiedUpdate();
       await reload();
     }
@@ -454,9 +472,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     ) {
       if (e.button !== 0) return; // 좌클릭만
 
-      setIsCellDragging(true);
+            setIsCellDragging(true);
       setCellDragAnchor({ row: rowIndex, col: colIndex });
       setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+
+      // ★ 셀을 선택하면 행 선택 표시(파란 줄)는 해제되어야 함
+      setSelectedRowRange(null);
+
       setRowContextMenu(null);
     }
 
@@ -931,10 +953,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         await appendBlankRows(need);
       }
 
-      const r = await fetch("/api/unified", { cache: "no-store" });
-      const fresh: UnifiedRow[] = await r.json();
-
-      const next = [...fresh];
+      const next = [...rows];
       const updates: { id: number; data: Record<string, any> }[] = [];
 
       for (let rowOffset = 0; rowOffset < lineCount; rowOffset++) {
@@ -1202,6 +1221,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                             data-row={rowIndex}
                             data-col={colIndex}
                             onFocus={(e) => {
+                               // ★ 셀 편집 시작이면 행 선택 하이라이트 제거
+                              setSelectedRowRange(null);
+
                               const initial = String(row.data[key] ?? "");
                               handleFocus(row.id, key, initial, e);
                             }}
