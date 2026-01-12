@@ -168,6 +168,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     // Ctrl+V로 우리가 직접 붙여넣기 처리할 때, 브라우저 기본 paste 1회를 무시하기 위한 플래그
     const skipNextNativePasteRef = useRef(false);
 
+    // Ctrl+V를 항상 이 textarea로 받아서(=paste 이벤트 강제) 한 셀 몰빵 native paste를 원천 차단
+    const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
+
+    // 붙여넣기 후 포커스를 되돌릴 셀(없으면 선택범위 시작 셀로)
+    const lastFocusForPasteRef = useRef<{ rowIndex: number; colIndex: number } | null>(null);
+
     // unified:update 연타/중복 reload로 인한 점멸 완화(디바운스 + suppress)
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressReloadUntilRef = useRef<number>(0);
@@ -570,7 +576,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
-      // Ctrl/Cmd+C / Ctrl/Cmd+V: 엑셀처럼 범위 복사/붙여넣기
+                // Ctrl/Cmd+C / Ctrl/Cmd+V: 엑셀처럼 범위 복사/붙여넣기
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if ((e as any).isComposing) return;
@@ -590,52 +596,50 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         }
 
         if (key === "v") {
-          // ★ 붙여넣기는 'paste' 이벤트(clipboardData)를 캡처 단계에서 가로채 처리한다.
-          // (navigator.clipboard.readText는 권한/HTTPS 이슈로 실패할 수 있고,
-          //  실패하면 기본 paste가 살아서 "한 셀 몰빵"이 발생할 수 있음)
-          skipNextNativePasteRef.current = true;
+          // ★ 핵심: Ctrl+V를 누르면 "숨은 textarea"로 포커스를 강제해서
+          // paste 이벤트를 100% 우리가 받도록 만든다(=한 셀 몰빵 native paste 원천 차단)
+          e.preventDefault();
+          e.stopPropagation();
+
+          // 붙여넣기 후 포커스 복귀 지점 기억(가능하면 현재 포커스 input의 data-row/col)
+          const ae = document.activeElement as HTMLElement | null;
+          const rowAttr = ae?.getAttribute?.("data-row");
+          const colAttr = ae?.getAttribute?.("data-col");
+          const r = rowAttr != null ? Number(rowAttr) : NaN;
+          const c = colAttr != null ? Number(colAttr) : NaN;
+
+          if (!Number.isNaN(r) && !Number.isNaN(c)) {
+            lastFocusForPasteRef.current = { rowIndex: r, colIndex: c };
+          } else if (selectedCellRange) {
+            lastFocusForPasteRef.current = {
+              rowIndex: selectedCellRange.startRow,
+              colIndex: selectedCellRange.startCol,
+            };
+          } else if (selectedRowRange) {
+            lastFocusForPasteRef.current = {
+              rowIndex: Math.max(0, selectedRowRange.start),
+              colIndex: 0,
+            };
+          } else {
+            lastFocusForPasteRef.current = null;
+          }
+
+          // textarea로 포커스 이동(여기에 paste가 들어오게 강제)
+          const ta = pasteCatcherRef.current;
+          if (ta) {
+            ta.value = "";
+            ta.focus();
+            ta.select();
+          }
+
           return;
         }
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange, rows, viewColumns]); 
-
-      // Ctrl/Cmd+V 포함 모든 Paste 이벤트를 캡처 단계에서 가로채서
-    // "선택 범위" 기준으로 TSV를 분배 입력 (native paste 한 셀 몰빵 방지)
-    useEffect(() => {
-      function onPasteCapture(e: ClipboardEvent) {
-        const hasRange = !!selectedCellRange || !!selectedRowRange;
-        if (!hasRange) return;
-
-        const text = e.clipboardData?.getData("text/plain") ?? "";
-        if (!text) return;
-
-        // native paste 차단(한 셀 몰빵 방지)
-        e.preventDefault();
-        e.stopPropagation();
-
-        // 플래그 리셋
-        if (skipNextNativePasteRef.current) {
-          skipNextNativePasteRef.current = false;
-        }
-
-        // 편집 draft가 한 셀에 남는 것 방지(선택범위 붙여넣기 시작 전에 정리)
-        editingCellRef.current = null;
-        setActiveEditCell(null);
-        setActiveEditValue("");
-
-        const el = document.activeElement as HTMLElement | null;
-        if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
-
-        void pasteTextToSelectedRange(text);
-      }
-
-      window.addEventListener("paste", onPasteCapture, true); // ★ capture
-      return () => window.removeEventListener("paste", onPasteCapture, true);
-    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
-    
+    }, [selectedCellRange, selectedRowRange]); 
+         
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
         async function handleInsertRows() {
@@ -1006,6 +1010,55 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           setRowContextMenu(null);
         }}
       >
+         {/* Ctrl+V 붙여넣기 캐처: paste 이벤트를 항상 여기로 받아서 범위 붙여넣기 처리 */}
+    <textarea
+      ref={pasteCatcherRef}
+      aria-hidden="true"
+      tabIndex={-1}
+      style={{
+        position: "fixed",
+        left: -10000,
+        top: 0,
+        width: 1,
+        height: 1,
+        opacity: 0,
+        pointerEvents: "none",
+      }}
+      onPaste={(e) => {
+        const hasRange = !!selectedCellRange || !!selectedRowRange;
+        if (!hasRange) return;
+
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        if (!text) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        editingCellRef.current = null;
+        setActiveEditCell(null);
+        setActiveEditValue("");
+
+        const el = document.activeElement as HTMLElement | null;
+        if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
+
+        void (async () => {
+          await pasteTextToSelectedRange(text);
+
+          const loc =
+            lastFocusForPasteRef.current ??
+            (selectedCellRange
+              ? { rowIndex: selectedCellRange.startRow, colIndex: selectedCellRange.startCol }
+              : null);
+
+          if (loc) {
+            setTimeout(() => {
+              focusCell(loc.rowIndex, loc.colIndex);
+            }, 0);
+          }
+        })();
+      }}
+    />
+
         <div
           ref={scrollRef}
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
