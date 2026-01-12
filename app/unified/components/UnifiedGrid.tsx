@@ -958,6 +958,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         body: JSON.stringify({ updates: bulkUpdates }),
       });
 
+      // ★ 내가 emit한 update로 내 탭이 곧바로 reload 하면서 점멸하는 것 방지
+      suppressReloadFor(1500);
+
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
