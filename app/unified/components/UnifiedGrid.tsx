@@ -859,10 +859,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         setTotalCount((t) => t + insertedRows.length);
       }
 
+       // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+      suppressReloadFor(2500);
+
       // 다른 탭에 알림(1번)
       syncEmitUnifiedUpdate();
 
-      setRowContextMenu(null);      
+      setRowContextMenu(null);         
     }
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
@@ -963,9 +966,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
       setTotalCount((t) => Math.max(0, t - ids.length));
 
+       // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+      suppressReloadFor(2500);
+
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
-      setSelectedRowRange(null); 
+      setSelectedRowRange(null);  
     }
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
@@ -999,6 +1005,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ updates }),
         });
+
+         // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+        suppressReloadFor(2500);
 
         syncEmitUnifiedUpdate();
         setRowContextMenu(null);
@@ -1036,6 +1045,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates }),
       });
+
+      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+      suppressReloadFor(2500);
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
@@ -1162,8 +1174,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         body: JSON.stringify({ updates: bulkUpdates }),
       });
 
-      // ★ 내가 emit한 update로 내 탭이 곧바로 reload 하면서 점멸하는 것 방지
-      suppressReloadFor(1500);
+      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+      suppressReloadFor(2500);
 
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);

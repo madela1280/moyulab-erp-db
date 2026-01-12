@@ -52,39 +52,46 @@ export async function GET(req: Request) {
   const totalR = await query(`SELECT COUNT(*)::int AS total FROM unified_order`);
   const total = Number(totalR.rows[0]?.total ?? 0);
 
-  // 0) 마지막 "데이터가 있는 행" 기준 tail
+  // 0) 마지막 "데이터가 있는 행" 기준 tail (최적화: 마지막 N개만 스캔)
   if (tailData) {
-    // "데이터 있음" 정의: jsonb 안에 빈 문자열이 아닌 값이 하나라도 있는 행
-    const lastDataR = await query(`
-      SELECT o.sort_key, u.id
-      FROM unified u
-      JOIN unified_order o ON o.unified_id = u.id
-      WHERE EXISTS (
-        SELECT 1
-        FROM jsonb_each_text(u.data) kv
-        WHERE kv.value IS NOT NULL AND kv.value <> ''
-      )
-      ORDER BY o.sort_key DESC, u.id DESC
-      LIMIT 1
-    `);
+    // 스캔 구간: limit의 10배(최소 2000, 최대 20000) 정도만 훑어서 last-data 찾기
+    const scanLimit = Math.min(20000, Math.max(2000, limit * 10));
 
-    let cursorSortKey: any = null;
-    let cursorId: number | null = null;
-
-    if (lastDataR.rows.length) {
-      cursorSortKey = lastDataR.rows[0].sort_key;
-      cursorId = Number(lastDataR.rows[0].id);
-    } else {
-      // 데이터가 하나도 없으면 그냥 tail(마지막 행)로 fallback
-      const lastAnyR = await query(`
-        SELECT o.sort_key, o.unified_id AS id
-        FROM unified_order o
-        ORDER BY o.sort_key DESC, o.unified_id DESC
+    const cursorR = await query(
+      `
+      WITH candidates AS (
+        SELECT u.id, u.data, o.sort_key
+        FROM unified u
+        JOIN unified_order o ON o.unified_id = u.id
+        ORDER BY o.sort_key DESC, u.id DESC
+        LIMIT $1
+      ),
+      last_data AS (
+        SELECT c.sort_key, c.id
+        FROM candidates c
+        WHERE EXISTS (
+          SELECT 1
+          FROM jsonb_each_text(c.data) kv
+          WHERE kv.value IS NOT NULL AND kv.value <> ''
+        )
+        ORDER BY c.sort_key DESC, c.id DESC
         LIMIT 1
-      `);
-      cursorSortKey = lastAnyR.rows[0]?.sort_key ?? 0;
-      cursorId = Number(lastAnyR.rows[0]?.id ?? 0);
-    }
+      ),
+      last_any AS (
+        SELECT c.sort_key, c.id
+        FROM candidates c
+        ORDER BY c.sort_key DESC, c.id DESC
+        LIMIT 1
+      )
+      SELECT
+        COALESCE((SELECT sort_key FROM last_data), (SELECT sort_key FROM last_any), 0) AS sort_key,
+        COALESCE((SELECT id FROM last_data), (SELECT id FROM last_any), 0) AS id
+      `,
+      [scanLimit]
+    );
+
+    const cursorSortKey = cursorR.rows[0]?.sort_key ?? 0;
+    const cursorId = Number(cursorR.rows[0]?.id ?? 0);
 
     const pageR = await query(
       `
@@ -103,6 +110,7 @@ export async function GET(req: Request) {
 
     const rows = pageR.rows;
 
+    // cursor의 전체 위치(pos)를 계산해 baseIndex 산출
     const posR = await query(
       `
       SELECT COUNT(*)::int AS pos
