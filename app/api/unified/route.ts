@@ -8,6 +8,7 @@ function toInt(v: string | null): number | null {
   return Math.floor(n);
 }
 
+// sort_key는 소수 가능 → numeric으로 처리
 function toNum(v: string | null): number | null {
   if (v == null) return null;
   const n = Number(v);
@@ -29,14 +30,14 @@ export async function GET(req: Request) {
   const limit = limitRaw == null ? 500 : Math.max(1, Math.min(5000, limitRaw));
 
   const tail = sp.get("tail") === "1";
+  const tailData = sp.get("tailData") === "1";
 
-  // sort_key는 소수 가능 → numeric으로 처리해야 cursor 페이징이 안 꼬임
   const beforeSortKey = toNum(sp.get("beforeSortKey"));
   const beforeId = toInt(sp.get("beforeId"));
   const afterSortKey = toNum(sp.get("afterSortKey"));
   const afterId = toInt(sp.get("afterId"));
 
-  // 기존 호환: 파라미터 없이 호출되면 예전처럼 "전체" 반환
+  // 기존 호환: 파라미터 없이 호출되면 예전처럼 "전체" 반환(기존 흐름 보호)
   const noParams = Array.from(sp.keys()).length === 0;
   if (noParams) {
     const r = await query(`
@@ -48,11 +49,75 @@ export async function GET(req: Request) {
     return NextResponse.json(r.rows);
   }
 
-  // total
   const totalR = await query(`SELECT COUNT(*)::int AS total FROM unified_order`);
   const total = Number(totalR.rows[0]?.total ?? 0);
 
-  // 1) tail page (마지막 N개)
+  // 0) 마지막 "데이터가 있는 행" 기준 tail
+  if (tailData) {
+    // "데이터 있음" 정의: jsonb 안에 빈 문자열이 아닌 값이 하나라도 있는 행
+    const lastDataR = await query(`
+      SELECT o.sort_key, u.id
+      FROM unified u
+      JOIN unified_order o ON o.unified_id = u.id
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_each_text(u.data) kv
+        WHERE kv.value IS NOT NULL AND kv.value <> ''
+      )
+      ORDER BY o.sort_key DESC, u.id DESC
+      LIMIT 1
+    `);
+
+    let cursorSortKey: any = null;
+    let cursorId: number | null = null;
+
+    if (lastDataR.rows.length) {
+      cursorSortKey = lastDataR.rows[0].sort_key;
+      cursorId = Number(lastDataR.rows[0].id);
+    } else {
+      // 데이터가 하나도 없으면 그냥 tail(마지막 행)로 fallback
+      const lastAnyR = await query(`
+        SELECT o.sort_key, o.unified_id AS id
+        FROM unified_order o
+        ORDER BY o.sort_key DESC, o.unified_id DESC
+        LIMIT 1
+      `);
+      cursorSortKey = lastAnyR.rows[0]?.sort_key ?? 0;
+      cursorId = Number(lastAnyR.rows[0]?.id ?? 0);
+    }
+
+    const pageR = await query(
+      `
+      SELECT * FROM (
+        SELECT u.id, u.data, o.sort_key
+        FROM unified u
+        JOIN unified_order o ON o.unified_id = u.id
+        WHERE (o.sort_key, u.id) <= ($1::numeric, $2::int)
+        ORDER BY o.sort_key DESC, u.id DESC
+        LIMIT $3
+      ) t
+      ORDER BY t.sort_key ASC, t.id ASC
+      `,
+      [cursorSortKey, cursorId, limit]
+    );
+
+    const rows = pageR.rows;
+
+    const posR = await query(
+      `
+      SELECT COUNT(*)::int AS pos
+      FROM unified_order o
+      WHERE (o.sort_key, o.unified_id) <= ($1::numeric, $2::int)
+      `,
+      [cursorSortKey, cursorId]
+    );
+    const pos = Number(posR.rows[0]?.pos ?? rows.length);
+    const baseIndex = Math.max(1, pos - rows.length + 1);
+
+    return NextResponse.json({ rows, total, baseIndex });
+  }
+
+  // 1) tail page (진짜 마지막 N개)
   if (tail) {
     const r = await query(
       `
@@ -70,7 +135,6 @@ export async function GET(req: Request) {
 
     const rows = r.rows;
     const baseIndex = Math.max(1, total - rows.length + 1);
-
     return NextResponse.json({ rows, total, baseIndex });
   }
 
@@ -112,7 +176,6 @@ export async function GET(req: Request) {
 
     const rows = (r.rows[0]?.rows_json ?? []) as any[];
     const baseIndex = Number(r.rows[0]?.base_index ?? 1);
-
     return NextResponse.json({ rows, total, baseIndex });
   }
 
@@ -151,7 +214,6 @@ export async function GET(req: Request) {
 
     const rows = (r.rows[0]?.rows_json ?? []) as any[];
     const baseIndex = Number(r.rows[0]?.base_index ?? 1);
-
     return NextResponse.json({ rows, total, baseIndex });
   }
 
@@ -178,14 +240,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = await req.json();
 
-  // 1) unified row 생성
   const r = await query(
     `INSERT INTO unified (data) VALUES ($1) RETURNING id, data`,
     [body]
   );
   const created = r.rows[0];
 
-  // 2) unified_order에도 기본 sort_key 부여 (맨 뒤로)
   const maxR = await query(
     `SELECT COALESCE(MAX(sort_key), 0) AS max FROM unified_order`
   );

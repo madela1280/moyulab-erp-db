@@ -233,7 +233,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
     async function loadTailPage() {
       await ensureMinRowsInDb();
-      const r = await fetch(`/api/unified?tail=1&limit=${PAGE_SIZE}`, {
+      const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
         cache: "no-store",
       });
       const j = await r.json();
@@ -284,6 +284,15 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 
         const isPagingRef = useRef(false);
         const suspendScrollLoadRef = useRef(false);
+
+   function suspendScrollLoadBriefly() {
+      suspendScrollLoadRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          suspendScrollLoadRef.current = false;
+        });
+      });
+    }
       
     function getCursorFromFirstRow() {
       const first = rows[0];
@@ -825,6 +834,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
 
       // 로컬에 즉시 반영(체감 속도 향상)
+      suspendScrollLoadBriefly();
+
       if (insertedRows.length) {
         setRows((prev) => {
           const next = [...prev];
@@ -841,6 +852,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           if (next.length > WINDOW_MAX_ROWS) return next.slice(0, WINDOW_MAX_ROWS);
           return next;
         });
+
+       // ★ 추가: 맨 앞에 삽입하면 rows[0]의 전체 행번호 기준점이 위로 당겨져야 함
+        if (start === 0) setBaseIndex((b) => Math.max(1, b - insertedRows.length));
 
         setTotalCount((t) => t + insertedRows.length);
       }
@@ -931,8 +945,22 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         body: JSON.stringify({ ids }),
       });
 
-      // 로컬에 즉시 반영(체감 속도 향상)
-      setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
+           // 로컬에 즉시 반영(체감 속도 향상) + 점프 방지
+      suspendScrollLoadBriefly();
+
+      const idSet = new Set(ids);
+
+      setRows((prev) => {
+        // 화면의 "맨 위"부터 연속해서 삭제된 개수만큼 baseIndex를 앞으로 당겨야 행번호가 맞음
+        let removedFromTop = 0;
+        while (removedFromTop < prev.length && idSet.has(prev[removedFromTop].id)) {
+          removedFromTop++;
+        }
+        if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
+
+        return prev.filter((r) => !idSet.has(r.id));
+      });
+
       setTotalCount((t) => Math.max(0, t - ids.length));
 
       syncEmitUnifiedUpdate();
@@ -963,6 +991,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           updates.push({ id: row.id, patch: newData });
         }
 
+        suspendScrollLoadBriefly();
         setRows(next);
 
         await fetch(`/api/unified/bulk-patch`, {
@@ -999,9 +1028,10 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         updates.push({ id: row.id, patch: newData });
       }
 
-      setRows(next);
+        suspendScrollLoadBriefly();
+        setRows(next);
 
-      await fetch(`/api/unified/bulk-patch`, {
+        await fetch(`/api/unified/bulk-patch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates }),
