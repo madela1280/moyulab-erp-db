@@ -187,6 +187,46 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressReloadUntilRef = useRef<number>(0);
 
+      // 안정화: 다른 PC/탭에서 온 업데이트로 인해 즉시 reload(대량 렌더)로 멈추는 것 방지
+    const lastUserActionAtRef = useRef<number>(Date.now());
+    const pendingRemoteUpdateRef = useRef<boolean>(false);
+    const idleReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    function markUserAction() {
+      lastUserActionAtRef.current = Date.now();
+    }
+
+    function scheduleIdleReload(checkDelayMs = 600) {
+      if (idleReloadTimerRef.current) clearTimeout(idleReloadTimerRef.current);
+      idleReloadTimerRef.current = setTimeout(async () => {
+        // 아직 반영할 원격 업데이트가 없으면 종료
+        if (!pendingRemoteUpdateRef.current) return;
+
+        // suppress 기간이면 미룸
+        if (Date.now() < suppressReloadUntilRef.current) {
+          scheduleIdleReload(checkDelayMs);
+          return;
+        }
+
+        // 편집 중이면 미룸 (편집 종료 시점에 즉시 reload하지 않고, 유휴 상태에서만 reload)
+        if (editingCellRef.current) {
+          scheduleIdleReload(checkDelayMs);
+          return;
+        }
+
+        // 사용자가 최근에 조작했으면 미룸(유휴 상태에서만 reload)
+        const idleMs = Date.now() - lastUserActionAtRef.current;
+        if (idleMs < 2500) {
+          scheduleIdleReload(checkDelayMs);
+          return;
+        }
+
+        // 이제 안전하게 reload
+        pendingRemoteUpdateRef.current = false;
+        await reload();
+      }, checkDelayMs);
+    }
+
     function scheduleReload(delayMs = 180) {
       if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
       reloadTimerRef.current = setTimeout(() => {
@@ -249,19 +289,32 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     /* --------------------- 소켓 연결 --------------------- */
-    useEffect(() => {
-      const stop = syncListen(() => {
-        // 내가 방금 한 작업 직후(emit으로 인한 내 탭의 중복 reload) 점멸 방지
-        if (Date.now() < suppressReloadUntilRef.current) return;
 
-        if (editingCellRef.current) {
-          pendingReloadRef.current = true; // 편집 끝나면 reload
-          return;
-        }
-        scheduleReload(180);
+    // 안정화: 사용자 입력이 있는 동안에는 원격 업데이트 reload를 미룬다
+    useEffect(() => {
+      const onAny = () => markUserAction();
+
+      window.addEventListener("keydown", onAny, true);
+      window.addEventListener("mousedown", onAny, true);
+      window.addEventListener("wheel", onAny, true);
+      window.addEventListener("touchstart", onAny, true);
+
+      return () => {
+        window.removeEventListener("keydown", onAny, true);
+        window.removeEventListener("mousedown", onAny, true);
+        window.removeEventListener("wheel", onAny, true);
+        window.removeEventListener("touchstart", onAny, true);
+      };
+    }, []);
+
+     useEffect(() => {
+      const stop = syncListen(() => {
+        // 즉시 reload(대량 렌더)하지 말고, 유휴 상태에서만 reload하도록 큐에 적재
+        pendingRemoteUpdateRef.current = true;
+        scheduleIdleReload(600);
       });
       return () => stop();
-    }, []);
+    }, []);  
 
     /* --------------------- 최초 로딩 --------------------- */
     useEffect(() => {
