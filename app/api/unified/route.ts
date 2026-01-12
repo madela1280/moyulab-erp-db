@@ -26,6 +26,30 @@ export async function GET(req: Request) {
     return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
   }
 
+  // ids=1,2,3 : 현재 화면에 떠있는 행만 부분 갱신(merge)용
+  const idsParam = sp.get("ids");
+  if (idsParam) {
+    const ids = idsParam
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .map((n) => Math.floor(n));
+
+    if (!ids.length) return NextResponse.json([]);
+
+    const r = await query(
+      `
+      SELECT u.id, u.data, o.sort_key
+      FROM unified u
+      JOIN unified_order o ON o.unified_id = u.id
+      WHERE u.id = ANY($1::int[])
+      ORDER BY o.sort_key ASC, u.id ASC
+      `,
+      [ids]
+    );
+    return NextResponse.json(r.rows);
+  }
+
   const limitRaw = toInt(sp.get("limit"));
   const limit = limitRaw == null ? 500 : Math.max(1, Math.min(5000, limitRaw));
 
@@ -54,7 +78,6 @@ export async function GET(req: Request) {
 
   // 0) 마지막 "데이터가 있는 행" 기준 tail (최적화: 마지막 N개만 스캔)
   if (tailData) {
-    // 스캔 구간: limit의 10배(최소 2000, 최대 20000) 정도만 훑어서 last-data 찾기
     const scanLimit = Math.min(20000, Math.max(2000, limit * 10));
 
     const cursorR = await query(
@@ -110,7 +133,6 @@ export async function GET(req: Request) {
 
     const rows = pageR.rows;
 
-    // cursor의 전체 위치(pos)를 계산해 baseIndex 산출
     const posR = await query(
       `
       SELECT COUNT(*)::int AS pos
@@ -146,7 +168,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ rows, total, baseIndex });
   }
 
-  // 2) 이전 페이지 (커서보다 위)
+  // 2) 이전 페이지
   if (beforeSortKey != null && beforeId != null) {
     const r = await query(
       `
@@ -187,7 +209,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ rows, total, baseIndex });
   }
 
-  // 3) 다음 페이지 (커서보다 아래)
+  // 3) 다음 페이지
   if (afterSortKey != null && afterId != null) {
     const r = await query(
       `

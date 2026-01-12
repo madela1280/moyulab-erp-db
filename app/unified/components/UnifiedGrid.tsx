@@ -275,6 +275,73 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }
     }
 
+       const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
+    const OVERSCAN = 12;        // 화면 밖 여유 렌더링
+
+    const [visibleRange, setVisibleRange] = useState<{ start: number; end: number }>({
+      start: 0,
+      end: 0,
+    });
+
+    function calcVisibleRange(el: HTMLDivElement, rowCount: number) {
+      const top = el.scrollTop;
+      const height = el.clientHeight;
+
+      const start = Math.max(0, Math.floor(top / ROW_HEIGHT) - OVERSCAN);
+      const end = Math.min(
+        rowCount - 1,
+        Math.ceil((top + height) / ROW_HEIGHT) + OVERSCAN
+      );
+
+      return { start, end };
+    }
+
+    function updateVisibleRangeNow() {
+      const el = scrollRef.current;
+      if (!el) return;
+      const r = calcVisibleRange(el, rows.length);
+      setVisibleRange(r);
+    }
+
+    async function refreshVisibleRowsFromServer() {
+      if (!rows.length) return;
+
+      // 현재 보이는 범위의 ids만 서버에서 다시 받아와 merge
+      const start = Math.max(0, visibleRange.start);
+      const end = Math.min(rows.length - 1, visibleRange.end);
+
+      const ids = rows.slice(start, end + 1).map((r) => r.id);
+      if (!ids.length) return;
+
+      const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
+      const fresh: UnifiedRow[] = await r.json();
+
+      // id 기준 merge
+      const map = new Map<number, UnifiedRow>();
+      fresh.forEach((x) => map.set(x.id, x));
+
+      setRows((prev) =>
+        prev.map((row) => {
+          const f = map.get(row.id);
+          return f ? { ...row, data: f.data ?? row.data, sort_key: f.sort_key ?? row.sort_key } : row;
+        })
+      );
+    }
+
+    async function refreshCountAndMaybeReload() {
+      const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
+      const j = await r.json();
+      const cnt = Number(j?.count ?? 0);
+
+      if (!Number.isFinite(cnt)) return;
+
+      // count 변화(=삽입/삭제)는 구조 변경이므로, 이때만 full reload
+      if (cnt !== totalCount && cnt > 0) {
+        setTotalCount(cnt);
+        await reload();
+      }
+    }
+
     async function loadTailPage() {
       await ensureMinRowsInDb();
       const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
@@ -307,18 +374,44 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       };
     }, []);
 
-     useEffect(() => {
-      const stop = syncListen(() => {
-        // 즉시 reload(대량 렌더)하지 말고, 유휴 상태에서만 reload하도록 큐에 적재
-        pendingRemoteUpdateRef.current = true;
-        scheduleIdleReload(600);
+       useEffect(() => {
+      const stop = syncListen(async () => {
+        // 1) 내가 막 emit한 직후면 무시(점멸 방지)
+        if (Date.now() < suppressReloadUntilRef.current) return;
+
+        // 2) 편집 중이면 끝난 뒤에 한 번만 반영
+        if (editingCellRef.current) {
+          pendingReloadRef.current = true;
+          return;
+        }
+
+        // 3) 가능한 한 “현재 보이는 행들만” 부분 갱신(merge)
+        await refreshVisibleRowsFromServer();
+
+        // 4) (구조 변경 감지) total count가 달라졌으면만 full reload
+        await refreshCountAndMaybeReload();
       });
+
       return () => stop();
-    }, []);  
+    }, [rows, baseIndex, totalCount, visibleRange]);
 
     /* --------------------- 최초 로딩 --------------------- */
+
+   useEffect(() => {
+      function onResize() {
+        updateVisibleRangeNow();
+      }
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }, [rows.length]);
+
     useEffect(() => {
-      loadTailPage();
+      (async () => {
+        await loadTailPage();
+        requestAnimationFrame(() => {
+          updateVisibleRangeNow();
+        });
+      })();
     }, []);
 
         useEffect(() => {
@@ -331,6 +424,14 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         const el = scrollRef.current;
         if (!el) return;
         el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+      });
+    }, [rows.length]);
+
+      // 가상스크롤: rows가 로드되면 현재 뷰포트에 맞게 visibleRange를 즉시 계산
+    useEffect(() => {
+      if (!rows.length) return;
+      requestAnimationFrame(() => {
+        updateVisibleRangeNow();
       });
     }, [rows.length]);
 
@@ -1337,6 +1438,11 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
             if (suspendScrollLoadRef.current) return;
 
             const el = e.currentTarget;
+
+            // 가상 스크롤 렌더 범위 갱신
+            const r = calcVisibleRange(el, rows.length);
+            setVisibleRange(r);
+
             const threshold = 120;
 
             // 위로 스크롤해서 상단 근처면 이전 페이지 로드
@@ -1421,154 +1527,159 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
               </tr>
             </thead>
 
-            <tbody>
-              {rows.map((row, rowIndex) => {
-                const rowSelected = isRowSelected(rowIndex);
+                        <tbody>
+              {(() => {
+                const start = Math.max(0, visibleRange.start);
+                const end = Math.min(rows.length - 1, visibleRange.end);
+                const visible = rows.slice(start, end + 1);
 
-                const headerCellBase =
-                  "border px-1 py-[3px] text-[0.68rem] text-center select-none" +
-                  (rowSelected
-                    ? " bg-blue-200 text-gray-800"
-                    : " bg-gray-100 text-gray-500");
+                const topH = start * ROW_HEIGHT;
+                const bottomH = Math.max(0, (rows.length - (end + 1)) * ROW_HEIGHT);
 
                 return (
-                  <tr key={row.id}>
-                    <td
-                      className={headerCellBase}
-                      data-row-header="1"
-                      data-row-index={rowIndex}
-                      onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
-                      onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
-                      onContextMenu={(e) =>
-                        handleRowHeaderContextMenu(rowIndex, e)
-                      }
-                    >
-                      {baseIndex + rowIndex}
-                    </td>
+                  <>
+                    {topH > 0 && (
+                      <tr>
+                        <td colSpan={viewColumns.length + 1} style={{ height: topH, padding: 0, border: "none" }} />
+                      </tr>
+                    )}
 
-                    {viewColumns.map((key, colIndex) => {
-                      const cellSelected = isCellSelected(rowIndex, colIndex);
-                      const dataCellBase =
-                        "border px-2 py-[3px]" +
-                        (cellSelected
-                          ? " bg-blue-200"
-                          : rowSelected
-                          ? " bg-blue-50"
-                          : " bg-white");
+                    {visible.map((row, i) => {
+                      const rowIndex = start + i; // ★ rows 배열 기준 index 유지
+                      const rowSelected = isRowSelected(rowIndex);
+
+                      const headerCellBase =
+                        "border px-1 py-[3px] text-[0.68rem] text-center select-none" +
+                        (rowSelected
+                          ? " bg-blue-200 text-gray-800"
+                          : " bg-gray-100 text-gray-500");
 
                       return (
-                        <td
-                          key={key}
-                          className={dataCellBase}
-                          data-row-index={rowIndex}
-                          data-col-index={colIndex}
-                          onMouseDown={(e) =>
-                            handleCellMouseDown(rowIndex, colIndex, e)
-                          }
-                          onMouseEnter={() =>
-                            handleCellMouseEnter(rowIndex, colIndex)
-                          }
-                          onContextMenu={(e) =>
-                            handleCellContextMenu(rowIndex, colIndex, e)
-                          }
-                        >
-                          <input
-                            className="w-full text-xs bg-transparent outline-none"
-                            value={
-                              activeEditCell &&
-                              activeEditCell.rowId === row.id &&
-                              activeEditCell.key === key
-                                ? activeEditValue
-                                : (row.data[key] ?? "")
-                            }
-                            data-row={rowIndex}
-                            data-col={colIndex}
-                            onFocus={(e) => {
-                               // ★ 셀 편집 시작이면 행 선택 하이라이트 제거
-                              setSelectedRowRange(null);
+                        <tr key={row.id}>
+                          <td
+                            className={headerCellBase}
+                            data-row-header="1"
+                            data-row-index={rowIndex}
+                            onMouseDown={(e) => handleRowHeaderMouseDown(rowIndex, e)}
+                            onMouseEnter={() => handleRowHeaderMouseEnter(rowIndex)}
+                            onContextMenu={(e) => handleRowHeaderContextMenu(rowIndex, e)}
+                          >
+                            {baseIndex + rowIndex}
+                          </td>
 
-                              const initial = String(row.data[key] ?? "");
-                              handleFocus(row.id, key, initial, e);
-                            }}
-                            onChange={(e) => {
-                              // 락 잡히기 전에도 입력은 draft로 계속 받는다(빠른 입력 유실 방지)
-                              if (
-                                activeEditCell &&
-                                activeEditCell.rowId === row.id &&
-                                activeEditCell.key === key
-                              ) {
-                                setActiveEditValue(e.target.value);
-                              }
+                          {viewColumns.map((key, colIndex) => {
+                            const cellSelected = isCellSelected(rowIndex, colIndex);
+                            const dataCellBase =
+                              "border px-2 py-[3px]" +
+                              (cellSelected
+                                ? " bg-blue-200"
+                                : rowSelected
+                                ? " bg-blue-50"
+                                : " bg-white");
 
-                              // 락을 이미 잡은 상태면 rows에도 즉시 반영(시각적 안정)
-                              if (myRowLocks[row.id]) {
-                                updateLocalCell(row.id, key, e.target.value);
-                              }
-                            }}
-                                                          onPaste={(e) => {
-                              // 캡처에서 대부분 처리되지만(권장), 혹시 못 잡는 환경 대비 백업 처리
-                              if (skipNextNativePasteRef.current) {
-                                skipNextNativePasteRef.current = false;
-                              }
+                            return (
+                              <td
+                                key={key}
+                                className={dataCellBase}
+                                data-row-index={rowIndex}
+                                data-col-index={colIndex}
+                                onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
+                                onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
+                                onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
+                              >
+                                <input
+                                  className="w-full text-xs bg-transparent outline-none"
+                                  value={
+                                    activeEditCell &&
+                                    activeEditCell.rowId === row.id &&
+                                    activeEditCell.key === key
+                                      ? activeEditValue
+                                      : (row.data[key] ?? "")
+                                  }
+                                  data-row={rowIndex}
+                                  data-col={colIndex}
+                                  onFocus={(e) => {
+                                    setSelectedRowRange(null);
+                                    const initial = String(row.data[key] ?? "");
+                                    handleFocus(row.id, key, initial, e);
+                                  }}
+                                  onChange={(e) => {
+                                    if (
+                                      activeEditCell &&
+                                      activeEditCell.rowId === row.id &&
+                                      activeEditCell.key === key
+                                    ) {
+                                      setActiveEditValue(e.target.value);
+                                    }
+                                    if (myRowLocks[row.id]) {
+                                      updateLocalCell(row.id, key, e.target.value);
+                                    }
+                                  }}
+                                  onPaste={(e) => {
+                                    if (skipNextNativePasteRef.current) {
+                                      skipNextNativePasteRef.current = false;
+                                    }
 
-                              const hasRange = !!selectedCellRange || !!selectedRowRange;
-                              if (!hasRange) return;
+                                    const hasRange = !!selectedCellRange || !!selectedRowRange;
+                                    if (!hasRange) return;
 
-                              const text =
-                                e.clipboardData?.getData("text/plain") ?? "";
-                              if (!text) return;
+                                    const text = e.clipboardData?.getData("text/plain") ?? "";
+                                    if (!text) return;
 
-                              e.preventDefault();
-                              e.stopPropagation();
-                              void pasteTextToSelectedRange(text);
-                            }}
-                            onBlur={async (e) => {
-                              const v = e.target.value as string;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void pasteTextToSelectedRange(text);
+                                  }}
+                                  onBlur={async (e) => {
+                                    const v = e.target.value as string;
 
-                              // 편집 종료 표시(이제 syncListen reload 허용)
-                              editingCellRef.current = null;
-                              setActiveEditCell(null);
-                              setActiveEditValue("");
+                                    editingCellRef.current = null;
+                                    setActiveEditCell(null);
+                                    setActiveEditValue("");
 
-                              // 락 없으면(=편집 권한 없음) 저장/해제 시도하지 않음
-                              if (!myRowLocks[row.id]) {
-                                if (pendingReloadRef.current) {
-                                  pendingReloadRef.current = false;
-                                  await reload();
-                                }
-                                return;
-                              }
+                                    if (!myRowLocks[row.id]) {
+                                      // 편집 중 원격 변경이 들어왔으면, 편집 종료 후 보이는 행만 부분 갱신
+                                      if (pendingReloadRef.current) {
+                                        pendingReloadRef.current = false;
+                                        await refreshVisibleRowsFromServer();
+                                      }
+                                      return;
+                                    }
 
-                              // 내 탭은 저장 직후 emit으로 reload 들어오면 점멸할 수 있으니 잠깐 suppress
-                              suppressReloadFor(800);
+                                    suppressReloadFor(800);
+                                    updateLocalCell(row.id, key, v);
 
-                              // 화면 즉시 반영(혹시 rows 반영이 덜 되었을 때 대비)
-                              updateLocalCell(row.id, key, v);
+                                    await saveCell(row.id, key, v);
+                                    await releaseLock("unified", row.id);
 
-                              await saveCell(row.id, key, v);
-                              await releaseLock("unified", row.id);
+                                    setMyRowLocks((prev) => {
+                                      const copy = { ...prev };
+                                      delete copy[row.id];
+                                      return copy;
+                                    });
 
-                              setMyRowLocks((prev) => {
-                                const copy = { ...prev };
-                                delete copy[row.id];
-                                return copy;
-                              });
-
-                              if (pendingReloadRef.current) {
-                                pendingReloadRef.current = false;
-                                await reload();
-                              }
-                            }}
-                            onKeyDown={(e) =>
-                              handleCellKeyDown(e, rowIndex, colIndex)
-                            }
-                          />
-                        </td>
+                                    if (pendingReloadRef.current) {
+                                      pendingReloadRef.current = false;
+                                      await refreshVisibleRowsFromServer();
+                                    }
+                                  }}
+                                  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
                       );
                     })}
-                  </tr>
+
+                    {bottomH > 0 && (
+                      <tr>
+                        <td colSpan={viewColumns.length + 1} style={{ height: bottomH, padding: 0, border: "none" }} />
+                      </tr>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </tbody>
           </table>
         </div>
