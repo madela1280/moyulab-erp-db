@@ -808,8 +808,18 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const N = Math.max(1, end - start + 1); // 삽입할 행 개수 (선택 행 수만큼)
 
       // "선택 시작 행" 위에 끼워넣기(Excel 스타일)
-      const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
+            const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
       const afterId = rows[start]?.id ?? null;
+
+      const insRes = await fetch("/api/unified/insert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: N,
+          beforeId,
+          afterId,
+        }),
+      });
 
       const insJson = await insRes.json();
       const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
