@@ -97,8 +97,7 @@ export async function POST(req: Request) {
         SELECT
           (SELECT sort_key FROM unified_order WHERE unified_id = (SELECT before_id FROM params)) AS before_key,
           (SELECT sort_key FROM unified_order WHERE unified_id = (SELECT after_id FROM params)) AS after_key,
-          (SELECT COALESCE(MAX(sort_key), 0) FROM unified_order) AS max_key,
-          (SELECT COALESCE(MIN(sort_key), 0) FROM unified_order) AS min_key
+          (SELECT COALESCE(MAX(sort_key), 0) FROM unified_order) AS max_key
       ),
       ins AS (
         INSERT INTO unified (data)
@@ -123,7 +122,7 @@ export async function POST(req: Request) {
 
             -- 맨 앞 삽입(prepend)
             WHEN (SELECT before_id FROM params) IS NULL THEN
-              (SELECT after_key FROM keys) - (((n.cnt - n.rn + 1)::numeric) * 1000)
+              (SELECT (SELECT sort_key FROM unified_order WHERE unified_id = (SELECT after_id FROM params))) - (((n.cnt - n.rn + 1)::numeric) * 1000)
 
             -- 중간 삽입
             ELSE
@@ -143,7 +142,8 @@ export async function POST(req: Request) {
       )
     SELECT
       (SELECT COUNT(*) FROM ins) AS inserted_count,
-      (SELECT json_agg(unified_id ORDER BY sort_key ASC) FROM ins_order) AS inserted_ids
+      (SELECT json_agg(unified_id ORDER BY sort_key ASC) FROM ins_order) AS inserted_ids,
+      (SELECT json_agg(json_build_object('id', unified_id, 'sort_key', sort_key) ORDER BY sort_key ASC) FROM ins_order) AS inserted_rows
   `;
 
   const r = await query(sql, [count, beforeId, afterId]);
@@ -153,5 +153,6 @@ export async function POST(req: Request) {
     ok: true,
     insertedCount: Number(row.inserted_count ?? 0),
     insertedIds: row.inserted_ids ?? [],
+    insertedRows: row.inserted_rows ?? [],
   });
 }

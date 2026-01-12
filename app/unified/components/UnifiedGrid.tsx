@@ -58,6 +58,9 @@ const MIN_REAL_ROWS = 100;
 // 화면에 한 번에 로드할 행 개수(성능 핵심)
 const PAGE_SIZE = 500;
 
+// 화면에 유지할 최대 행 수(무한 스크롤 시 DOM 과부하 방지)
+const WINDOW_MAX_ROWS = 1500;
+
 // 삽입용 완전 빈 data 생성
 function createEmptyData(): Record<string, any> {
   const obj: Record<string, any> = {};
@@ -74,6 +77,8 @@ type UnifiedGridProps = {
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
   function UnifiedGrid(props, ref) {
     const [rows, setRows] = useState<UnifiedRow[]>([]);
+    const [totalCount, setTotalCount] = useState<number>(0);
+    const [baseIndex, setBaseIndex] = useState<number>(1); // rows[0]의 "전체 기준" 행번호(1-based)
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
     // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
@@ -231,8 +236,12 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const r = await fetch(`/api/unified?tail=1&limit=${PAGE_SIZE}`, {
         cache: "no-store",
       });
-      const data: UnifiedRow[] = await r.json();
+      const j = await r.json();
+
+      const data: UnifiedRow[] = j?.rows ?? [];
       setRows(data);
+      setTotalCount(Number(j?.total ?? data.length));
+      setBaseIndex(Number(j?.baseIndex ?? 1));
     }
 
     /* --------------------- 소켓 연결 --------------------- */
@@ -273,6 +282,108 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       await loadTailPage();
     }
 
+        const isPagingRef = useRef(false);
+
+    function getCursorFromFirstRow() {
+      const first = rows[0];
+      if (!first) return null;
+      return {
+        sortKey: Number(first.sort_key ?? 0),
+        id: Number(first.id),
+      };
+    }
+
+    function getCursorFromLastRow() {
+      const last = rows[rows.length - 1];
+      if (!last) return null;
+      return {
+        sortKey: Number(last.sort_key ?? 0),
+        id: Number(last.id),
+      };
+    }
+
+    async function loadPrevPage() {
+      if (isPagingRef.current) return;
+      const cur = getCursorFromFirstRow();
+      if (!cur) return;
+      if (baseIndex <= 1) return; // 더 위가 없음
+
+      isPagingRef.current = true;
+      try {
+        const el = scrollRef.current;
+        const prevScrollHeight = el?.scrollHeight ?? 0;
+
+        const r = await fetch(
+          `/api/unified?beforeSortKey=${cur.sortKey}&beforeId=${cur.id}&limit=${PAGE_SIZE}`,
+          { cache: "no-store" }
+        );
+        const j = await r.json();
+        const newRows: UnifiedRow[] = j?.rows ?? [];
+        if (!newRows.length) return;
+
+        setTotalCount(Number(j?.total ?? totalCount));
+        setBaseIndex(Number(j?.baseIndex ?? baseIndex));
+
+        setRows((prev) => {
+          const merged = [...newRows, ...prev];
+          // 하단을 잘라서 DOM 과부하 방지
+          if (merged.length > WINDOW_MAX_ROWS) {
+            return merged.slice(0, WINDOW_MAX_ROWS);
+          }
+          return merged;
+        });
+
+        // prepend 후 화면 튐 방지(현재 보던 위치 유지)
+        requestAnimationFrame(() => {
+          const el2 = scrollRef.current;
+          if (!el2) return;
+          const newScrollHeight = el2.scrollHeight;
+          const delta = newScrollHeight - prevScrollHeight;
+          if (delta > 0) el2.scrollTop += delta;
+        });
+      } finally {
+        isPagingRef.current = false;
+      }
+    }
+
+    async function loadNextPage() {
+      if (isPagingRef.current) return;
+      const cur = getCursorFromLastRow();
+      if (!cur) return;
+
+      // 현재 window가 전체의 끝에 도달했는지 대략 체크
+      const lastGlobalIndex = baseIndex + rows.length - 1;
+      if (totalCount > 0 && lastGlobalIndex >= totalCount) return;
+
+      isPagingRef.current = true;
+      try {
+        const r = await fetch(
+          `/api/unified?afterSortKey=${cur.sortKey}&afterId=${cur.id}&limit=${PAGE_SIZE}`,
+          { cache: "no-store" }
+        );
+        const j = await r.json();
+        const newRows: UnifiedRow[] = j?.rows ?? [];
+        if (!newRows.length) return;
+
+        setTotalCount(Number(j?.total ?? totalCount));
+
+        setRows((prev) => {
+          let merged = [...prev, ...newRows];
+
+          // 상단을 잘라서 DOM 과부하 방지 (잘라낸 만큼 baseIndex 증가)
+          if (merged.length > WINDOW_MAX_ROWS) {
+            const remove = merged.length - WINDOW_MAX_ROWS;
+            merged = merged.slice(remove);
+            setBaseIndex((b) => b + remove);
+          }
+
+          return merged;
+        });
+      } finally {
+        isPagingRef.current = false;
+      }
+    }
+    
     /* --------------------- 외부에서 행 추가 호출 --------------------- */
    async function appendBlankRows(count: number) {
       if (count <= 0) return;
@@ -690,7 +801,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
       const afterId = rows[start]?.id ?? null;
 
-      await fetch("/api/unified/insert", {
+      const insRes = await fetch("/api/unified/insert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -700,12 +811,34 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         }),
       });
 
+      const insJson = await insRes.json();
+      const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
+
+      // 로컬에 즉시 반영(체감 속도 향상)
+      if (insertedRows.length) {
+        setRows((prev) => {
+          const next = [...prev];
+          const insertAt = Math.max(0, Math.min(start, next.length));
+          const blanks: UnifiedRow[] = insertedRows.map((x) => ({
+            id: Number(x.id),
+            sort_key: Number(x.sort_key),
+            data: {},
+          }));
+
+          next.splice(insertAt, 0, ...blanks);
+
+          // 하단 잘라서 DOM 과부하 방지
+          if (next.length > WINDOW_MAX_ROWS) return next.slice(0, WINDOW_MAX_ROWS);
+          return next;
+        });
+
+        setTotalCount((t) => t + insertedRows.length);
+      }
+
       // 다른 탭에 알림(1번)
       syncEmitUnifiedUpdate();
 
-      // 화면 갱신
-      setRowContextMenu(null);
-      await reload();
+      setRowContextMenu(null);      
     }
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
@@ -788,10 +921,13 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         body: JSON.stringify({ ids }),
       });
 
+      // 로컬에 즉시 반영(체감 속도 향상)
+      setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
+      setTotalCount((t) => Math.max(0, t - ids.length));
+
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
-      setSelectedRowRange(null);
-      await reload();
+      setSelectedRowRange(null); 
     }
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
@@ -1085,10 +1221,26 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       }}
     />
 
-        <div
+      <div
           ref={scrollRef}
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
-        >
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const threshold = 120;
+
+            // 위로 스크롤해서 상단 근처면 이전 페이지 로드
+            if (el.scrollTop <= threshold) {
+              void loadPrevPage();
+              return;
+            }
+
+            // 아래쪽 근처면 다음 페이지 로드
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
+              void loadNextPage();
+              return;
+            }
+          }}
+        >        
           <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
             {isColumnEditMode && (
               <colgroup>
@@ -1180,7 +1332,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
                         handleRowHeaderContextMenu(rowIndex, e)
                       }
                     >
-                      {rowIndex + 1}
+                      {baseIndex + rowIndex}
                     </td>
 
                     {viewColumns.map((key, colIndex) => {

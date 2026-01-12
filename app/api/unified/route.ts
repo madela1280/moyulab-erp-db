@@ -5,49 +5,28 @@ function toInt(v: string | null): number | null {
   if (v == null) return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
-  const i = Math.floor(n);
-  return i;
+  return Math.floor(n);
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const sp = url.searchParams;
 
-  // meta=count : 전체 개수만(3만행에서도 빠르게)
+  // meta=count : 전체 개수만
   if ((sp.get("meta") || "").toLowerCase() === "count") {
     const r = await query(`SELECT COUNT(*)::int AS count FROM unified`);
     return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
   }
 
-  // ids=1,2,3 : 특정 id들만 조회
-  const idsParam = sp.get("ids");
-  if (idsParam) {
-    const ids = idsParam
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0)
-      .map((n) => Math.floor(n));
-
-    if (!ids.length) return NextResponse.json([]);
-
-    const r = await query(
-      `
-      SELECT u.id, u.data, o.sort_key
-      FROM unified u
-      JOIN unified_order o ON o.unified_id = u.id
-      WHERE u.id = ANY($1::int[])
-      ORDER BY o.sort_key ASC, u.id ASC
-      `,
-      [ids]
-    );
-    return NextResponse.json(r.rows);
-  }
-
-  // tail=1&limit=N : 마지막 N행만(속도 핵심)
-  const tail = sp.get("tail") === "1";
   const limitRaw = toInt(sp.get("limit"));
-  const limit =
-    limitRaw == null ? 500 : Math.max(1, Math.min(5000, limitRaw));
+  const limit = limitRaw == null ? 500 : Math.max(1, Math.min(5000, limitRaw));
+
+  const tail = sp.get("tail") === "1";
+
+  const beforeSortKey = toInt(sp.get("beforeSortKey"));
+  const beforeId = toInt(sp.get("beforeId"));
+  const afterSortKey = toInt(sp.get("afterSortKey"));
+  const afterId = toInt(sp.get("afterId"));
 
   // 기존 호환: 파라미터 없이 호출되면 예전처럼 "전체" 반환
   const noParams = Array.from(sp.keys()).length === 0;
@@ -61,8 +40,12 @@ export async function GET(req: Request) {
     return NextResponse.json(r.rows);
   }
 
+  // total
+  const totalR = await query(`SELECT COUNT(*)::int AS total FROM unified_order`);
+  const total = Number(totalR.rows[0]?.total ?? 0);
+
+  // 1) tail page (마지막 N개)
   if (tail) {
-    // DESC로 마지막 limit개 뽑고, 다시 ASC로 정렬해 화면에 자연스럽게
     const r = await query(
       `
       SELECT * FROM (
@@ -76,21 +59,107 @@ export async function GET(req: Request) {
       `,
       [limit]
     );
-    return NextResponse.json(r.rows);
+
+    const rows = r.rows;
+    const baseIndex = Math.max(1, total - rows.length + 1);
+
+    return NextResponse.json({ rows, total, baseIndex });
   }
 
-  // 기본(부분조회 용도): limit만 주면 앞에서부터 limit개
+  // 2) 이전 페이지 (커서보다 위)
+  if (beforeSortKey != null && beforeId != null) {
+    const r = await query(
+      `
+      WITH page AS (
+        SELECT u.id, u.data, o.sort_key
+        FROM unified u
+        JOIN unified_order o ON o.unified_id = u.id
+        WHERE (o.sort_key, u.id) < ($1::int, $2::int)
+        ORDER BY o.sort_key DESC, u.id DESC
+        LIMIT $3
+      ),
+      page2 AS (
+        SELECT * FROM page ORDER BY sort_key ASC, id ASC
+      ),
+      base AS (
+        SELECT
+          CASE
+            WHEN (SELECT COUNT(*) FROM page2) = 0 THEN NULL
+            ELSE (
+              SELECT COUNT(*)::int
+              FROM unified_order o
+              JOIN page2 p ON TRUE
+              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM page2 LIMIT 1), (SELECT id FROM page2 LIMIT 1))
+            ) + 1
+          END AS base_index
+      )
+      SELECT
+        (SELECT json_agg(page2 ORDER BY sort_key ASC, id ASC) FROM page2) AS rows_json,
+        (SELECT base_index FROM base) AS base_index
+      `,
+      [beforeSortKey, beforeId, limit]
+    );
+
+    const rows = (r.rows[0]?.rows_json ?? []) as any[];
+    const baseIndex = Number(r.rows[0]?.base_index ?? 1);
+
+    return NextResponse.json({ rows, total, baseIndex });
+  }
+
+  // 3) 다음 페이지 (커서보다 아래)
+  if (afterSortKey != null && afterId != null) {
+    const r = await query(
+      `
+      WITH page AS (
+        SELECT u.id, u.data, o.sort_key
+        FROM unified u
+        JOIN unified_order o ON o.unified_id = u.id
+        WHERE (o.sort_key, u.id) > ($1::int, $2::int)
+        ORDER BY o.sort_key ASC, u.id ASC
+        LIMIT $3
+      ),
+      base AS (
+        SELECT
+          CASE
+            WHEN (SELECT COUNT(*) FROM page) = 0 THEN NULL
+            ELSE (
+              SELECT COUNT(*)::int
+              FROM unified_order o
+              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM page LIMIT 1), (SELECT id FROM page LIMIT 1))
+            ) + 1
+          END AS base_index
+      )
+      SELECT
+        (SELECT json_agg(page ORDER BY sort_key ASC, id ASC) FROM page) AS rows_json,
+        (SELECT base_index FROM base) AS base_index
+      `,
+      [afterSortKey, afterId, limit]
+    );
+
+    const rows = (r.rows[0]?.rows_json ?? []) as any[];
+    const baseIndex = Number(r.rows[0]?.base_index ?? 1);
+
+    return NextResponse.json({ rows, total, baseIndex });
+  }
+
+  // 기본: limit만 주면 앞에서부터 limit개
   const r = await query(
     `
-    SELECT u.id, u.data, o.sort_key
-    FROM unified u
-    JOIN unified_order o ON o.unified_id = u.id
-    ORDER BY o.sort_key ASC, u.id ASC
-    LIMIT $1
+    WITH page AS (
+      SELECT u.id, u.data, o.sort_key
+      FROM unified u
+      JOIN unified_order o ON o.unified_id = u.id
+      ORDER BY o.sort_key ASC, u.id ASC
+      LIMIT $1
+    )
+    SELECT json_agg(page ORDER BY sort_key ASC, id ASC) AS rows_json
+    FROM page
     `,
     [limit]
   );
-  return NextResponse.json(r.rows);
+
+  const rows = (r.rows[0]?.rows_json ?? []) as any[];
+  return NextResponse.json({ rows, total, baseIndex: 1 });
 }
 
 export async function POST(req: Request) {
@@ -118,10 +187,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json(created);
 }
-
-
-
-
-
-
-
