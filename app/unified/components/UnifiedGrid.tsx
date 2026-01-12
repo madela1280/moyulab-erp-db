@@ -994,17 +994,22 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return <div className="text-center text-gray-500 py-10">Loading...</div>;
 
     return (
-      <div
+            <div
         className="w-full h-full flex flex-col"
         onContextMenu={(e) => e.preventDefault()}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           const target = e.target as HTMLElement;
+
+          // ★ 테이블(셀) 안을 클릭한 건 선택/드래그 동작이므로 여기서 선택 초기화하면 안 됨
+          if (target.closest("table")) return;
+
           if (
             target.closest('[data-row-header="1"]') ||
             target.closest('[data-context-menu="1"]')
           )
             return;
+
           setSelectedRowRange(null);
           setSelectedCellRange(null);
           setRowContextMenu(null);
