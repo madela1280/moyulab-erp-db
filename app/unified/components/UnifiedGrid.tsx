@@ -283,7 +283,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
         const isPagingRef = useRef(false);
-
+        const suspendScrollLoadRef = useRef(false);
+      
     function getCursorFromFirstRow() {
       const first = rows[0];
       if (!first) return null;
@@ -334,13 +335,22 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
         });
 
         // prepend 후 화면 튐 방지(현재 보던 위치 유지)
+        suspendScrollLoadRef.current = true;
         requestAnimationFrame(() => {
           const el2 = scrollRef.current;
-          if (!el2) return;
+          if (!el2) {
+            suspendScrollLoadRef.current = false;
+            return;
+          }
           const newScrollHeight = el2.scrollHeight;
           const delta = newScrollHeight - prevScrollHeight;
           if (delta > 0) el2.scrollTop += delta;
-        });
+
+          // 스크롤 조정 직후 onScroll로 연쇄 로드되는 것 방지 (1프레임 뒤 해제)
+          requestAnimationFrame(() => {
+            suspendScrollLoadRef.current = false;
+          });
+        });  
       } finally {
         isPagingRef.current = false;
       }
@@ -801,16 +811,6 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
       const afterId = rows[start]?.id ?? null;
 
-      const insRes = await fetch("/api/unified/insert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          count: N,
-          beforeId,
-          afterId,
-        }),
-      });
-
       const insJson = await insRes.json();
       const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
 
@@ -1225,6 +1225,8 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           ref={scrollRef}
           className="border-t border-x bg-white w-full flex-1 overflow-auto"
           onScroll={(e) => {
+            if (suspendScrollLoadRef.current) return;
+
             const el = e.currentTarget;
             const threshold = 120;
 

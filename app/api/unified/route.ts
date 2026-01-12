@@ -8,6 +8,13 @@ function toInt(v: string | null): number | null {
   return Math.floor(n);
 }
 
+function toNum(v: string | null): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const sp = url.searchParams;
@@ -23,9 +30,10 @@ export async function GET(req: Request) {
 
   const tail = sp.get("tail") === "1";
 
-  const beforeSortKey = toInt(sp.get("beforeSortKey"));
+  // sort_key는 소수 가능 → numeric으로 처리해야 cursor 페이징이 안 꼬임
+  const beforeSortKey = toNum(sp.get("beforeSortKey"));
   const beforeId = toInt(sp.get("beforeId"));
-  const afterSortKey = toInt(sp.get("afterSortKey"));
+  const afterSortKey = toNum(sp.get("afterSortKey"));
   const afterId = toInt(sp.get("afterId"));
 
   // 기존 호환: 파라미터 없이 호출되면 예전처럼 "전체" 반환
@@ -74,12 +82,15 @@ export async function GET(req: Request) {
         SELECT u.id, u.data, o.sort_key
         FROM unified u
         JOIN unified_order o ON o.unified_id = u.id
-        WHERE (o.sort_key, u.id) < ($1::int, $2::int)
+        WHERE (o.sort_key, u.id) < ($1::numeric, $2::int)
         ORDER BY o.sort_key DESC, u.id DESC
         LIMIT $3
       ),
       page2 AS (
         SELECT * FROM page ORDER BY sort_key ASC, id ASC
+      ),
+      first_row AS (
+        SELECT sort_key, id FROM page2 LIMIT 1
       ),
       base AS (
         SELECT
@@ -88,8 +99,7 @@ export async function GET(req: Request) {
             ELSE (
               SELECT COUNT(*)::int
               FROM unified_order o
-              JOIN page2 p ON TRUE
-              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM page2 LIMIT 1), (SELECT id FROM page2 LIMIT 1))
+              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM first_row), (SELECT id FROM first_row))
             ) + 1
           END AS base_index
       )
@@ -114,9 +124,12 @@ export async function GET(req: Request) {
         SELECT u.id, u.data, o.sort_key
         FROM unified u
         JOIN unified_order o ON o.unified_id = u.id
-        WHERE (o.sort_key, u.id) > ($1::int, $2::int)
+        WHERE (o.sort_key, u.id) > ($1::numeric, $2::int)
         ORDER BY o.sort_key ASC, u.id ASC
         LIMIT $3
+      ),
+      first_row AS (
+        SELECT sort_key, id FROM page LIMIT 1
       ),
       base AS (
         SELECT
@@ -125,7 +138,7 @@ export async function GET(req: Request) {
             ELSE (
               SELECT COUNT(*)::int
               FROM unified_order o
-              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM page LIMIT 1), (SELECT id FROM page LIMIT 1))
+              WHERE (o.sort_key, o.unified_id) < ((SELECT sort_key FROM first_row), (SELECT id FROM first_row))
             ) + 1
           END AS base_index
       )
