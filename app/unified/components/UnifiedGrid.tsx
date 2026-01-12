@@ -576,7 +576,7 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
 
-                // Ctrl/Cmd+C / Ctrl/Cmd+V: 엑셀처럼 범위 복사/붙여넣기
+   // Ctrl/Cmd+C: 복사만 keydown에서 처리 (V는 paste 이벤트에서 처리)
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if ((e as any).isComposing) return;
@@ -595,50 +595,40 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
           return;
         }
 
-        if (key === "v") {
-          // ★ 핵심: Ctrl+V를 누르면 "숨은 textarea"로 포커스를 강제해서
-          // paste 이벤트를 100% 우리가 받도록 만든다(=한 셀 몰빵 native paste 원천 차단)
-          e.preventDefault();
-          e.stopPropagation();
-
-          // 붙여넣기 후 포커스 복귀 지점 기억(가능하면 현재 포커스 input의 data-row/col)
-          const ae = document.activeElement as HTMLElement | null;
-          const rowAttr = ae?.getAttribute?.("data-row");
-          const colAttr = ae?.getAttribute?.("data-col");
-          const r = rowAttr != null ? Number(rowAttr) : NaN;
-          const c = colAttr != null ? Number(colAttr) : NaN;
-
-          if (!Number.isNaN(r) && !Number.isNaN(c)) {
-            lastFocusForPasteRef.current = { rowIndex: r, colIndex: c };
-          } else if (selectedCellRange) {
-            lastFocusForPasteRef.current = {
-              rowIndex: selectedCellRange.startRow,
-              colIndex: selectedCellRange.startCol,
-            };
-          } else if (selectedRowRange) {
-            lastFocusForPasteRef.current = {
-              rowIndex: Math.max(0, selectedRowRange.start),
-              colIndex: 0,
-            };
-          } else {
-            lastFocusForPasteRef.current = null;
-          }
-
-          // textarea로 포커스 이동(여기에 paste가 들어오게 강제)
-          const ta = pasteCatcherRef.current;
-          if (ta) {
-            ta.value = "";
-            ta.focus();
-            ta.select();
-          }
-
-          return;
-        }
+        // key === "v" 는 여기서 막지 않는다(막으면 아예 paste가 취소될 수 있음)
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [selectedCellRange, selectedRowRange]); 
+
+      // Ctrl+V/우클릭 붙여넣기 등 모든 paste를 캡처 단계에서 가로채서
+    // 선택 범위 기준 TSV 분배 입력 (native paste 한 셀 몰빵 방지)
+    useEffect(() => {
+      function onPasteCapture(e: ClipboardEvent) {
+        const hasRange = !!selectedCellRange || !!selectedRowRange;
+        if (!hasRange) return; // 범위 없으면 기본 paste 허용(기존 input 동작)
+
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        if (!text) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 편집 draft 정리(화면 잔상 방지)
+        editingCellRef.current = null;
+        setActiveEditCell(null);
+        setActiveEditValue("");
+
+        const el = document.activeElement as HTMLElement | null;
+        if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
+
+        void pasteTextToSelectedRange(text);
+      }
+
+      window.addEventListener("paste", onPasteCapture, true); // capture
+      return () => window.removeEventListener("paste", onPasteCapture, true);
+    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
          
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
