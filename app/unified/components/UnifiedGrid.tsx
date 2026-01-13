@@ -81,6 +81,41 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     const [baseIndex, setBaseIndex] = useState<number>(1); // rows[0]의 "전체 기준" 행번호(1-based)
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
+   // ===== 최신 state 스냅샷(ref) 유지: syncListen 중복구독/스테일 클로저 방지 =====
+const rowsRef = useRef<UnifiedRow[]>([]);
+const visibleRangeRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+const totalCountRef = useRef<number>(0);
+const baseIndexRef = useRef<number>(1);
+
+useEffect(() => {
+  rowsRef.current = rows;
+}, [rows]);
+
+// (삭제) visibleRange는 setVisibleRange 하는 지점에서 visibleRangeRef를 직접 갱신함
+
+useEffect(() => {
+  totalCountRef.current = totalCount;
+}, [totalCount]);
+
+useEffect(() => {
+  baseIndexRef.current = baseIndex;
+}, [baseIndex]);
+
+function shallowEqualRecord(a: Record<string, any> | undefined, b: Record<string, any> | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
     // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
     const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -258,22 +293,39 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
       "row"
     );
 
-    /* --------------------- 최소 100개 실제 행 확보 --------------------- */
-        async function ensureMinRowsInDb() {
-      const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
-      const j = await r.json();
-      const count = Number(j?.count ?? 0);
+   /* --------------------- 최소 100개 실제 행 확보 --------------------- */
+async function ensureMinRowsInDb() {
+  const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
+  const j = await r.json();
+  const count = Number(j?.count ?? 0);
 
-      if (count < MIN_REAL_ROWS) {
-        const need = MIN_REAL_ROWS - count;
+  if (count < MIN_REAL_ROWS) {
+    const need = MIN_REAL_ROWS - count;
 
-        await fetch("/api/unified/insert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ count: need, beforeId: null, afterId: null }),
-        });
-      }
-    }
+    await fetch("/api/unified/insert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count: need, beforeId: null, afterId: null }),
+    });
+  }
+}
+
+async function refreshCountAndMaybeReload() {
+  const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
+  const j = await r.json();
+  const cnt = Number(j?.count ?? 0);
+
+  if (!Number.isFinite(cnt)) return;
+
+  const prevTotal = totalCountRef.current;
+
+  // count 변화(=삽입/삭제)일 때만 full reload
+  if (cnt !== prevTotal && cnt > 0) {
+    totalCountRef.current = cnt; // ref 먼저 업데이트(연속 이벤트에서 중복 reload 방지)
+    setTotalCount(cnt);
+    await reload();
+  }
+}
 
        const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
     const OVERSCAN = 12;        // 화면 밖 여유 렌더링
@@ -297,63 +349,79 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }
 
     function updateVisibleRangeNow() {
-      const el = scrollRef.current;
-      if (!el) return;
-      const r = calcVisibleRange(el, rows.length);
-      setVisibleRange(r);
-    }
+  const el = scrollRef.current;
+  if (!el) return;
+  const r = calcVisibleRange(el, rows.length);
+  visibleRangeRef.current = r;
+  setVisibleRange(r);
+}
 
-    async function refreshVisibleRowsFromServer() {
-      if (!rows.length) return;
+   async function refreshVisibleRowsFromServer() {
+  const curRows = rowsRef.current;
+  const vr = visibleRangeRef.current;
 
-      // 현재 보이는 범위의 ids만 서버에서 다시 받아와 merge
-      const start = Math.max(0, visibleRange.start);
-      const end = Math.min(rows.length - 1, visibleRange.end);
+  if (!curRows.length) return;
 
-      const ids = rows.slice(start, end + 1).map((r) => r.id);
-      if (!ids.length) return;
+  const start = Math.max(0, vr.start);
+  const end = Math.min(curRows.length - 1, vr.end);
 
-      const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
-      const fresh: UnifiedRow[] = await r.json();
+  const ids = curRows.slice(start, end + 1).map((r) => r.id);
+  if (!ids.length) return;
 
-      // id 기준 merge
-      const map = new Map<number, UnifiedRow>();
-      fresh.forEach((x) => map.set(x.id, x));
+  const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
+  const fresh: UnifiedRow[] = await r.json();
 
-      setRows((prev) =>
-        prev.map((row) => {
-          const f = map.get(row.id);
-          return f ? { ...row, data: f.data ?? row.data, sort_key: f.sort_key ?? row.sort_key } : row;
-        })
-      );
-    }
+  const map = new Map<number, UnifiedRow>();
+  fresh.forEach((x) => map.set(x.id, x));
 
-    async function refreshCountAndMaybeReload() {
-      const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
-      const j = await r.json();
-      const cnt = Number(j?.count ?? 0);
+  // 변경이 "있을 때만" setRows 수행 (불필요 렌더/스페이서 흔들림/점멸 방지)
+  setRows((prev) => {
+    let changed = false;
 
-      if (!Number.isFinite(cnt)) return;
+    const next = prev.map((row) => {
+      const f = map.get(row.id);
+      if (!f) return row;
 
-      // count 변화(=삽입/삭제)는 구조 변경이므로, 이때만 full reload
-      if (cnt !== totalCount && cnt > 0) {
-        setTotalCount(cnt);
-        await reload();
-      }
-    }
+      const nextSortKey = f.sort_key ?? row.sort_key;
+      const nextData = (f.data ?? row.data) as Record<string, any>;
 
-    async function loadTailPage() {
-      await ensureMinRowsInDb();
-      const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
-        cache: "no-store",
-      });
-      const j = await r.json();
+      const sortKeySame = (row.sort_key ?? null) === (nextSortKey ?? null);
+      const dataSame = shallowEqualRecord(row.data ?? {}, nextData ?? {});
 
-      const data: UnifiedRow[] = j?.rows ?? [];
-      setRows(data);
-      setTotalCount(Number(j?.total ?? data.length));
-      setBaseIndex(Number(j?.baseIndex ?? 1));
-    }
+      if (sortKeySame && dataSame) return row;
+
+      changed = true;
+      return {
+        ...row,
+        sort_key: nextSortKey,
+        data: nextData,
+      };
+    });
+
+    return changed ? next : prev;
+  });
+}
+    
+   async function loadTailPage() {
+  await ensureMinRowsInDb();
+  const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
+    cache: "no-store",
+  });
+  const j = await r.json();
+
+  const data: UnifiedRow[] = j?.rows ?? [];
+  const nextTotal = Number(j?.total ?? data.length);
+  const nextBase = Number(j?.baseIndex ?? 1);
+
+  setRows(data);
+  setTotalCount(nextTotal);
+  setBaseIndex(nextBase);
+
+  // ref도 즉시 동기화
+  rowsRef.current = data;
+  totalCountRef.current = nextTotal;
+  baseIndexRef.current = nextBase;
+} 
 
     /* --------------------- 소켓 연결 --------------------- */
 
@@ -375,25 +443,25 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     }, []);
 
        useEffect(() => {
-      const stop = syncListen(async () => {
-        // 1) 내가 막 emit한 직후면 무시(점멸 방지)
-        if (Date.now() < suppressReloadUntilRef.current) return;
+  const stop = syncListen(async () => {
+    // 1) 내가 막 emit한 직후면 무시(점멸 방지)
+    if (Date.now() < suppressReloadUntilRef.current) return;
 
-        // 2) 편집 중이면 끝난 뒤에 한 번만 반영
-        if (editingCellRef.current) {
-          pendingReloadRef.current = true;
-          return;
-        }
+    // 2) 편집 중이면 끝난 뒤에 한 번만 반영
+    if (editingCellRef.current) {
+      pendingReloadRef.current = true;
+      return;
+    }
 
-        // 3) 가능한 한 “현재 보이는 행들만” 부분 갱신(merge)
-        await refreshVisibleRowsFromServer();
+    // 3) 가능한 한 “현재 보이는 행들만” 부분 갱신(merge)
+    await refreshVisibleRowsFromServer();
 
-        // 4) (구조 변경 감지) total count가 달라졌으면만 full reload
-        await refreshCountAndMaybeReload();
-      });
+    // 4) (구조 변경 감지) total count가 달라졌으면만 full reload
+    await refreshCountAndMaybeReload();
+  });
 
-      return () => stop();
-    }, [rows, baseIndex, totalCount, visibleRange]);
+  return () => stop();
+}, []);
 
     /* --------------------- 최초 로딩 --------------------- */
 
@@ -1440,8 +1508,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
             const el = e.currentTarget;
 
             // 가상 스크롤 렌더 범위 갱신
-            const r = calcVisibleRange(el, rows.length);
-            setVisibleRange(r);
+           const r = calcVisibleRange(el, rows.length);
+           visibleRangeRef.current = r;
+           setVisibleRange(r);
 
             const threshold = 120;
 
