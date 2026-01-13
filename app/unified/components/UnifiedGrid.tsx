@@ -268,14 +268,17 @@ useEffect(() => {
     }
 
     function getWidthPx(key: string) {
-      // unit=20일 때 기존 체감에 맞추기(너무 커지지 않게 BASE를 보수적으로)
-      const BASE = 140;
-      const MIN = 40;
-      const MAX = 420;
-      const unit = colWidthUnitByKey[key] ?? 20;
-      const px = Math.round((BASE * unit) / 20);
-      return Math.max(MIN, Math.min(MAX, px));
-    }
+  // unit=20일 때 기존 체감에 맞추기(너무 커지지 않게 BASE를 보수적으로)
+  const BASE = 140;
+  const MIN = 40;
+
+  // ✅ "계약자주소"만 최대 75까지 (140*75/20 = 525px)
+  const MAX = key === "계약자주소" ? 525 : 420;
+
+  const unit = colWidthUnitByKey[key] ?? 20;
+  const px = Math.round((BASE * unit) / 20);
+  return Math.max(MIN, Math.min(MAX, px));
+}
 
     // 행 범위 선택 상태
     const [selectedRowRange, setSelectedRowRange] = useState<{
@@ -1634,7 +1637,7 @@ async function refreshCountAndMaybeReload() {
           }}
         >        
           <table
-             className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-[350] antialiased text-slate-800"
+             className="w-full min-w-[2800px] table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800"
              style={{ fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif' }}
           >
               <colgroup>
@@ -1765,9 +1768,9 @@ async function refreshCountAndMaybeReload() {
                                 onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
                               >
                                 <input
-                                   className={`w-full bg-transparent outline-none text-slate-800 ${
-                                     key === "계약자주소" ? "text-[10.8px]" : "text-xs"
-                                   }`}
+                                  className={`w-full bg-transparent outline-none text-slate-900 ${
+                                    key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
+                                }`} 
                                    value={
                                       activeEditCell &&
                                       activeEditCell.rowId === row.id &&
