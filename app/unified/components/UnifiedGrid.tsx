@@ -1576,15 +1576,14 @@ async function refreshCountAndMaybeReload() {
           }}
         >        
           <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
-            {isColumnEditMode && (
               <colgroup>
-                <col style={{ width: 40 }} />
-                {viewColumns.map((c) => (
-                  <col key={c} style={{ width: getWidthPx(c) }} />
-                ))}
-              </colgroup>
-            )}
-            <thead className="bg-gray-100 sticky top-0 z-10">
+                  <col style={{ width: 40 }} />
+                  {viewColumns.map((c) => (
+                     <col key={c} style={{ width: getWidthPx(c) }} />
+                   ))}
+               </colgroup>
+
+               <thead className="bg-gray-100 sticky top-0 z-10">
               <tr>
                 <th className="border px-1 py-[3px] w-10 bg-gray-100" />
                 {viewColumns.map((c, idx) => (
