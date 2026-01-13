@@ -1575,7 +1575,7 @@ async function refreshCountAndMaybeReload() {
             }
           }}
         >        
-          <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs">
+          <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-light">
               <colgroup>
                   <col style={{ width: 40 }} />
                   {viewColumns.map((c) => (
@@ -1704,22 +1704,24 @@ async function refreshCountAndMaybeReload() {
                                 onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
                               >
                                 <input
-                                  className="w-full text-xs bg-transparent outline-none"
-                                  value={
-                                    activeEditCell &&
-                                    activeEditCell.rowId === row.id &&
-                                    activeEditCell.key === key
-                                      ? activeEditValue
-                                      : (row.data[key] ?? "")
+                                   className={`w-full bg-transparent outline-none ${
+                                      key === "계약자주소" ? "text-[10.8px]" : "text-xs"
+                                   }`}
+                                   value={
+                                      activeEditCell &&
+                                      activeEditCell.rowId === row.id &&
+                                      activeEditCell.key === key
+                                        ? activeEditValue
+                                        : (row.data[key] ?? "")
                                   }
-                                  data-row={rowIndex}
-                                  data-col={colIndex}
-                                  onFocus={(e) => {
-                                    setSelectedRowRange(null);
-                                    const initial = String(row.data[key] ?? "");
-                                    handleFocus(row.id, key, initial, e);
-                                  }}
-                                  onChange={(e) => {
+                                 data-row={rowIndex}
+                                 data-col={colIndex}
+                                 onFocus={(e) => {
+                                     setSelectedRowRange(null);
+                                     const initial = String(row.data[key] ?? "");
+                                     handleFocus(row.id, key, initial, e);
+                                   }}
+                                   onChange={(e) => {
                                     if (
                                       activeEditCell &&
                                       activeEditCell.rowId === row.id &&
