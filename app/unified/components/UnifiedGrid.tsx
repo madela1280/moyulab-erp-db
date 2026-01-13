@@ -52,36 +52,6 @@ const unifiedColumns = [
   "5차연장",
 ];
 
-const COLUMN_SETTINGS_STORAGE_KEY = "unified:grid:columnSettings:v1";
-
-function normalizeColumnOrder(input: any): string[] {
-  const base = unifiedColumns;
-  if (!Array.isArray(input)) return [...base];
-
-  const seen = new Set<string>();
-  const cleaned = input
-    .map((x: any) => String(x))
-    .filter((x: string) => base.includes(x) && !seen.has(x) && (seen.add(x), true));
-
-  // 누락 컬럼은 뒤에 추가
-  for (const c of base) if (!seen.has(c)) cleaned.push(c);
-
-  return cleaned;
-}
-
-function normalizeWidthUnits(input: any): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const c of unifiedColumns) out[c] = 20;
-
-  if (!input || typeof input !== "object") return out;
-
-  for (const c of unifiedColumns) {
-    const n = Number((input as any)[c]);
-    if (Number.isFinite(n)) out[c] = Math.max(1, Math.min(200, Math.floor(n)));
-  }
-  return out;
-}
-
 // 항상 DB에 최소로 유지할 실제 행 개수
 const MIN_REAL_ROWS = 100;
 
@@ -209,34 +179,6 @@ async function applyRemoteSyncOnce() {
       unifiedColumns.forEach((c) => (obj[c] = 20));
       return obj;
     });
-
-// ===== 열설정(순서/폭) 로컬 저장/복원 =====
-useEffect(() => {
-  try {
-    const raw = localStorage.getItem(COLUMN_SETTINGS_STORAGE_KEY);
-    if (!raw) return;
-
-    const parsed = JSON.parse(raw);
-    const nextOrder = normalizeColumnOrder(parsed?.columnOrder);
-    const nextWidths = normalizeWidthUnits(parsed?.colWidthUnitByKey);
-
-    setColumnOrder(nextOrder);
-    setColWidthUnitByKey(nextWidths);
-  } catch {
-    // ignore
-  }
-}, []);
-
-useEffect(() => {
-  try {
-    localStorage.setItem(
-      COLUMN_SETTINGS_STORAGE_KEY,
-      JSON.stringify({ columnOrder, colWidthUnitByKey })
-    );
-  } catch {
-    // ignore
-  }
-}, [columnOrder, colWidthUnitByKey]);
 
     const viewColumns = columnOrder;
 
