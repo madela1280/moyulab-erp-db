@@ -1575,7 +1575,7 @@ async function refreshCountAndMaybeReload() {
             }
           }}
         >        
-          <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-light">
+          <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-[350] antialiased">
               <colgroup>
                   <col style={{ width: 40 }} />
                   {viewColumns.map((c) => (
