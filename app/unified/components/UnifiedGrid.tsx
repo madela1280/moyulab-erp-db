@@ -1575,7 +1575,10 @@ async function refreshCountAndMaybeReload() {
             }
           }}
         >        
-          <table className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-[350] antialiased">
+          <table
+             className="w-full min-w-[2800px] table-fixed border-collapse text-xs font-[350] antialiased text-slate-800"
+             style={{ fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif' }}
+          >
               <colgroup>
                   <col style={{ width: 40 }} />
                   {viewColumns.map((c) => (
@@ -1704,8 +1707,8 @@ async function refreshCountAndMaybeReload() {
                                 onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
                               >
                                 <input
-                                   className={`w-full bg-transparent outline-none ${
-                                      key === "계약자주소" ? "text-[10.8px]" : "text-xs"
+                                   className={`w-full bg-transparent outline-none text-slate-800 ${
+                                     key === "계약자주소" ? "text-[10.8px]" : "text-xs"
                                    }`}
                                    value={
                                       activeEditCell &&
