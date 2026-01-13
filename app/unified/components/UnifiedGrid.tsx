@@ -116,6 +116,54 @@ function shallowEqualRecord(a: Record<string, any> | undefined, b: Record<string
   return true;
 }
 
+// ===== 원격 sync 이벤트 coalesce(여러번 와도 1번만 반영) =====
+const remoteSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+const remoteSyncPendingRef = useRef(false);
+const remoteSyncInFlightRef = useRef(false);
+
+// full reload(큰 점멸)는 “버스트당 1회”로 제한
+const lastFullReloadAtRef = useRef(0);
+const FULL_RELOAD_MIN_INTERVAL_MS = 1200;
+
+function requestApplyRemoteSync() {
+  remoteSyncPendingRef.current = true;
+
+  // 이미 예약되어 있으면 추가 예약하지 않음(=1회로 합침)
+  if (remoteSyncTimerRef.current) return;
+
+  remoteSyncTimerRef.current = setTimeout(() => {
+    remoteSyncTimerRef.current = null;
+    void applyRemoteSyncOnce();
+  }, 120); // 짧은 디바운스(연속 이벤트 합치기)
+}
+
+async function applyRemoteSyncOnce() {
+  // suppress 기간이면 이번 버스트는 흡수
+  if (Date.now() < suppressReloadUntilRef.current) return;
+
+  // 편집 중이면 편집 종료 후 기존 로직(pendingReloadRef)로 흡수
+  if (editingCellRef.current) {
+    pendingReloadRef.current = true;
+    return;
+  }
+
+  // 이미 처리 중이면 pending만 올려두고 종료 (처리 루프가 이어서 한번 더 수행)
+  if (remoteSyncInFlightRef.current) return;
+
+  remoteSyncInFlightRef.current = true;
+  try {
+    // pending을 한번에 처리(처리 중 추가로 pending이 들어오면 루프가 1번 더 돌지만 “큰 reload”는 아래에서 제한)
+    while (remoteSyncPendingRef.current) {
+      remoteSyncPendingRef.current = false;
+
+      await refreshVisibleRowsFromServer();
+      await refreshCountAndMaybeReload();
+    }
+  } finally {
+    remoteSyncInFlightRef.current = false;
+  }
+}
+
     // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
     const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -321,13 +369,19 @@ async function refreshCountAndMaybeReload() {
 
   // count 변화(=삽입/삭제)일 때만 full reload
   if (cnt !== prevTotal && cnt > 0) {
-    totalCountRef.current = cnt; // ref 먼저 업데이트(연속 이벤트에서 중복 reload 방지)
+    totalCountRef.current = cnt;
     setTotalCount(cnt);
+
+    // ✅ 말 그대로 “큰 점멸”은 버스트당 1회로 제한
+    const now = Date.now();
+    if (now - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
+    lastFullReloadAtRef.current = now;
+
     await reload();
   }
 }
 
-       const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
+    const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
     const OVERSCAN = 12;        // 화면 밖 여유 렌더링
 
     const [visibleRange, setVisibleRange] = useState<{ start: number; end: number }>({
@@ -442,26 +496,20 @@ async function refreshCountAndMaybeReload() {
       };
     }, []);
 
-       useEffect(() => {
-  const stop = syncListen(async () => {
-    // 1) 내가 막 emit한 직후면 무시(점멸 방지)
-    if (Date.now() < suppressReloadUntilRef.current) return;
-
-    // 2) 편집 중이면 끝난 뒤에 한 번만 반영
-    if (editingCellRef.current) {
-      pendingReloadRef.current = true;
-      return;
-    }
-
-    // 3) 가능한 한 “현재 보이는 행들만” 부분 갱신(merge)
-    await refreshVisibleRowsFromServer();
-
-    // 4) (구조 변경 감지) total count가 달라졌으면만 full reload
-    await refreshCountAndMaybeReload();
+     useEffect(() => {
+  const stop = syncListen(() => {
+    requestApplyRemoteSync();
   });
 
-  return () => stop();
-}, []);
+  return () => {
+    stop();
+    if (remoteSyncTimerRef.current) {
+      clearTimeout(remoteSyncTimerRef.current);
+      remoteSyncTimerRef.current = null;
+    }
+    remoteSyncPendingRef.current = false;
+  };
+}, []);  
 
     /* --------------------- 최초 로딩 --------------------- */
 
