@@ -1647,11 +1647,14 @@ async function refreshCountAndMaybeReload() {
                    ))}
                </colgroup>
 
-               <thead className="bg-gray-100 sticky top-0 z-10">
-              <tr>
-                <th className="border px-1 py-[3px] w-10 bg-gray-100" />
-                {viewColumns.map((c, idx) => (
-                  <th key={c} className="border px-2 py-1 align-top">
+               <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-1 py-[3px] w-10 bg-gray-100 sticky top-0 z-30" />
+                    {viewColumns.map((c, idx) => (
+                      <th 
+                         key={c} 
+                         className="border px-2 py-1 align-top bg-gray-100 sticky top-0 z-30"
+                    >
                     <div className="flex flex-col items-center gap-1">
                       <div className="w-full text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
                         {c}
