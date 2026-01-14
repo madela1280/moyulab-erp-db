@@ -1,10 +1,12 @@
-// app/unified/components/GridHeader.tsx
 "use client";
 
 type Props = {
   onAdd10: () => void;
   isColumnEditMode: boolean;
   onToggleColumnEditMode: () => void;
+
+  // ✅ 양식추가(새 컬럼 추가) 버튼 핸들러
+  onAddTemplate: () => void;
 };
 
 function Icon({ name }: { name: string }) {
@@ -39,7 +41,7 @@ function Icon({ name }: { name: string }) {
     case "palette":
       return (
         <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M12 3a9 9 0 1 0 0 18h2a3 3 0 0 0 0-6h-1a2 2 0 0 1-2-2v-.5a2.5 2.5 0 0 1 2.5-2.5H16a3 3 0 0 0 0-6h-4Z" />
+          <path d="M12 3a9 9 0 1 0 0 18h2a3 3 0 0 0 0-6h-1a2 2 0 1 1 0-4h3.5A3.5 3.5 0 0 0 19 7.5 4.5 4.5 0 0 0 14.5 3H12Z" />
           <path d="M7.5 11.5h.01M9.5 7.5h.01M14.5 7.5h.01M16.5 11.5h.01" />
         </svg>
       );
@@ -103,7 +105,7 @@ function ToolButton({
   onClick?: () => void;
   active?: boolean;
 }) {
-    const base =
+  const base =
     "inline-flex items-center gap-1.5 text-xs px-2 py-1 border rounded text-slate-800 font-medium";
   const normal = "bg-slate-100 border-slate-200 hover:bg-slate-200 active:bg-slate-300";
   const on = "bg-slate-300 border-slate-300 hover:bg-slate-300 active:bg-slate-400";
@@ -120,6 +122,7 @@ export default function GridHeader({
   onAdd10,
   isColumnEditMode,
   onToggleColumnEditMode,
+  onAddTemplate,
 }: Props) {
   return (
     <div className="w-full flex items-center gap-2 px-2 py-2 bg-white border-b">
@@ -137,16 +140,16 @@ export default function GridHeader({
 
       <div className="ml-auto flex items-center gap-2">
         <ToolButton icon="download">다운로드</ToolButton>
+
         <ToolButton icon="plus" onClick={onAdd10}>
           행10추가
         </ToolButton>
-        <ToolButton icon="file">양식추가</ToolButton>
 
-        <ToolButton
-          icon="swap"
-          onClick={onToggleColumnEditMode}
-          active={isColumnEditMode}
-        >
+        <ToolButton icon="file" onClick={onAddTemplate}>
+          양식추가
+        </ToolButton>
+
+        <ToolButton icon="swap" onClick={onToggleColumnEditMode} active={isColumnEditMode}>
           열이동
         </ToolButton>
       </div>

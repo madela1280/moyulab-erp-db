@@ -1,12 +1,8 @@
-// app/unified/column-config/useUnifiedColumnConfig.ts
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { syncListen, syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
-import {
-  DEFAULT_COL_WIDTH_UNIT_BY_KEY,
-  unifiedColumns,
-} from "@/unified/columns/unifiedColumns";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { syncListen } from "@/global-sync/sync-engine";
+import { DEFAULT_COL_WIDTH_UNIT_BY_KEY, unifiedColumns } from "@/unified/columns/unifiedColumns";
 
 type ColumnConfig = {
   columnOrder: string[];
@@ -19,68 +15,135 @@ function clampUnit(v: any) {
   return Math.max(1, Math.min(200, Math.floor(n)));
 }
 
-function sanitizeColumnOrder(input: any): string[] {
-  const allowed = new Set(unifiedColumns as unknown as string[]);
-  const arr = Array.isArray(input) ? input.map(String) : [];
+// 전역 컬럼 목록(기본+커스텀) 기준으로, 유저 순서를 최대한 유지하면서 누락 컬럼을 “삽입 위치에 맞게” 끼워 넣음
+function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
+  const gSet = new Set(globalOrder);
 
-  const out: string[] = [];
-  const seen = new Set<string>();
+  const base = Array.isArray(userOrder) ? userOrder.map(String) : [];
+  const filtered = base.filter((k) => gSet.has(k));
 
-  for (const k of arr) {
-    if (!allowed.has(k)) continue;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(k);
+  const result: string[] = [];
+  const rSet = new Set<string>();
+
+  for (const k of filtered) {
+    if (rSet.has(k)) continue;
+    rSet.add(k);
+    result.push(k);
   }
 
-  // 누락된 컬럼은 뒤에 붙여서 항상 전체 컬럼을 유지
-  for (const k of unifiedColumns as unknown as string[]) {
-    if (!seen.has(k)) out.push(k);
+  // globalOrder를 순회하며 result에 없는 키를 “가까운 위치”에 삽입
+  for (let i = 0; i < globalOrder.length; i++) {
+    const k = globalOrder[i];
+    if (rSet.has(k)) continue;
+
+    // 1) global에서 이전 키 중 result에 존재하는 가장 가까운 prev 뒤에 삽입
+    let inserted = false;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = globalOrder[j];
+      const idx = result.indexOf(prev);
+      if (idx >= 0) {
+        result.splice(idx + 1, 0, k);
+        inserted = true;
+        break;
+      }
+    }
+
+    // 2) 없으면 global에서 다음 키 중 result에 존재하는 next 앞에 삽입
+    if (!inserted) {
+      for (let j = i + 1; j < globalOrder.length; j++) {
+        const next = globalOrder[j];
+        const idx = result.indexOf(next);
+        if (idx >= 0) {
+          result.splice(idx, 0, k);
+          inserted = true;
+          break;
+        }
+      }
+    }
+
+    // 3) 그래도 없으면 맨 뒤
+    if (!inserted) result.push(k);
+
+    rSet.add(k);
   }
 
-  return out;
+  return result;
 }
 
-function sanitizeWidths(input: any): Record<string, number> {
-  const base = { ...DEFAULT_COL_WIDTH_UNIT_BY_KEY };
+function sanitizeWidths(input: any, globalOrder: string[]) {
+  const base: Record<string, number> = {};
+
+  // 기본컬럼은 기본값(20) 세팅
+  for (const k of unifiedColumns as unknown as string[]) {
+    base[k] = DEFAULT_COL_WIDTH_UNIT_BY_KEY[k] ?? 20;
+  }
+
+  // 전역 컬럼에 대해 기본값 확장(커스텀도 20 기본)
+  for (const k of globalOrder) {
+    if (!(k in base)) base[k] = 20;
+  }
+
   if (!input || typeof input !== "object" || Array.isArray(input)) return base;
 
-  for (const k of unifiedColumns as unknown as string[]) {
+  for (const k of globalOrder) {
     if (k in input) base[k] = clampUnit((input as any)[k]);
   }
   return base;
 }
 
 export function useUnifiedColumnConfig() {
+  const [availableColumns, setAvailableColumns] = useState<string[]>([
+    ...(unifiedColumns as unknown as string[]),
+  ]);
+
   const [columnOrder, _setColumnOrder] = useState<string[]>([
     ...(unifiedColumns as unknown as string[]),
   ]);
-  const [colWidthUnitByKey, _setColWidthUnitByKey] = useState<Record<string, number>>(
-    { ...DEFAULT_COL_WIDTH_UNIT_BY_KEY }
-  );
+
+  const [colWidthUnitByKey, _setColWidthUnitByKey] = useState<Record<string, number>>({
+    ...DEFAULT_COL_WIDTH_UNIT_BY_KEY,
+  });
 
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalChangeAtRef = useRef<number>(0);
 
-  // 외부에서 쓰는 setter: “로컬 변경 시각” 기록(원격 sync가 와도 바로 덮어쓰지 않게)
+  const canSave = useMemo(() => hydratedRef.current, [hydratedRef.current]);
+
   function setColumnOrder(next: string[]) {
     lastLocalChangeAtRef.current = Date.now();
-    _setColumnOrder(sanitizeColumnOrder(next));
+
+    // 유저가 드래그/이동한 순서도 전역 컬럼 집합 안에서만 유지
+    const gSet = new Set(availableColumns);
+    const filtered = next.filter((k) => gSet.has(k));
+    _setColumnOrder(mergeUserOrderWithGlobal(filtered, availableColumns));
   }
 
   function setColWidthUnitByKey(next: Record<string, number>) {
     lastLocalChangeAtRef.current = Date.now();
-    _setColWidthUnitByKey(sanitizeWidths(next));
+    _setColWidthUnitByKey(sanitizeWidths(next, availableColumns));
   }
 
-  async function load() {
+  async function loadAvailableColumns() {
+    const r = await fetch("/api/unified-columns", { cache: "no-store" });
+    if (!r.ok) return;
+
+    const j = await r.json();
+    const order = Array.isArray(j?.order) ? j.order.map(String) : [];
+
+    // 최소 방어: 전역 컬럼이 비면 기본 컬럼으로 fallback
+    const safe = order.length ? order : ([...(unifiedColumns as unknown as string[])] as string[]);
+    setAvailableColumns(safe);
+    return safe;
+  }
+
+  async function loadUserConfig(globalOrder: string[]) {
     const r = await fetch("/api/unified-grid-settings", { cache: "no-store" });
     if (!r.ok) return;
 
     const j = (await r.json()) as Partial<ColumnConfig>;
-    _setColumnOrder(sanitizeColumnOrder(j.columnOrder));
-    _setColWidthUnitByKey(sanitizeWidths(j.colWidthUnitByKey));
+    _setColumnOrder(mergeUserOrderWithGlobal(j.columnOrder, globalOrder));
+    _setColWidthUnitByKey(sanitizeWidths(j.colWidthUnitByKey, globalOrder));
   }
 
   async function saveNow(cfg: ColumnConfig) {
@@ -89,22 +152,35 @@ export function useUnifiedColumnConfig() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg),
     });
+  }
 
-    // 같은 사용자/다른 탭에서 즉시 반영이 필요하면 emit (코어 수정 없이 기존 채널 재사용)
-    syncEmitUnifiedUpdate();
+  async function reloadAllColumnState() {
+    const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
+    await loadUserConfig(globalOrder);
+
+    // 전역 컬럼 변경 시, 현재 state도 전역 기준으로 누락 없이 보정
+    _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
+    _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
   }
 
   // 최초 로드
   useEffect(() => {
     (async () => {
-      await load();
+      const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
+      await loadUserConfig(globalOrder);
+
+      // 안전 보정
+      _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
+      _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
+
       hydratedRef.current = true;
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 변경 시 디바운스 저장
+  // 변경 시 디바운스 저장(유저별 설정)
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!canSave) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
@@ -115,23 +191,25 @@ export function useUnifiedColumnConfig() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     };
-  }, [columnOrder, colWidthUnitByKey]);
+  }, [columnOrder, colWidthUnitByKey, canSave]);
 
-  // 원격 업데이트(다른 탭) 반영: 최근 로컬 조작 직후면 덮어쓰지 않음
+  // 전역 변경(양식추가 등) sync 수신 시 재로딩
   useEffect(() => {
     const stop = syncListen(() => {
       const idleMs = Date.now() - lastLocalChangeAtRef.current;
-      if (idleMs < 1200) return; // 방금 조작 중이면 무시
-      void load();
+      if (idleMs < 1200) return; // 방금 조작 중이면 덮어쓰기 방지
+      void reloadAllColumnState();
     });
     return stop;
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableColumns]);
 
   return {
+    availableColumns,
     columnOrder,
     setColumnOrder,
     colWidthUnitByKey,
     setColWidthUnitByKey,
-    reloadColumnConfig: load,
+    reloadAllColumnState,
   };
 }
