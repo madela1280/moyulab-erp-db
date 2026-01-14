@@ -21,10 +21,12 @@ export async function GET(req: Request) {
   const sp = url.searchParams;
 
   // meta=count : 전체 개수만
-  if ((sp.get("meta") || "").toLowerCase() === "count") {
-    const r = await query(`SELECT COUNT(*)::int AS count FROM unified`);
-    return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
-  }
+// ✅ Grid가 사용하는 total/정렬 기준은 unified_order이므로 count도 동일 기준으로 맞춘다.
+// (unified vs unified_order 불일치 시 reload가 반복되며 점멸/스크롤튐 발생 가능)
+if ((sp.get("meta") || "").toLowerCase() === "count") {
+  const r = await query(`SELECT COUNT(*)::int AS count FROM unified_order`);
+  return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
+}
 
   // ids=1,2,3 : 현재 화면에 떠있는 행만 부분 갱신(merge)용
   const idsParam = sp.get("ids");
