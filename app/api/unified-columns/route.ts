@@ -16,33 +16,34 @@ import { unifiedColumns } from "@/unified/columns/unifiedColumns";
 
 const BASE_STEP = 1000;
 
-function baseSortKeyOf(key: string): number | null {
-  const idx = (unifiedColumns as unknown as string[]).indexOf(key);
-  if (idx < 0) return null;
-  return (idx + 1) * BASE_STEP;
-}
-
 async function getGlobalOrder(): Promise<Array<{ key: string; sort_key: number }>> {
   const base = (unifiedColumns as unknown as string[]).map((k, i) => ({
     key: k,
     sort_key: (i + 1) * BASE_STEP,
   }));
 
+  // 커스텀 컬럼
   const r = await query(
-    `SELECT key, sort_key::numeric AS sort_key FROM unified_custom_columns ORDER BY sort_key ASC, key ASC`
+    `SELECT key, sort_key::numeric AS sort_key, created_by, created_at
+     FROM unified_custom_columns
+     ORDER BY sort_key ASC, key ASC`
   );
 
   const custom = r.rows.map((x: any) => ({
     key: String(x.key),
     sort_key: Number(x.sort_key),
+    created_by: x.created_by ?? null,
+    created_at: x.created_at ?? null,
   }));
 
-  const combined = [...base, ...custom];
+  // 합치기(커스텀에 기본 키가 들어오는 경우 기본 우선)
+  const combined = [...base, ...custom.map((x) => ({ key: x.key, sort_key: x.sort_key }))].sort(
+    (a, b) => a.sort_key - b.sort_key
+  );
 
-  // key 중복 방지(커스텀에 기본 키가 들어오면 기본 우선)
   const seen = new Set<string>();
   const dedup: Array<{ key: string; sort_key: number }> = [];
-  for (const c of combined.sort((a, b) => a.sort_key - b.sort_key)) {
+  for (const c of combined) {
     if (seen.has(c.key)) continue;
     seen.add(c.key);
     dedup.push(c);
@@ -52,8 +53,20 @@ async function getGlobalOrder(): Promise<Array<{ key: string; sort_key: number }
 }
 
 export async function GET() {
+  // GET은 로그인 없이도 동작 가능(컬럼 목록 제공)하게 유지
+  // (필요하면 추후 권한 정책으로 제한 가능)
   const order = await getGlobalOrder();
-  return NextResponse.json({ order: order.map((x) => x.key) });
+
+  const customR = await query(
+    `SELECT key, created_by, created_at
+     FROM unified_custom_columns
+     ORDER BY created_at DESC, key ASC`
+  );
+
+  return NextResponse.json({
+    order: order.map((x) => x.key),
+    custom: customR.rows,
+  });
 }
 
 export async function POST(req: Request) {
@@ -67,33 +80,25 @@ export async function POST(req: Request) {
   const referenceKey = String(body?.referenceKey ?? "").trim();
   const position = (String(body?.position ?? "after") as "after" | "before") === "before" ? "before" : "after";
 
-  if (!name) {
-    return NextResponse.json({ error: "INVALID_NAME" }, { status: 400 });
-  }
-  if (name.length > 60) {
-    return NextResponse.json({ error: "NAME_TOO_LONG" }, { status: 400 });
-  }
+  if (!name) return NextResponse.json({ error: "INVALID_NAME" }, { status: 400 });
+  if (name.length > 60) return NextResponse.json({ error: "NAME_TOO_LONG" }, { status: 400 });
 
   // 기본 컬럼과 동일 이름 금지
   if ((unifiedColumns as unknown as string[]).includes(name)) {
     return NextResponse.json({ error: "DUPLICATE_WITH_BASE" }, { status: 409 });
   }
 
-  // 기준 컬럼 유효성 검사(전역 목록 기준으로 존재해야 함)
+  // 기준 컬럼 유효성
   const global = await getGlobalOrder();
   const ref = global.find((x) => x.key === referenceKey);
-  if (!ref) {
-    return NextResponse.json({ error: "INVALID_REFERENCE_KEY" }, { status: 400 });
-  }
+  if (!ref) return NextResponse.json({ error: "INVALID_REFERENCE_KEY" }, { status: 400 });
 
-  // 이미 존재하는 커스텀 컬럼 중복 방지
+  // 이미 존재하는 커스텀 키 중복 방지
   const exists = await query(`SELECT 1 FROM unified_custom_columns WHERE key=$1`, [name]);
-  if (exists.rows.length) {
-    return NextResponse.json({ error: "DUPLICATE_CUSTOM_KEY" }, { status: 409 });
-  }
+  if (exists.rows.length) return NextResponse.json({ error: "DUPLICATE_CUSTOM_KEY" }, { status: 409 });
 
-  // 새 sort_key 계산(엑셀 열 삽입처럼 between)
-  const sorted = global.sort((a, b) => a.sort_key - b.sort_key);
+  // 새 sort_key 계산(열 삽입)
+  const sorted = global.slice().sort((a, b) => a.sort_key - b.sort_key);
   const refIndex = sorted.findIndex((x) => x.key === referenceKey);
 
   let prevSort: number | null = null;
@@ -108,16 +113,10 @@ export async function POST(req: Request) {
   }
 
   let newSort: number;
-  if (prevSort != null && nextSort != null) {
-    newSort = (prevSort + nextSort) / 2;
-  } else if (prevSort != null && nextSort == null) {
-    newSort = prevSort + BASE_STEP;
-  } else if (prevSort == null && nextSort != null) {
-    newSort = nextSort - BASE_STEP / 2;
-  } else {
-    // fallback (이론상 거의 없음)
-    newSort = (baseSortKeyOf(referenceKey) ?? 0) + BASE_STEP / 2;
-  }
+  if (prevSort != null && nextSort != null) newSort = (prevSort + nextSort) / 2;
+  else if (prevSort != null) newSort = prevSort + BASE_STEP;
+  else if (nextSort != null) newSort = nextSort - BASE_STEP / 2;
+  else newSort = BASE_STEP / 2;
 
   await query(
     `INSERT INTO unified_custom_columns (key, sort_key, created_by) VALUES ($1, $2::numeric, $3)`,
@@ -125,4 +124,26 @@ export async function POST(req: Request) {
   );
 
   return NextResponse.json({ ok: true, key: name, sort_key: newSort });
+}
+
+export async function DELETE(req: Request) {
+  const user = await getSessionUser();
+  if (!user?.username) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const key = String(body?.key ?? "").trim();
+
+  if (!key) return NextResponse.json({ error: "INVALID_KEY" }, { status: 400 });
+
+  // 기본 컬럼 삭제 금지
+  if ((unifiedColumns as unknown as string[]).includes(key)) {
+    return NextResponse.json({ error: "CANNOT_DELETE_BASE_COLUMN" }, { status: 400 });
+  }
+
+  // 삭제(존재하지 않아도 ok 처리)
+  await query(`DELETE FROM unified_custom_columns WHERE key=$1`, [key]);
+
+  return NextResponse.json({ ok: true });
 }
