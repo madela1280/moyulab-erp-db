@@ -16,41 +16,17 @@ import {
 } from "@/global-sync/sync-engine";
 import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
 
+// ✅ 컬럼 정의는 외부 파일로 이동(저장/로딩 모듈에서도 공유하기 위함)
+import {
+  unifiedColumns,
+  DEFAULT_COL_WIDTH_UNIT_BY_KEY,
+} from "@/unified/columns/unifiedColumns";
+
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
-
-const unifiedColumns = [
-  "거래처분류",
-  "상태",
-  "안내분류",
-  "구매/렌탈",
-  "기기번호",
-  "기종",
-  "에러횟수",
-  "제품",
-  "수취인명",
-  "연락처1",
-  "연락처2",
-  "계약자주소",
-  "택배발송일",
-  "시작일",
-  "종료일",
-  "반납요청일",
-  "반납완료일",
-  "특이사항1",
-  "특이사항2",
-  "총연장횟수",
-  "신청일",
-  "0차연장",
-  "1차연장",
-  "2차연장",
-  "3차연장",
-  "4차연장",
-  "5차연장",
-];
 
 // 항상 DB에 최소로 유지할 실제 행 개수
 const MIN_REAL_ROWS = 100;
@@ -72,6 +48,13 @@ function createEmptyData(): Record<string, any> {
 
 type UnifiedGridProps = {
   isColumnEditMode?: boolean;
+
+  // ✅ (P0) 열이동 저장을 위해, 컬럼 상태를 외부에서 주입/저장 가능하게 확장
+  columnOrder?: string[];
+  onColumnOrderChange?: (next: string[]) => void;
+
+  colWidthUnitByKey?: Record<string, number>;
+  onColWidthUnitByKeyChange?: (next: Record<string, number>) => void;
 };
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
@@ -167,47 +150,68 @@ async function applyRemoteSyncOnce() {
     // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
     const isColumnEditMode = !!props.isColumnEditMode;
 
-    const [columnOrder, setColumnOrder] = useState<string[]>(() => [
-      ...unifiedColumns,
-    ]);
+    // ✅ 내부 기본값(기존 흐름 보존용)
+const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [
+  ...unifiedColumns,
+]);
 
-    // 폭 unit: 20이 기준(기존 느낌), 1이면 1/20 수준
-    const [colWidthUnitByKey, setColWidthUnitByKey] = useState<
-      Record<string, number>
-    >(() => {
-      const obj: Record<string, number> = {};
-      unifiedColumns.forEach((c) => (obj[c] = 20));
-      return obj;
-    });
+const [colWidthUnitByKeyState, setColWidthUnitByKeyState] = useState<
+  Record<string, number>
+>(() => ({ ...DEFAULT_COL_WIDTH_UNIT_BY_KEY }));
 
-    const viewColumns = columnOrder;
+// ✅ 외부에서 내려오면(=저장/로드 훅) 그 값을 사용, 없으면 기존처럼 내부 state 사용
+const columnOrder = props.columnOrder ?? columnOrderState;
+const colWidthUnitByKey = props.colWidthUnitByKey ?? colWidthUnitByKeyState;
 
-    function moveColLeft(key: string) {
-      setColumnOrder((prev) => {
-        const i = prev.indexOf(key);
-        if (i <= 0) return prev;
-        const next = [...prev];
-        [next[i - 1], next[i]] = [next[i], next[i - 1]];
-        return next;
-      });
-    }
+function setColumnOrderNext(updater: (prev: string[]) => string[]) {
+  if (props.onColumnOrderChange) {
+    const next = updater(columnOrder);
+    props.onColumnOrderChange(next);
+  } else {
+    setColumnOrderState(updater);
+  }
+}
 
-    function moveColRight(key: string) {
-      setColumnOrder((prev) => {
-        const i = prev.indexOf(key);
-        if (i < 0 || i >= prev.length - 1) return prev;
-        const next = [...prev];
-        [next[i], next[i + 1]] = [next[i + 1], next[i]];
-        return next;
-      });
-    }
+function setColWidthUnitByKeyNext(
+  updater: (prev: Record<string, number>) => Record<string, number>
+) {
+  if (props.onColWidthUnitByKeyChange) {
+    const next = updater(colWidthUnitByKey);
+    props.onColWidthUnitByKeyChange(next);
+  } else {
+    setColWidthUnitByKeyState(updater);
+  }
+}
 
-    function setWidthUnit(key: string, unit: number) {
-      const safe = Number.isFinite(unit)
-        ? Math.max(1, Math.min(200, Math.floor(unit)))
-        : 20;
-      setColWidthUnitByKey((prev) => ({ ...prev, [key]: safe }));
-    }
+const viewColumns = columnOrder;
+
+   function moveColLeft(key: string) {
+  setColumnOrderNext((prev) => {
+    const i = prev.indexOf(key);
+    if (i <= 0) return prev;
+    const next = [...prev];
+    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    return next;
+  });
+}
+
+function moveColRight(key: string) {
+  setColumnOrderNext((prev) => {
+    const i = prev.indexOf(key);
+    if (i < 0 || i >= prev.length - 1) return prev;
+    const next = [...prev];
+    [next[i], next[i + 1]] = [next[i + 1], next[i]];
+    return next;
+  });
+}
+
+function setWidthUnit(key: string, unit: number) {
+  const safe = Number.isFinite(unit)
+    ? Math.max(1, Math.min(200, Math.floor(unit)))
+    : 20;
+
+  setColWidthUnitByKeyNext((prev) => ({ ...prev, [key]: safe }));
+} 
 
     function getWidthPx(key: string) {
   // unit=20일 때 기존 체감에 맞추기(너무 커지지 않게 BASE를 보수적으로)
