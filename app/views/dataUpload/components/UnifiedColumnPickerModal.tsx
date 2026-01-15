@@ -35,18 +35,13 @@ export default function UnifiedColumnPickerModal({
     return allColumns.filter((c) => c.toLowerCase().includes(q));
   }, [allColumns, query]);
 
-  const selectedInOrder = useMemo(() => {
-    // 선택 순서는 selectedKeys 그대로(요구사항: 체크 순서=배치 순서)
-    return selectedKeys;
-  }, [selectedKeys]);
-
   if (!open) return null;
 
   function toggle(key: string) {
     if (selectedSet.has(key)) {
       onChangeSelectedKeys(selectedKeys.filter((k) => k !== key));
     } else {
-      // 체크 “순서”를 그대로 컬럼 순서로 사용
+      // 체크 순서 = 컬럼 배치 순서
       onChangeSelectedKeys([...selectedKeys, key]);
     }
   }
@@ -111,7 +106,7 @@ export default function UnifiedColumnPickerModal({
         </div>
 
         <div className="mt-3 flex gap-3">
-          {/* Left: all columns list */}
+          {/* Left: all columns */}
           <div className="flex-1 border rounded max-h-[480px] overflow-auto">
             {filtered.length === 0 ? (
               <div className="p-3 text-xs text-slate-500">검색 결과가 없습니다.</div>
@@ -134,11 +129,11 @@ export default function UnifiedColumnPickerModal({
               <div className="text-[11px] text-slate-500 mt-1">필요하면 ↑/↓로 순서를 조정하세요.</div>
             </div>
 
-            {selectedInOrder.length === 0 ? (
+            {selectedKeys.length === 0 ? (
               <div className="p-3 text-xs text-slate-500">선택된 컬럼이 없습니다.</div>
             ) : (
               <div className="divide-y">
-                {selectedInOrder.map((k, idx) => {
+                {selectedKeys.map((k, idx) => {
                   const exists = allSet.has(k);
                   return (
                     <div key={`${k}-${idx}`} className="px-3 py-2 flex items-center gap-2">
@@ -147,9 +142,7 @@ export default function UnifiedColumnPickerModal({
                           <span className="truncate block">{k}</span>
                         </div>
                         {!exists && (
-                          <div className="text-[11px] text-red-600 mt-0.5">
-                            현재 컬럼 목록에 없음(삭제/변경됨) — 제거 권장
-                          </div>
+                          <div className="text-[11px] text-red-600 mt-0.5">현재 컬럼 목록에 없음 — 제거 권장</div>
                         )}
                       </div>
 
@@ -166,7 +159,7 @@ export default function UnifiedColumnPickerModal({
                         type="button"
                         className="text-[11px] px-2 py-1 border rounded bg-white hover:bg-slate-50 disabled:opacity-40"
                         onClick={() => move(idx, idx + 1)}
-                        disabled={idx === selectedInOrder.length - 1}
+                        disabled={idx === selectedKeys.length - 1}
                         title="아래로"
                       >
                         ↓

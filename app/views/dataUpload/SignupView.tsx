@@ -56,7 +56,6 @@ export default function SignupView() {
     const el = inputRefs.current[index];
     if (el) {
       el.focus();
-      // 커서를 끝으로
       const len = el.value?.length ?? 0;
       try {
         el.setSelectionRange(len, len);
@@ -98,7 +97,6 @@ export default function SignupView() {
       setValuesByKey({});
       alert("전송되었습니다. 통합관리의 마지막 데이터 다음 빈 행에 저장되었습니다.");
 
-      // 첫 칸으로 포커스
       requestAnimationFrame(() => focusCell(0));
     } catch (e: any) {
       setError(e?.message || "전송에 실패했습니다.");
@@ -143,7 +141,7 @@ export default function SignupView() {
       <div className="border rounded bg-slate-50 p-3">
         <div className="text-xs font-semibold text-slate-700">입력 Grid</div>
         <div className="text-[11px] text-slate-500 mt-1">
-          팁: 엑셀에서 한 행을 복사(Ctrl+C) 후, 첫 칸에 붙여넣기(Ctrl+V)하면 탭(TSV) 기준으로 자동 분배됩니다.
+          엑셀에서 한 행 복사 후 첫 칸에 붙여넣기(Ctrl+V)하면 탭(TSV) 기준으로 자동 분배됩니다.
         </div>
 
         <div className="mt-3 border rounded bg-white overflow-auto">
@@ -170,44 +168,35 @@ export default function SignupView() {
               {/* One input row */}
               <div className="flex">
                 {selectedColumns.map((k, idx) => (
-                  <div
-                    key={k}
-                    className="border-r last:border-r-0"
-                    style={{ width: 160, minWidth: 160 }}
-                  >
+                  <div key={k} className="border-r last:border-r-0" style={{ width: 160, minWidth: 160 }}>
                     <input
                       ref={(el) => {
                         inputRefs.current[idx] = el;
                       }}
                       className="w-full px-2 py-2 text-sm outline-none"
                       value={valuesByKey[k] ?? ""}
-                      placeholder=""
                       onChange={(e) => {
                         const v = e.target.value;
                         setValuesByKey((prev) => ({ ...prev, [k]: v }));
                       }}
                       onKeyDown={(e) => {
-                        // Enter = 다음 칸(엑셀 감)
                         if (e.key === "Enter") {
                           e.preventDefault();
                           focusCell(Math.min(idx + 1, selectedColumns.length - 1));
-                          return;
                         }
                       }}
                       onPaste={(e) => {
                         const text = normalizeClipboardText(e.clipboardData.getData("text"));
                         if (!text) return;
 
-                        // TSV/다중 셀 붙여넣기 지원(가능한 범위)
                         const lines = text.split("\n").filter((x) => x.length > 0);
                         if (lines.length === 0) return;
 
                         const firstLine = lines[0] ?? "";
                         const parts = firstLine.split("\t");
 
-                        // 탭이 없으면 기본 paste 동작 유지
-                        const isMultiCell = parts.length >= 2;
-                        if (!isMultiCell) return;
+                        // 탭이 없으면 기본 paste 동작
+                        if (parts.length < 2) return;
 
                         e.preventDefault();
 
@@ -223,7 +212,6 @@ export default function SignupView() {
                         });
 
                         requestAnimationFrame(() => {
-                          // 마지막 입력된 셀로 포커스 이동
                           const lastIdx = Math.min(idx + parts.length - 1, selectedColumns.length - 1);
                           focusCell(lastIdx);
                         });
