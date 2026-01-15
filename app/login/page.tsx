@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type ApiResp =
@@ -13,18 +13,12 @@ export default function LoginPage() {
 
   const [userId, setUserId] = useState('medela1280');
   const [password, setPassword] = useState('12345');
-  const [rememberId, setRememberId] = useState(false);
-  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('erp_user');
-      if (saved) {
-        setUserId(saved);
-        setRememberId(true);
-      }
-    } catch {}
-  }, []);
+  // 정책: 브라우저 로컬 저장소(localStorage 등) 사용 금지.
+  // 기존 UI 흐름 보호를 위해 체크박스는 유지하되, 저장/복원 기능은 수행하지 않음.
+  const [rememberId, setRememberId] = useState(false);
+
+  const [busy, setBusy] = useState(false);
 
   const handleLogin = async () => {
     if (!userId || !password) {
@@ -41,7 +35,7 @@ export default function LoginPage() {
         credentials: 'include',
         body: JSON.stringify({
           username: userId.trim(),
-          password: password
+          password: password,
         }),
       });
 
@@ -52,8 +46,8 @@ export default function LoginPage() {
         return;
       }
 
-      if (rememberId) localStorage.setItem('erp_user', userId.trim());
-      else localStorage.removeItem('erp_user');
+      // rememberId는 UI 상태로만 유지(비영속). localStorage/cookie 등에 저장하지 않음.
+      void rememberId;
 
       router.replace('/');
     } catch (e) {
@@ -67,13 +61,12 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#eef0f4]">
       <div className="w-full max-w-sm p-6 bg-[#eef0f4]">
-
         {/* 로고 + 타이틀 (간격 줄임 / 글자 한 칸 이동 / 로고 10% 축소) */}
         <div className="flex items-center gap-4 mb-2">
           <Image
             src="/logo.png"
             alt="moulab logo"
-            width={50}    // 로고 10% 축소
+            width={50} // 로고 10% 축소
             height={50}
             priority
             className="rounded-sm"
@@ -106,7 +99,7 @@ export default function LoginPage() {
           />
         </div>
 
-        {/* 아이디 저장 */}
+        {/* 아이디 저장 (UI 유지, 비영속) */}
         <label className="flex items-center text-sm mb-4 select-none text-gray-700">
           <input
             type="checkbox"
@@ -129,10 +122,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
