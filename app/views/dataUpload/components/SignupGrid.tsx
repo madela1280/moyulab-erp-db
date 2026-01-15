@@ -555,7 +555,7 @@ export default function SignupGrid({
                     const selected = range ? r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2 : false;
                     const isActive = active?.r === r && active?.c === c;
 
-                    const isAddress = key === "계약자주소"; // 요구: 주소만 우측정렬(컬럼 이름 기준)
+                    const isAddress = key === "계약자주소";
 
                     return (
                       <div
@@ -577,11 +577,11 @@ export default function SignupGrid({
                       >
                         <input
                           className={[
-                            "w-full h-7 px-2 py-0.5 outline-none bg-transparent",
-                            // 2) 글자 크기/굵기 5% 감소(근사치): text-[12px] + font-normal
+                            // 행높이 5% 감소: h-7(28px) -> h-[26px] + py-0.5 유지
+                            "w-full h-[26px] px-2 py-0.5 outline-none bg-transparent",
                             "text-[12px] font-normal text-slate-500",
-                            // 3) 계약자주소는 우측정렬(오른쪽부터 보이게)
-                            isAddress ? "text-right" : "text-center",
+                            // 계약자주소는 좌측정렬
+                            isAddress ? "text-left" : "text-center",
                           ].join(" ")}
                           value={row?.[key] ?? ""}
                           onFocus={() => handleInputFocus(r, c)}
