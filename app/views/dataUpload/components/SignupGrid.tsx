@@ -15,7 +15,6 @@ const MIN_WIDTH_PX = 70;
 const STEP_MIN = 1;
 const STEP_MAX = 70;
 
-// step(1~70) -> px(70~700)
 function widthPxFromStep(step: number) {
   const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(step)));
   return Math.max(MIN_WIDTH_PX, s * 10);
@@ -84,25 +83,17 @@ export default function SignupGrid({
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // selection states
   const [active, setActive] = useState<CellPos | null>(null);
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [range, setRange] = useState<{ r1: number; r2: number; c1: number; c2: number } | null>(null);
   const draggingRef = useRef(false);
 
-  // context menu
   const [menu, setMenu] = useState<{ open: boolean; x: number; y: number }>(() => ({ open: false, x: 0, y: 0 }));
 
-  // clipboard fallback
   const lastCopiedRef = useRef<string>("");
-
-  // 우클릭 순간 onFocus로 selection이 1칸으로 줄어드는 것을 방지
   const suppressFocusSelectionRef = useRef(false);
-
-  // keyboard focus anchor
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
-  // selectedKeys 순서 유지 + 현재 존재하는 컬럼만
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
     return selectedKeys.filter((k) => set.has(k));
@@ -128,9 +119,7 @@ export default function SignupGrid({
         const count = Math.min(500, Math.max(1, Math.floor(savedRowCount)));
         setRows(Array.from({ length: count }, () => ({})));
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -251,7 +240,7 @@ export default function SignupGrid({
 
     const text = toTSV(matrix);
     lastCopiedRef.current = text;
-    await safeWriteClipboardText(text); // 안정 복사(fallback 포함)
+    await safeWriteClipboardText(text);
   }
 
   function clearSelectionValues() {
@@ -308,13 +297,11 @@ export default function SignupGrid({
     pasteMatrixAt(start, matrix);
   }
 
-  // Ctrl+C / Delete(선택영역 지우기)
   function handleKeyDownCapture(e: React.KeyboardEvent) {
     if (!showToolbar) return;
 
     const k = e.key.toLowerCase();
 
-    // Delete: 선택영역 지우기 (요구사항)
     if (k === "delete") {
       if (range) {
         e.preventDefault();
@@ -330,7 +317,6 @@ export default function SignupGrid({
     }
   }
 
-  // Ctrl+V는 onPasteCapture에서 안정적으로 처리(clipboardData)
   function handlePasteCapture(e: React.ClipboardEvent) {
     if (!showToolbar) return;
 
@@ -368,7 +354,6 @@ export default function SignupGrid({
     setActive(p);
     setRange(normalizeRange(p, p));
 
-    // 드래그 중 텍스트 선택 방지
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -393,14 +378,11 @@ export default function SignupGrid({
     e.preventDefault();
     focusGrid();
 
-    // 우클릭으로 인한 input onFocus가 selection을 축소시키지 않게
     suppressFocusSelectionRef.current = true;
 
-    // 영역 밖 우클릭이면 그 칸으로 변경, 영역 안이면 유지
     if (!isSelectedCell(r, c)) {
       selectSingle(r, c);
     } else {
-      // 영역 유지하면서 active만 해당 셀로 (시각적 포커스)
       setActive({ r, c });
     }
 
@@ -408,17 +390,14 @@ export default function SignupGrid({
   }
 
   function handleInputFocus(r: number, c: number) {
-    // 우클릭 직후 focus로 selection이 줄어드는 문제 방지
     if (suppressFocusSelectionRef.current) {
       suppressFocusSelectionRef.current = false;
-      // 영역 안이면 유지, 영역 밖이면 한칸 선택
       if (range && isSelectedCell(r, c)) {
         setActive({ r, c });
         return;
       }
     }
 
-    // 일반 포커스 동작
     if (range && isSelectedCell(r, c)) {
       setActive({ r, c });
       return;
@@ -470,7 +449,6 @@ export default function SignupGrid({
     }
   }
 
-  // 버튼 배경(엷게)
   const btnBase =
     "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";
@@ -481,10 +459,8 @@ export default function SignupGrid({
       onKeyDownCapture={handleKeyDownCapture}
       onPasteCapture={handlePasteCapture}
     >
-      {/* 키보드 이벤트 안정 수신용 포커스 타겟 */}
       <div ref={gridFocusRef} tabIndex={0} className="absolute opacity-0 pointer-events-none" />
 
-      {/* Toolbar */}
       {showToolbar && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -526,13 +502,11 @@ export default function SignupGrid({
         </div>
       )}
 
-      {/* Grid wrapper: 좌우/상하 스크롤 + 헤더 고정 */}
       <div className="flex-1 min-h-0 border rounded bg-white overflow-auto">
         {selectedColumns.length === 0 ? (
           <div className="p-3 text-xs text-slate-500">“양식”에서 컬럼을 선택하면 표가 생성됩니다.</div>
         ) : (
           <div className="min-w-max">
-            {/* Header (sticky) */}
             <div className="flex border-b bg-slate-100 sticky top-0 z-10">
               {selectedColumns.map((k) => {
                 const step = getStep(k);
@@ -571,7 +545,6 @@ export default function SignupGrid({
               })}
             </div>
 
-            {/* Body rows */}
             <div>
               {rows.map((row, r) => (
                 <div key={r} className="flex border-b last:border-b-0">
@@ -579,8 +552,10 @@ export default function SignupGrid({
                     const step = getStep(key);
                     const widthPx = widthPxFromStep(step);
 
-                    const selected = isSelectedCell(r, c);
+                    const selected = range ? r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2 : false;
                     const isActive = active?.r === r && active?.c === c;
+
+                    const isAddress = key === "계약자주소"; // 요구: 주소만 우측정렬(컬럼 이름 기준)
 
                     return (
                       <div
@@ -601,7 +576,13 @@ export default function SignupGrid({
                         onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                       >
                         <input
-                          className="w-full h-7 px-2 py-0.5 text-[13px] text-slate-500 outline-none bg-transparent text-center"
+                          className={[
+                            "w-full h-7 px-2 py-0.5 outline-none bg-transparent",
+                            // 2) 글자 크기/굵기 5% 감소(근사치): text-[12px] + font-normal
+                            "text-[12px] font-normal text-slate-500",
+                            // 3) 계약자주소는 우측정렬(오른쪽부터 보이게)
+                            isAddress ? "text-right" : "text-center",
+                          ].join(" ")}
                           value={row?.[key] ?? ""}
                           onFocus={() => handleInputFocus(r, c)}
                           onChange={(e) => setCell(r, key, e.target.value)}
