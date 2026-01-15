@@ -5,11 +5,9 @@ import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 import ContextMenu from "@/views/dataUpload/signup-grid/ContextMenu";
 import { parseTSV, toTSV } from "@/views/dataUpload/signup-grid/tsv";
 import { safeReadClipboardText, safeWriteClipboardText } from "@/views/dataUpload/signup-grid/clipboard";
+import CellEditor from "@/views/dataUpload/signup-grid/editors/CellEditor";
 
 type RowValues = Record<string, string>;
-
-const LS_COL_WIDTH_STEPS = "moyulab.signup.template.colWidthSteps.v2";
-const LS_ROW_COUNT = "moyulab.signup.template.rowCount.v1";
 
 const MIN_WIDTH_PX = 70;
 const STEP_MIN = 1;
@@ -72,11 +70,25 @@ export default function SignupGrid({
   selectedKeys,
   loadingColumns,
   onError,
+
+  // (추가) settings는 상위에서 API로 로드/저장 (localStorage 사용 금지 정책 준수)
+  initialColWidthSteps,
+  initialRowCount,
+  onColWidthStepsChange,
+  onRowCountChange,
 }: {
   allColumns: string[];
   selectedKeys: string[];
   loadingColumns: boolean;
   onError: (msg: string) => void;
+
+  // settings (상위에서 내려줌)
+  initialColWidthSteps?: Record<string, number>;
+  initialRowCount?: number;
+
+  // settings 변경 통지 (상위에서 PATCH 등 처리)
+  onColWidthStepsChange?: (next: Record<string, number>) => void;
+  onRowCountChange?: (count: number) => void;
 }) {
   const [rows, setRows] = useState<RowValues[]>([{}]);
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
@@ -94,6 +106,11 @@ export default function SignupGrid({
   const suppressFocusSelectionRef = useRef(false);
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
+  // 상위 settings가 늦게 로드되는 경우를 고려한 1회성 hydrate
+  const hydratedRef = useRef(false);
+  const touchedColWidthRef = useRef(false);
+  const touchedRowCountRef = useRef(false);
+
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
     return selectedKeys.filter((k) => set.has(k));
@@ -102,37 +119,28 @@ export default function SignupGrid({
   const showToolbar = selectedColumns.length > 0;
 
   useEffect(() => {
-    try {
-      const savedSteps = JSON.parse(localStorage.getItem(LS_COL_WIDTH_STEPS) || "{}");
-      if (savedSteps && typeof savedSteps === "object") {
-        const next: Record<string, number> = {};
-        for (const [k, v] of Object.entries(savedSteps)) {
-          const n = Number(v);
-          if (!Number.isFinite(n)) continue;
-          next[String(k)] = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(n)));
-        }
-        setColWidthSteps(next);
+    if (hydratedRef.current) return;
+
+    // colWidthSteps hydrate
+    if (initialColWidthSteps && typeof initialColWidthSteps === "object") {
+      const next: Record<string, number> = {};
+      for (const [k, v] of Object.entries(initialColWidthSteps)) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) continue;
+        next[String(k)] = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(n)));
       }
+      setColWidthSteps(next);
+    }
 
-      const savedRowCount = Number(localStorage.getItem(LS_ROW_COUNT) || "");
-      if (Number.isFinite(savedRowCount) && savedRowCount >= 1) {
-        const count = Math.min(500, Math.max(1, Math.floor(savedRowCount)));
-        setRows(Array.from({ length: count }, () => ({})));
-      }
-    } catch {}
-  }, []);
+    // rowCount hydrate
+    const rawCount = Number(initialRowCount);
+    if (Number.isFinite(rawCount) && rawCount >= 1) {
+      const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
+      setRows(Array.from({ length: count }, () => ({})));
+    }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_COL_WIDTH_STEPS, JSON.stringify(colWidthSteps));
-    } catch {}
-  }, [colWidthSteps]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_ROW_COUNT, String(rows.length));
-    } catch {}
-  }, [rows.length]);
+    hydratedRef.current = true;
+  }, [initialColWidthSteps, initialRowCount]);
 
   useEffect(() => {
     const onPointerUp = () => {
@@ -161,16 +169,33 @@ export default function SignupGrid({
   }
 
   function setStep(key: string, next: number) {
+    touchedColWidthRef.current = true;
+
     const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(next)));
-    setColWidthSteps((prev) => ({ ...prev, [key]: s }));
+    setColWidthSteps((prev) => {
+      const merged = { ...prev, [key]: s };
+      onColWidthStepsChange?.(merged);
+      return merged;
+    });
+  }
+
+  function updateRows(updater: (prev: RowValues[]) => RowValues[]) {
+    setRows((prev) => {
+      const next = updater(prev);
+      if (next.length !== prev.length) {
+        touchedRowCountRef.current = true;
+        onRowCountChange?.(next.length);
+      }
+      return next;
+    });
   }
 
   function add10Rows() {
-    setRows((prev) => [...prev, ...Array.from({ length: 10 }, () => ({}))]);
+    updateRows((prev) => [...prev, ...Array.from({ length: 10 }, () => ({}))]);
   }
 
   function delete1RowFromBottom() {
-    setRows((prev) => {
+    updateRows((prev) => {
       if (prev.length <= 1) return [{}];
       return prev.slice(0, prev.length - 1);
     });
@@ -187,7 +212,7 @@ export default function SignupGrid({
   }
 
   function ensureRowsCount(minCount: number) {
-    setRows((prev) => {
+    updateRows((prev) => {
       if (prev.length >= minCount) return prev;
       const next = prev.slice();
       while (next.length < minCount) next.push({});
@@ -354,7 +379,13 @@ export default function SignupGrid({
     setActive(p);
     setRange(normalizeRange(p, p));
 
-    e.preventDefault();
+    // select/date 같은 컨트롤은 기본 동작(클릭/드롭다운/캘린더)을 살리기 위해 preventDefault를 피함
+    const t = e.target as HTMLElement | null;
+    const tag = t?.tagName?.toUpperCase?.() ?? "";
+    const isInteractive = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t as any)?.isContentEditable;
+
+    if (!isInteractive) e.preventDefault();
+
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
@@ -389,7 +420,7 @@ export default function SignupGrid({
     setMenu({ open: true, x: e.clientX, y: e.clientY });
   }
 
-  function handleInputFocus(r: number, c: number) {
+  function handleEditorFocus(r: number, c: number) {
     if (suppressFocusSelectionRef.current) {
       suppressFocusSelectionRef.current = false;
       if (range && isSelectedCell(r, c)) {
@@ -449,13 +480,12 @@ export default function SignupGrid({
     }
   }
 
-  const btnBase =
-    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
+  const btnBase = "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";
 
   return (
     <div
-      className="w-full flex flex-col gap-1.1 flex-1 min-h-0"
+      className="w-full flex flex-col gap-1.5 flex-1 min-h-0"
       onKeyDownCapture={handleKeyDownCapture}
       onPasteCapture={handlePasteCapture}
     >
@@ -555,8 +585,6 @@ export default function SignupGrid({
                     const selected = range ? r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2 : false;
                     const isActive = active?.r === r && active?.c === c;
 
-                    const isAddress = key === "계약자주소";
-
                     return (
                       <div
                         key={`${r}-${key}`}
@@ -575,17 +603,11 @@ export default function SignupGrid({
                         onPointerUp={handleCellPointerUp}
                         onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                       >
-                        <input
-                          className={[
-                            // 행높이 5% 감소: h-7(28px) -> h-[26px] + py-0.5 유지
-                            "w-full h-[26px] px-2 py-0.5 outline-none bg-transparent",
-                            "text-[12px] font-normal text-slate-500",
-                            // 계약자주소는 좌측정렬
-                            isAddress ? "text-left" : "text-center",
-                          ].join(" ")}
-                          value={row?.[key] ?? ""}
-                          onFocus={() => handleInputFocus(r, c)}
-                          onChange={(e) => setCell(r, key, e.target.value)}
+                        <CellEditor
+                          columnKey={key}
+                          value={String(row?.[key] ?? "")}
+                          onFocus={() => handleEditorFocus(r, c)}
+                          onChange={(v) => setCell(r, key, v)}
                         />
                       </div>
                     );
