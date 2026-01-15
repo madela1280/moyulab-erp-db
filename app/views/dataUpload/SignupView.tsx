@@ -43,7 +43,6 @@ function IconPlus({ className = "w-4 h-4" }: { className?: string }) {
     </svg>
   );
 }
-
 function IconMinus({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -51,7 +50,6 @@ function IconMinus({ className = "w-4 h-4" }: { className?: string }) {
     </svg>
   );
 }
-
 function IconColumns({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -59,7 +57,6 @@ function IconColumns({ className = "w-4 h-4" }: { className?: string }) {
     </svg>
   );
 }
-
 function IconSend({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -266,17 +263,16 @@ export default function SignupView() {
 
   const showToolbar = selectedColumns.length > 0;
 
-  // 버튼 배경: 엷은 회색
+  // 버튼 배경을 더 엷게(slate-50)
   const btnBase =
-    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-100 hover:bg-slate-200";
+    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
-      {/* Header */}
-      <div className="flex items-center">
+      {/* Header: 신규가입 + 양식(바로 옆) */}
+      <div className="flex items-center gap-3">
         <div className="text-base font-semibold text-slate-800">신규가입</div>
-        <div style={{ width: "5cm" }} />
         <button
           type="button"
           className="text-xs px-3 py-[6px] rounded bg-yellow-50 hover:bg-yellow-100 border disabled:opacity-60"
@@ -331,14 +327,14 @@ export default function SignupView() {
         </div>
       )}
 
-      {/* Grid wrapper: 좌우/상하 스크롤 둘 다 */}
+      {/* Grid wrapper: 좌우/상하 스크롤 + 컬럼(헤더) 고정 */}
       <div className="flex-1 min-h-0 border rounded bg-white overflow-auto">
         {selectedColumns.length === 0 ? (
           <div className="p-3 text-xs text-slate-500">“양식”에서 컬럼을 선택하면 표가 생성됩니다.</div>
         ) : (
           <div className="min-w-max">
-            {/* Header */}
-            <div className="flex border-b bg-slate-100">
+            {/* Header (sticky) */}
+            <div className="flex border-b bg-slate-100 sticky top-0 z-10">
               {selectedColumns.map((k) => {
                 const step = getStep(k);
                 const widthPx = widthPxFromStep(step);
@@ -346,14 +342,14 @@ export default function SignupView() {
                 return (
                   <div
                     key={k}
-                    className="px-2 py-1 text-[11px] font-semibold text-slate-700 border-r last:border-r-0 select-none"
+                    className="px-2 py-1.5 text-[12px] font-semibold text-slate-700 border-r last:border-r-0 select-none text-center"
                     style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
                     title={k}
                   >
-                    <div className="truncate leading-4">{k}</div>
+                    <div className="truncate leading-5">{k}</div>
 
                     {resizeMode && (
-                      <div className="mt-1 flex items-center justify-end gap-1">
+                      <div className="mt-1 flex items-center justify-center gap-1">
                         <button
                           type="button"
                           className="w-6 h-6 border rounded bg-white hover:bg-slate-50 text-xs"
@@ -376,7 +372,7 @@ export default function SignupView() {
               })}
             </div>
 
-            {/* Body rows: 행높이 20% 추가 감소 (h-7, py-0.5) */}
+            {/* Body rows: 중앙 정렬 */}
             <div>
               {rows.map((row, rowIndex) => (
                 <div key={rowIndex} className="flex border-b last:border-b-0">
@@ -391,7 +387,7 @@ export default function SignupView() {
                         style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
                       >
                         <input
-                          className="w-full h-7 px-2 py-0.5 text-sm outline-none bg-white"
+                          className="w-full h-7 px-2 py-0.5 text-sm outline-none bg-white text-center"
                           value={row?.[k] ?? ""}
                           onChange={(e) => setCell(rowIndex, k, e.target.value)}
                           onPaste={(e) => {
