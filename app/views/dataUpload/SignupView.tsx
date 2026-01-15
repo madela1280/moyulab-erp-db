@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
@@ -8,6 +8,10 @@ type UnifiedColumnsResponse = {
   order: string[];
   custom?: Array<{ key: string; created_by?: string | null; created_at?: string | null }>;
 };
+
+function normalizeClipboardText(s: string) {
+  return String(s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
 
 export default function SignupView() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
@@ -18,6 +22,8 @@ export default function SignupView() {
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
+
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   async function loadColumns() {
     setLoadingColumns(true);
@@ -40,13 +46,25 @@ export default function SignupView() {
     void loadColumns();
   }, []);
 
-  // 선택된 컬럼이 바뀌어도 기존 입력값은 유지(선택에서 빠진 키는 그대로 두되, 폼 렌더만 안 함)
+  // 사용자 선택 순서 유지 + 현재 존재하는 컬럼만 필터
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
-    const filtered = selectedKeys.filter((k) => set.has(k));
-    // 사용자 선택 순서 유지
-    return filtered;
+    return selectedKeys.filter((k) => set.has(k));
   }, [selectedKeys, allColumns]);
+
+  function focusCell(index: number) {
+    const el = inputRefs.current[index];
+    if (el) {
+      el.focus();
+      // 커서를 끝으로
+      const len = el.value?.length ?? 0;
+      try {
+        el.setSelectionRange(len, len);
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   async function handleSubmit() {
     setError("");
@@ -56,7 +74,6 @@ export default function SignupView() {
       return;
     }
 
-    // JSONB에 저장할 payload (키=컬럼명)
     const data: Record<string, string> = {};
     for (const k of selectedColumns) {
       data[k] = String(valuesByKey[k] ?? "");
@@ -75,12 +92,14 @@ export default function SignupView() {
         throw new Error(t || `FAILED(${r.status})`);
       }
 
-      // 통합관리 갱신 알림
       syncEmitUnifiedUpdate();
 
-      // 폼 초기화(선택은 유지/입력만 초기화)
+      // 입력만 초기화(양식은 유지)
       setValuesByKey({});
       alert("전송되었습니다. 통합관리의 마지막 데이터 다음 빈 행에 저장되었습니다.");
+
+      // 첫 칸으로 포커스
+      requestAnimationFrame(() => focusCell(0));
     } catch (e: any) {
       setError(e?.message || "전송에 실패했습니다.");
     } finally {
@@ -94,14 +113,14 @@ export default function SignupView() {
         <div>
           <div className="text-base font-semibold text-slate-800">신규가입</div>
           <div className="text-xs text-slate-500 mt-1">
-            통합관리 컬럼을 선택해 양식을 만들고, 입력 후 전송하면 통합관리 데이터로 저장됩니다.
+            통합관리 컬럼을 선택해 “엑셀형(1행 Grid)”으로 입력 후 전송하면 통합관리 데이터로 저장됩니다.
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="text-xs px-3 py-2 border rounded bg-slate-50 hover:bg-slate-100"
+            className="text-xs px-3 py-2 border rounded bg-white hover:bg-slate-50 disabled:opacity-60"
             onClick={() => setPickerOpen(true)}
             disabled={loadingColumns}
           >
@@ -110,7 +129,7 @@ export default function SignupView() {
 
           <button
             type="button"
-            className="text-xs px-3 py-2 border rounded bg-slate-800 text-white disabled:opacity-60"
+            className="text-xs px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
             onClick={handleSubmit}
             disabled={submitting || loadingColumns}
           >
@@ -121,44 +140,101 @@ export default function SignupView() {
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      <div className="border rounded p-3 bg-slate-50">
-        <div className="text-xs font-semibold text-slate-700 mb-2">선택된 컬럼</div>
-        {selectedColumns.length === 0 ? (
-          <div className="text-xs text-slate-500">아직 선택된 컬럼이 없습니다. “양식” 버튼에서 체크하세요.</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {selectedColumns.map((k) => (
-              <span key={k} className="text-xs px-2 py-1 rounded border bg-white text-slate-700">
-                {k}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      <div className="border rounded bg-slate-50 p-3">
+        <div className="text-xs font-semibold text-slate-700">입력 Grid</div>
+        <div className="text-[11px] text-slate-500 mt-1">
+          팁: 엑셀에서 한 행을 복사(Ctrl+C) 후, 첫 칸에 붙여넣기(Ctrl+V)하면 탭(TSV) 기준으로 자동 분배됩니다.
+        </div>
 
-      <div className="border rounded p-3">
-        <div className="text-xs font-semibold text-slate-700 mb-2">입력</div>
+        <div className="mt-3 border rounded bg-white overflow-auto">
+          {selectedColumns.length === 0 ? (
+            <div className="p-3 text-xs text-slate-500">
+              아직 선택된 컬럼이 없습니다. 우측 상단 “양식”에서 컬럼을 체크하세요.
+            </div>
+          ) : (
+            <div className="min-w-max">
+              {/* Header */}
+              <div className="flex border-b bg-slate-100">
+                {selectedColumns.map((k) => (
+                  <div
+                    key={k}
+                    className="px-2 py-2 text-[11px] font-semibold text-slate-700 border-r last:border-r-0"
+                    style={{ width: 160, minWidth: 160 }}
+                    title={k}
+                  >
+                    <div className="truncate">{k}</div>
+                  </div>
+                ))}
+              </div>
 
-        {selectedColumns.length === 0 ? (
-          <div className="text-xs text-slate-500">양식에서 컬럼을 선택하면 입력칸이 생성됩니다.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {selectedColumns.map((k) => (
-              <label key={k} className="flex flex-col gap-1">
-                <span className="text-[11px] text-slate-600">{k}</span>
-                <input
-                  className="border rounded px-2 py-1 text-sm"
-                  value={valuesByKey[k] ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setValuesByKey((prev) => ({ ...prev, [k]: v }));
-                  }}
-                  placeholder={`${k} 입력`}
-                />
-              </label>
-            ))}
-          </div>
-        )}
+              {/* One input row */}
+              <div className="flex">
+                {selectedColumns.map((k, idx) => (
+                  <div
+                    key={k}
+                    className="border-r last:border-r-0"
+                    style={{ width: 160, minWidth: 160 }}
+                  >
+                    <input
+                      ref={(el) => {
+                        inputRefs.current[idx] = el;
+                      }}
+                      className="w-full px-2 py-2 text-sm outline-none"
+                      value={valuesByKey[k] ?? ""}
+                      placeholder=""
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setValuesByKey((prev) => ({ ...prev, [k]: v }));
+                      }}
+                      onKeyDown={(e) => {
+                        // Enter = 다음 칸(엑셀 감)
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          focusCell(Math.min(idx + 1, selectedColumns.length - 1));
+                          return;
+                        }
+                      }}
+                      onPaste={(e) => {
+                        const text = normalizeClipboardText(e.clipboardData.getData("text"));
+                        if (!text) return;
+
+                        // TSV/다중 셀 붙여넣기 지원(가능한 범위)
+                        const lines = text.split("\n").filter((x) => x.length > 0);
+                        if (lines.length === 0) return;
+
+                        const firstLine = lines[0] ?? "";
+                        const parts = firstLine.split("\t");
+
+                        // 탭이 없으면 기본 paste 동작 유지
+                        const isMultiCell = parts.length >= 2;
+                        if (!isMultiCell) return;
+
+                        e.preventDefault();
+
+                        setValuesByKey((prev) => {
+                          const next = { ...prev };
+                          for (let offset = 0; offset < parts.length; offset++) {
+                            const colIndex = idx + offset;
+                            if (colIndex >= selectedColumns.length) break;
+                            const key = selectedColumns[colIndex];
+                            next[key] = String(parts[offset] ?? "");
+                          }
+                          return next;
+                        });
+
+                        requestAnimationFrame(() => {
+                          // 마지막 입력된 셀로 포커스 이동
+                          const lastIdx = Math.min(idx + parts.length - 1, selectedColumns.length - 1);
+                          focusCell(lastIdx);
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <UnifiedColumnPickerModal
@@ -173,4 +249,3 @@ export default function SignupView() {
     </div>
   );
 }
-
