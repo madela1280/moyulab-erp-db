@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
+import ContextMenu from "@/views/dataUpload/signup-grid/ContextMenu";
+import { parseTSV, toTSV } from "@/views/dataUpload/signup-grid/tsv";
 
 type RowValues = Record<string, string>;
 
@@ -12,13 +14,10 @@ const MIN_WIDTH_PX = 70;
 const STEP_MIN = 1;
 const STEP_MAX = 70;
 
+// step(1~70) -> px(70~700)
 function widthPxFromStep(step: number) {
   const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(step)));
   return Math.max(MIN_WIDTH_PX, s * 10);
-}
-
-function normalizeClipboardText(s: string) {
-  return String(s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function hasAnyValue(row: RowValues) {
@@ -58,6 +57,16 @@ function IconSend({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
+type CellPos = { r: number; c: number };
+
+function normalizeRange(a: CellPos, b: CellPos) {
+  const r1 = Math.min(a.r, b.r);
+  const r2 = Math.max(a.r, b.r);
+  const c1 = Math.min(a.c, b.c);
+  const c2 = Math.max(a.c, b.c);
+  return { r1, r2, c1, c2 };
+}
+
 export default function SignupGrid({
   allColumns,
   selectedKeys,
@@ -73,6 +82,16 @@ export default function SignupGrid({
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // selection states
+  const [active, setActive] = useState<CellPos | null>(null);
+  const [anchor, setAnchor] = useState<CellPos | null>(null);
+  const [range, setRange] = useState<{ r1: number; r2: number; c1: number; c2: number } | null>(null);
+  const draggingRef = useRef(false);
+
+  // context menu
+  const [menu, setMenu] = useState<{ open: boolean; x: number; y: number }>(() => ({ open: false, x: 0, y: 0 }));
+  const lastCopiedRef = useRef<string>("");
 
   // selectedKeys 순서 유지 + 현재 존재하는 컬럼만
   const selectedColumns = useMemo(() => {
@@ -117,6 +136,22 @@ export default function SignupGrid({
     } catch {}
   }, [rows.length]);
 
+  useEffect(() => {
+    const onPointerUp = () => {
+      draggingRef.current = false;
+    };
+    window.addEventListener("pointerup", onPointerUp);
+    return () => window.removeEventListener("pointerup", onPointerUp);
+  }, []);
+
+  useEffect(() => {
+    const onWindowDown = () => {
+      if (menu.open) setMenu((m) => ({ ...m, open: false }));
+    };
+    window.addEventListener("mousedown", onWindowDown);
+    return () => window.removeEventListener("mousedown", onWindowDown);
+  }, [menu.open]);
+
   function getStep(key: string) {
     const s = Number(colWidthSteps[key]);
     if (Number.isFinite(s)) return Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(s)));
@@ -149,37 +184,215 @@ export default function SignupGrid({
     });
   }
 
-  function fillFromTSV(startRow: number, startCol: number, text: string) {
-    const t = normalizeClipboardText(text);
-    const linesRaw = t.split("\n");
-    const lines = linesRaw.filter((x) => x.length > 0);
-    if (lines.length === 0) return;
+  function ensureRowsCount(minCount: number) {
+    setRows((prev) => {
+      if (prev.length >= minCount) return prev;
+      const next = prev.slice();
+      while (next.length < minCount) next.push({});
+      return next;
+    });
+  }
 
-    const grid = lines.map((line) => line.split("\t"));
-    const isMulti = grid.length > 1 || (grid[0]?.length ?? 0) > 1;
-    if (!isMulti) return;
+  function selectSingle(r: number, c: number) {
+    const p = { r, c };
+    setActive(p);
+    setAnchor(p);
+    setRange(normalizeRange(p, p));
+  }
+
+  function selectFromAnchor(to: CellPos) {
+    if (!anchor) {
+      setAnchor(to);
+      setActive(to);
+      setRange(normalizeRange(to, to));
+      return;
+    }
+    setActive(to);
+    setRange(normalizeRange(anchor, to));
+  }
+
+  function isSelectedCell(r: number, c: number) {
+    if (!range) return false;
+    return r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2;
+  }
+
+  function getSelectionTopLeft(): CellPos | null {
+    if (range) return { r: range.r1, c: range.c1 };
+    if (active) return active;
+    return null;
+  }
+
+  async function copySelection() {
+    if (!range || selectedColumns.length === 0) return;
+
+    const matrix: string[][] = [];
+    for (let r = range.r1; r <= range.r2; r++) {
+      const row = rows[r] || {};
+      const line: string[] = [];
+      for (let c = range.c1; c <= range.c2; c++) {
+        const key = selectedColumns[c];
+        line.push(String(row?.[key] ?? ""));
+      }
+      matrix.push(line);
+    }
+
+    const text = toTSV(matrix);
+    lastCopiedRef.current = text;
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // clipboard 권한 실패 시에도 내부 메모리는 유지(우클릭 붙여넣기 fallback)
+    }
+  }
+
+  function clearSelectionValues() {
+    if (!range || selectedColumns.length === 0) return;
 
     setRows((prev) => {
       const next = prev.slice();
-      const needRows = startRow + grid.length;
-      while (next.length < needRows) next.push({});
-
-      for (let r = 0; r < grid.length; r++) {
-        const rowIndex = startRow + r;
-        const base = { ...(next[rowIndex] || {}) };
-
-        for (let c = 0; c < grid[r].length; c++) {
-          const colIndex = startCol + c;
-          if (colIndex >= selectedColumns.length) break;
-          const key = selectedColumns[colIndex];
-          base[key] = String(grid[r][c] ?? "");
+      for (let r = range.r1; r <= range.r2; r++) {
+        const base = { ...(next[r] || {}) };
+        for (let c = range.c1; c <= range.c2; c++) {
+          const key = selectedColumns[c];
+          base[key] = "";
         }
-
-        next[rowIndex] = base;
+        next[r] = base;
       }
-
       return next;
     });
+  }
+
+  function pasteMatrixAt(start: CellPos, matrix: string[][]) {
+    if (selectedColumns.length === 0) return;
+    if (matrix.length === 0) return;
+
+    const needRows = start.r + matrix.length;
+    ensureRowsCount(needRows);
+
+    setRows((prev) => {
+      const next = prev.slice();
+      for (let rr = 0; rr < matrix.length; rr++) {
+        const rIndex = start.r + rr;
+        const base = { ...(next[rIndex] || {}) };
+
+        for (let cc = 0; cc < matrix[rr].length; cc++) {
+          const cIndex = start.c + cc;
+          if (cIndex >= selectedColumns.length) break;
+          const key = selectedColumns[cIndex];
+          base[key] = String(matrix[rr][cc] ?? "");
+        }
+
+        next[rIndex] = base;
+      }
+      return next;
+    });
+  }
+
+  async function pasteFromClipboard() {
+    const start = getSelectionTopLeft();
+    if (!start) return;
+
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      text = lastCopiedRef.current || "";
+    }
+    if (!text) return;
+
+    const matrix = parseTSV(text);
+    pasteMatrixAt(start, matrix);
+  }
+
+  // Ctrl+C / Ctrl+V (셀 단위 2D)
+  function handleKeyDownCapture(e: React.KeyboardEvent) {
+    if (!showToolbar) return;
+
+    const key = e.key.toLowerCase();
+
+    if ((e.ctrlKey || e.metaKey) && key === "c") {
+      e.preventDefault();
+      void copySelection();
+      return;
+    }
+
+    // Ctrl+V는 onPasteCapture에서 처리(clipboardData가 안정적)
+    if ((e.ctrlKey || e.metaKey) && key === "v") {
+      // 기본 동작을 최대한 막고 싶지만, text가 필요한 경우가 있어 onPasteCapture에서 preventDefault 처리
+      return;
+    }
+  }
+
+  function handlePasteCapture(e: React.ClipboardEvent) {
+    if (!showToolbar) return;
+
+    const start = getSelectionTopLeft();
+    if (!start) return;
+
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+
+    const matrix = parseTSV(text);
+    // 단일 셀 값도 “셀 단위 붙여넣기”로 처리(요구사항)
+    e.preventDefault();
+    pasteMatrixAt(start, matrix);
+  }
+
+  function findCellFromPoint(x: number, y: number): CellPos | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return null;
+    const cell = el.closest("[data-sg-cell='1']") as HTMLElement | null;
+    if (!cell) return null;
+    const r = Number(cell.dataset.r);
+    const c = Number(cell.dataset.c);
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return null;
+    return { r, c };
+  }
+
+  function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
+    if (e.button !== 0) return;
+    if (!showToolbar) return;
+
+    // selection 시작
+    draggingRef.current = true;
+    const p = { r, c };
+    setAnchor(p);
+    setActive(p);
+    setRange(normalizeRange(p, p));
+
+    // 드래그 중 텍스트 선택 방지
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handleCellPointerMove(e: React.PointerEvent) {
+    if (!draggingRef.current) return;
+    const p = findCellFromPoint(e.clientX, e.clientY);
+    if (!p) return;
+    selectFromAnchor(p);
+  }
+
+  function handleCellPointerUp(e: React.PointerEvent) {
+    draggingRef.current = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
+    if (!showToolbar) return;
+
+    e.preventDefault();
+
+    // 우클릭한 셀이 현재 선택 영역 밖이면 그 셀로 선택을 옮김
+    if (!isSelectedCell(r, c)) {
+      selectSingle(r, c);
+    }
+
+    setMenu({ open: true, x: e.clientX, y: e.clientY });
   }
 
   async function handleSubmit() {
@@ -226,13 +439,13 @@ export default function SignupGrid({
     }
   }
 
-  // 버튼 배경: 더 엷게
+  // 버튼 배경(엷게)
   const btnBase =
     "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";
 
   return (
-    <>
+    <div className="w-full flex flex-col gap-3 flex-1 min-h-0" onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePasteCapture}>
       {/* Toolbar */}
       {showToolbar && (
         <div className="flex items-center justify-between">
@@ -320,40 +533,43 @@ export default function SignupGrid({
               })}
             </div>
 
-            {/* Body rows: 입력 글자 10% 작게 + 더 연하게 */}
+            {/* Body rows */}
             <div>
-              {rows.map((row, rowIndex) => (
-                <div key={rowIndex} className="flex border-b last:border-b-0">
-                  {selectedColumns.map((k, colIndex) => {
-                    const step = getStep(k);
+              {rows.map((row, r) => (
+                <div key={r} className="flex border-b last:border-b-0">
+                  {selectedColumns.map((key, c) => {
+                    const step = getStep(key);
                     const widthPx = widthPxFromStep(step);
+
+                    const selected = isSelectedCell(r, c);
+                    const isActive = active?.r === r && active?.c === c;
 
                     return (
                       <div
-                        key={`${rowIndex}-${k}`}
-                        className="border-r last:border-r-0"
+                        key={`${r}-${key}`}
+                        data-sg-cell="1"
+                        data-r={r}
+                        data-c={c}
+                        className={[
+                          "border-r last:border-r-0",
+                          "relative",
+                          selected ? "bg-blue-50" : "bg-white",
+                          isActive ? "ring-2 ring-blue-400 ring-inset" : "",
+                        ].join(" ")}
                         style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
+                        onPointerDown={(e) => handleCellPointerDown(e, r, c)}
+                        onPointerMove={handleCellPointerMove}
+                        onPointerUp={handleCellPointerUp}
+                        onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                       >
                         <input
-                          className="w-full h-7 px-2 py-0.5 text-[13px] text-slate-500 outline-none bg-white text-center"
-                          value={row?.[k] ?? ""}
-                          onChange={(e) => setCell(rowIndex, k, e.target.value)}
-                          onPaste={(e) => {
-                            const text = e.clipboardData.getData("text");
-                            if (!text) return;
-
-                            const t = normalizeClipboardText(text);
-                            const linesRaw = t.split("\n");
-                            const lines = linesRaw.filter((x) => x.length > 0);
-                            const firstLine = lines[0] ?? "";
-                            const parts = firstLine.split("\t");
-                            const isMulti = lines.length > 1 || parts.length > 1;
-
-                            if (!isMulti) return;
-
-                            e.preventDefault();
-                            fillFromTSV(rowIndex, colIndex, text);
+                          className="w-full h-7 px-2 py-0.5 text-[13px] text-slate-500 outline-none bg-transparent text-center"
+                          value={row?.[key] ?? ""}
+                          onFocus={() => {
+                            // 포커스로도 active/selection 동기화
+                            selectSingle(r, c);
                           }}
+                          onChange={(e) => setCell(r, key, e.target.value)}
                         />
                       </div>
                     );
@@ -363,7 +579,37 @@ export default function SignupGrid({
             </div>
           </div>
         )}
+
+        <ContextMenu
+          open={menu.open}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu((m) => ({ ...m, open: false }))}
+          items={[
+            {
+              label: "지우기",
+              onClick: () => {
+                clearSelectionValues();
+                setMenu((m) => ({ ...m, open: false }));
+              },
+            },
+            {
+              label: "복사",
+              onClick: async () => {
+                await copySelection();
+                setMenu((m) => ({ ...m, open: false }));
+              },
+            },
+            {
+              label: "붙여넣기",
+              onClick: async () => {
+                await pasteFromClipboard();
+                setMenu((m) => ({ ...m, open: false }));
+              },
+            },
+          ]}
+        />
       </div>
-    </>
+    </div>
   );
 }
