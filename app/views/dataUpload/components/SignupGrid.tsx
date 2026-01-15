@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 import ContextMenu from "@/views/dataUpload/signup-grid/ContextMenu";
 import { parseTSV, toTSV } from "@/views/dataUpload/signup-grid/tsv";
+import { safeReadClipboardText, safeWriteClipboardText } from "@/views/dataUpload/signup-grid/clipboard";
 
 type RowValues = Record<string, string>;
 
@@ -91,7 +92,15 @@ export default function SignupGrid({
 
   // context menu
   const [menu, setMenu] = useState<{ open: boolean; x: number; y: number }>(() => ({ open: false, x: 0, y: 0 }));
+
+  // clipboard fallback
   const lastCopiedRef = useRef<string>("");
+
+  // 우클릭 순간 onFocus로 selection이 1칸으로 줄어드는 것을 방지
+  const suppressFocusSelectionRef = useRef(false);
+
+  // keyboard focus anchor
+  const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
   // selectedKeys 순서 유지 + 현재 존재하는 컬럼만
   const selectedColumns = useMemo(() => {
@@ -151,6 +160,10 @@ export default function SignupGrid({
     window.addEventListener("mousedown", onWindowDown);
     return () => window.removeEventListener("mousedown", onWindowDown);
   }, [menu.open]);
+
+  function focusGrid() {
+    gridFocusRef.current?.focus();
+  }
 
   function getStep(key: string) {
     const s = Number(colWidthSteps[key]);
@@ -238,12 +251,7 @@ export default function SignupGrid({
 
     const text = toTSV(matrix);
     lastCopiedRef.current = text;
-
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // clipboard 권한 실패 시에도 내부 메모리는 유지(우클릭 붙여넣기 fallback)
-    }
+    await safeWriteClipboardText(text); // 안정 복사(fallback 포함)
   }
 
   function clearSelectionValues() {
@@ -293,37 +301,36 @@ export default function SignupGrid({
     const start = getSelectionTopLeft();
     if (!start) return;
 
-    let text = "";
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      text = lastCopiedRef.current || "";
-    }
+    const text = (await safeReadClipboardText()) || lastCopiedRef.current || "";
     if (!text) return;
 
     const matrix = parseTSV(text);
     pasteMatrixAt(start, matrix);
   }
 
-  // Ctrl+C / Ctrl+V (셀 단위 2D)
+  // Ctrl+C / Delete(선택영역 지우기)
   function handleKeyDownCapture(e: React.KeyboardEvent) {
     if (!showToolbar) return;
 
-    const key = e.key.toLowerCase();
+    const k = e.key.toLowerCase();
 
-    if ((e.ctrlKey || e.metaKey) && key === "c") {
+    // Delete: 선택영역 지우기 (요구사항)
+    if (k === "delete") {
+      if (range) {
+        e.preventDefault();
+        clearSelectionValues();
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && k === "c") {
       e.preventDefault();
       void copySelection();
       return;
     }
-
-    // Ctrl+V는 onPasteCapture에서 처리(clipboardData가 안정적)
-    if ((e.ctrlKey || e.metaKey) && key === "v") {
-      // 기본 동작을 최대한 막고 싶지만, text가 필요한 경우가 있어 onPasteCapture에서 preventDefault 처리
-      return;
-    }
   }
 
+  // Ctrl+V는 onPasteCapture에서 안정적으로 처리(clipboardData)
   function handlePasteCapture(e: React.ClipboardEvent) {
     if (!showToolbar) return;
 
@@ -334,7 +341,6 @@ export default function SignupGrid({
     if (!text) return;
 
     const matrix = parseTSV(text);
-    // 단일 셀 값도 “셀 단위 붙여넣기”로 처리(요구사항)
     e.preventDefault();
     pasteMatrixAt(start, matrix);
   }
@@ -354,7 +360,8 @@ export default function SignupGrid({
     if (e.button !== 0) return;
     if (!showToolbar) return;
 
-    // selection 시작
+    focusGrid();
+
     draggingRef.current = true;
     const p = { r, c };
     setAnchor(p);
@@ -377,22 +384,46 @@ export default function SignupGrid({
     draggingRef.current = false;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
     if (!showToolbar) return;
 
     e.preventDefault();
+    focusGrid();
 
-    // 우클릭한 셀이 현재 선택 영역 밖이면 그 셀로 선택을 옮김
+    // 우클릭으로 인한 input onFocus가 selection을 축소시키지 않게
+    suppressFocusSelectionRef.current = true;
+
+    // 영역 밖 우클릭이면 그 칸으로 변경, 영역 안이면 유지
     if (!isSelectedCell(r, c)) {
       selectSingle(r, c);
+    } else {
+      // 영역 유지하면서 active만 해당 셀로 (시각적 포커스)
+      setActive({ r, c });
     }
 
     setMenu({ open: true, x: e.clientX, y: e.clientY });
+  }
+
+  function handleInputFocus(r: number, c: number) {
+    // 우클릭 직후 focus로 selection이 줄어드는 문제 방지
+    if (suppressFocusSelectionRef.current) {
+      suppressFocusSelectionRef.current = false;
+      // 영역 안이면 유지, 영역 밖이면 한칸 선택
+      if (range && isSelectedCell(r, c)) {
+        setActive({ r, c });
+        return;
+      }
+    }
+
+    // 일반 포커스 동작
+    if (range && isSelectedCell(r, c)) {
+      setActive({ r, c });
+      return;
+    }
+    selectSingle(r, c);
   }
 
   async function handleSubmit() {
@@ -445,7 +476,14 @@ export default function SignupGrid({
   const btnIcon = "text-slate-700";
 
   return (
-    <div className="w-full flex flex-col gap-3 flex-1 min-h-0" onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePasteCapture}>
+    <div
+      className="w-full flex flex-col gap-3 flex-1 min-h-0"
+      onKeyDownCapture={handleKeyDownCapture}
+      onPasteCapture={handlePasteCapture}
+    >
+      {/* 키보드 이벤트 안정 수신용 포커스 타겟 */}
+      <div ref={gridFocusRef} tabIndex={0} className="absolute opacity-0 pointer-events-none" />
+
       {/* Toolbar */}
       {showToolbar && (
         <div className="flex items-center justify-between">
@@ -565,10 +603,7 @@ export default function SignupGrid({
                         <input
                           className="w-full h-7 px-2 py-0.5 text-[13px] text-slate-500 outline-none bg-transparent text-center"
                           value={row?.[key] ?? ""}
-                          onFocus={() => {
-                            // 포커스로도 active/selection 동기화
-                            selectSingle(r, c);
-                          }}
+                          onFocus={() => handleInputFocus(r, c)}
                           onChange={(e) => setCell(r, key, e.target.value)}
                         />
                       </div>
