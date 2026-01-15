@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
@@ -11,11 +11,19 @@ type UnifiedColumnsResponse = {
 
 type RowValues = Record<string, string>;
 
-const LS_SELECTED_KEYS = "moyulab.signup.template.selectedKeys.v1";
-const LS_COL_WIDTHS = "moyulab.signup.template.colWidths.v1";
+const LS_SELECTED_KEYS = "moyulab.signup.template.selectedKeys.v2";
+const LS_COL_WIDTH_STEPS = "moyulab.signup.template.colWidthSteps.v2";
+const LS_ROW_COUNT = "moyulab.signup.template.rowCount.v1";
 
-const DEFAULT_COL_WIDTH = 160;
-const MIN_COL_WIDTH = 70; // 요구: 통합관리 기준으로 70까지
+const MIN_WIDTH_PX = 70;
+const STEP_MIN = 1;
+const STEP_MAX = 70;
+
+// step(1~70) -> px(70~700)
+function widthPxFromStep(step: number) {
+  const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(step)));
+  return Math.max(MIN_WIDTH_PX, s * 10);
+}
 
 function normalizeClipboardText(s: string) {
   return String(s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -28,24 +36,53 @@ function hasAnyValue(row: RowValues) {
   return false;
 }
 
+function IconPlus({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconMinus({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function IconColumns({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 6h16M8 6v14M16 6v14M4 20h16" />
+    </svg>
+  );
+}
+
+function IconSend({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M22 2L11 13" />
+      <path d="M22 2l-7 20-4-9-9-4z" />
+    </svg>
+  );
+}
+
 export default function SignupView() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [rows, setRows] = useState<RowValues[]>([{ }]);
+  const [rows, setRows] = useState<RowValues[]>([{}]);
 
-  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  // key -> step(1~70)
+  const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
+
   const [resizeMode, setResizeMode] = useState(false);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
-
-  const resizingRef = useRef<null | {
-    key: string;
-    startX: number;
-    startW: number;
-  }>(null);
 
   async function loadColumns() {
     setLoadingColumns(true);
@@ -63,7 +100,7 @@ export default function SignupView() {
     }
   }
 
-  // 최초: 컬럼 로드 + 템플릿 자동 로드
+  // 최초 로드: 컬럼 + 템플릿(자동 저장된 것) 불러오기
   useEffect(() => {
     void loadColumns();
 
@@ -71,22 +108,28 @@ export default function SignupView() {
       const savedKeys = JSON.parse(localStorage.getItem(LS_SELECTED_KEYS) || "[]");
       if (Array.isArray(savedKeys)) setSelectedKeys(savedKeys.map(String));
 
-      const savedWidths = JSON.parse(localStorage.getItem(LS_COL_WIDTHS) || "{}");
-      if (savedWidths && typeof savedWidths === "object") {
+      const savedSteps = JSON.parse(localStorage.getItem(LS_COL_WIDTH_STEPS) || "{}");
+      if (savedSteps && typeof savedSteps === "object") {
         const next: Record<string, number> = {};
-        for (const [k, v] of Object.entries(savedWidths)) {
+        for (const [k, v] of Object.entries(savedSteps)) {
           const n = Number(v);
           if (!Number.isFinite(n)) continue;
-          next[String(k)] = Math.max(MIN_COL_WIDTH, n);
+          next[String(k)] = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(n)));
         }
-        setColWidths(next);
+        setColWidthSteps(next);
+      }
+
+      const savedRowCount = Number(localStorage.getItem(LS_ROW_COUNT) || "");
+      if (Number.isFinite(savedRowCount) && savedRowCount >= 1) {
+        const count = Math.min(500, Math.max(1, Math.floor(savedRowCount)));
+        setRows(Array.from({ length: count }, () => ({})));
       }
     } catch {
       // ignore
     }
   }, []);
 
-  // 템플릿(선택 순서) 자동저장
+  // 템플릿(선택 순서) 자동 저장
   useEffect(() => {
     try {
       localStorage.setItem(LS_SELECTED_KEYS, JSON.stringify(selectedKeys));
@@ -95,14 +138,23 @@ export default function SignupView() {
     }
   }, [selectedKeys]);
 
-  // 열넓이 자동저장
+  // 열 넓이(step) 자동 저장
   useEffect(() => {
     try {
-      localStorage.setItem(LS_COL_WIDTHS, JSON.stringify(colWidths));
+      localStorage.setItem(LS_COL_WIDTH_STEPS, JSON.stringify(colWidthSteps));
     } catch {
       // ignore
     }
-  }, [colWidths]);
+  }, [colWidthSteps]);
+
+  // 행 수 자동 저장
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_ROW_COUNT, String(rows.length));
+    } catch {
+      // ignore
+    }
+  }, [rows.length]);
 
   // 사용자 선택 순서 유지 + 현재 존재하는 컬럼만 필터
   const selectedColumns = useMemo(() => {
@@ -110,16 +162,15 @@ export default function SignupView() {
     return selectedKeys.filter((k) => set.has(k));
   }, [selectedKeys, allColumns]);
 
-  const visibleRows = rows;
-
-  function getColWidth(key: string) {
-    const w = Number(colWidths[key]);
-    if (Number.isFinite(w) && w > 0) return Math.max(MIN_COL_WIDTH, w);
-    return DEFAULT_COL_WIDTH;
+  function getStep(key: string) {
+    const s = Number(colWidthSteps[key]);
+    if (Number.isFinite(s)) return Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(s)));
+    return 16; // 기본 160px
   }
 
-  function setColWidth(key: string, w: number) {
-    setColWidths((prev) => ({ ...prev, [key]: Math.max(MIN_COL_WIDTH, Math.floor(w)) }));
+  function setStep(key: string, next: number) {
+    const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(next)));
+    setColWidthSteps((prev) => ({ ...prev, [key]: s }));
   }
 
   function add10Rows() {
@@ -127,6 +178,13 @@ export default function SignupView() {
       const next = prev.slice();
       for (let i = 0; i < 10; i++) next.push({});
       return next;
+    });
+  }
+
+  function delete1RowFromBottom() {
+    setRows((prev) => {
+      if (prev.length <= 1) return [{}];
+      return prev.slice(0, prev.length - 1);
     });
   }
 
@@ -144,12 +202,10 @@ export default function SignupView() {
     const t = normalizeClipboardText(text);
     const linesRaw = t.split("\n");
     const lines = linesRaw.filter((x) => x.length > 0);
-
     if (lines.length === 0) return;
 
     const grid = lines.map((line) => line.split("\t"));
 
-    // 탭 없는 단일 값이면 기본 paste 처리
     const isMulti = grid.length > 1 || (grid[0]?.length ?? 0) > 1;
     if (!isMulti) return;
 
@@ -176,34 +232,8 @@ export default function SignupView() {
     });
   }
 
-  function startResize(key: string, e: React.MouseEvent) {
-    if (!resizeMode) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    resizingRef.current = {
-      key,
-      startX: e.clientX,
-      startW: getColWidth(key),
-    };
-
-    const onMove = (ev: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const dx = ev.clientX - resizingRef.current.startX;
-      setColWidth(resizingRef.current.key, resizingRef.current.startW + dx);
-    };
-
-    const onUp = () => {
-      resizingRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-
   async function handleSubmit() {
+    // 전송 기능은 이후 확장 예정: 현재는 기존 동작 유지
     setError("");
 
     if (selectedColumns.length === 0) {
@@ -239,8 +269,6 @@ export default function SignupView() {
       }
 
       syncEmitUnifiedUpdate();
-
-      // 전송 후 값 초기화(행 수는 유지)
       setRows((prev) => prev.map(() => ({})));
     } catch (e: any) {
       setError(e?.message || "전송에 실패했습니다.");
@@ -251,14 +279,20 @@ export default function SignupView() {
 
   const showToolbar = selectedColumns.length > 0;
 
+  // 통합관리 느낌의 버튼 스타일(간단 버전)
+  const btnBase =
+    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-white hover:bg-slate-50";
+  const btnIcon = "text-slate-700";
+
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 overflow-auto bg-white">
-      <div className="flex items-center justify-between">
+      {/* Header: "신규가입" + (10cm 띄움) + "양식" */}
+      <div className="flex items-center">
         <div className="text-base font-semibold text-slate-800">신규가입</div>
-
+        <div style={{ width: "10cm" }} />
         <button
           type="button"
-          className="text-xs px-3 py-2 border rounded bg-yellow-50 hover:bg-yellow-100 disabled:opacity-60"
+          className="text-xs px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
           onClick={() => setPickerOpen(true)}
           disabled={loadingColumns}
         >
@@ -268,35 +302,43 @@ export default function SignupView() {
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      {/* 양식으로 컬럼이 만들어지면, 그리드 좌측 상단에 버튼들 + 우측 끝 전송 */}
+      {/* Grid Toolbar: 좌측(행10추가/행삭제/열넓이) 우측(전송) */}
       {showToolbar && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="text-xs px-3 py-2 border rounded bg-white hover:bg-slate-50"
-              onClick={add10Rows}
-            >
+            <button type="button" className={btnBase} onClick={add10Rows}>
+              <span className={btnIcon}>
+                <IconPlus />
+              </span>
               행10추가
+            </button>
+
+            <button type="button" className={btnBase} onClick={delete1RowFromBottom}>
+              <span className={btnIcon}>
+                <IconMinus />
+              </span>
+              행삭제
             </button>
 
             <button
               type="button"
-              className={`text-xs px-3 py-2 border rounded hover:bg-slate-50 ${
-                resizeMode ? "bg-slate-800 text-white" : "bg-white"
-              }`}
+              className={`${btnBase} ${resizeMode ? "bg-slate-800 text-white hover:bg-slate-800" : ""}`}
               onClick={() => setResizeMode((v) => !v)}
             >
+              <span className={resizeMode ? "text-white" : btnIcon}>
+                <IconColumns />
+              </span>
               열넓이
             </button>
           </div>
 
           <button
             type="button"
-            className="text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
             onClick={handleSubmit}
             disabled={submitting || loadingColumns}
           >
+            <IconSend className="w-4 h-4" />
             {submitting ? "전송 중..." : "전송"}
           </button>
         </div>
@@ -309,59 +351,81 @@ export default function SignupView() {
           <div className="min-w-max">
             {/* Header */}
             <div className="flex border-b bg-slate-100">
-              {selectedColumns.map((k) => (
-                <div
-                  key={k}
-                  className="relative px-2 py-2 text-[11px] font-semibold text-slate-700 border-r last:border-r-0 select-none"
-                  style={{ width: getColWidth(k), minWidth: MIN_COL_WIDTH }}
-                  title={k}
-                >
-                  <div className="truncate">{k}</div>
+              {selectedColumns.map((k) => {
+                const step = getStep(k);
+                const widthPx = widthPxFromStep(step);
 
-                  {resizeMode && (
-                    <div
-                      onMouseDown={(e) => startResize(k, e)}
-                      className="absolute top-0 right-0 h-full w-[8px] cursor-col-resize"
-                      title="드래그로 열넓이 조절"
-                    />
-                  )}
-                </div>
-              ))}
+                return (
+                  <div
+                    key={k}
+                    className="px-2 py-1 text-[11px] font-semibold text-slate-700 border-r last:border-r-0 select-none"
+                    style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
+                    title={k}
+                  >
+                    <div className="truncate leading-4">{k}</div>
+
+                    {resizeMode && (
+                      <div className="mt-1 flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          className="w-6 h-6 border rounded bg-white hover:bg-slate-50 text-xs"
+                          onClick={() => setStep(k, step - 1)}
+                        >
+                          ‹
+                        </button>
+                        <div className="w-10 text-center text-[11px] tabular-nums">{step}</div>
+                        <button
+                          type="button"
+                          className="w-6 h-6 border rounded bg-white hover:bg-slate-50 text-xs"
+                          onClick={() => setStep(k, step + 1)}
+                        >
+                          ›
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Body rows */}
+            {/* Body rows (행높이 30% 감소: py-2 -> py-1, h-8) */}
             <div>
-              {visibleRows.map((row, rowIndex) => (
+              {rows.map((row, rowIndex) => (
                 <div key={rowIndex} className="flex border-b last:border-b-0">
-                  {selectedColumns.map((k, colIndex) => (
-                    <div
-                      key={`${rowIndex}-${k}`}
-                      className="border-r last:border-r-0"
-                      style={{ width: getColWidth(k), minWidth: MIN_COL_WIDTH }}
-                    >
-                      <input
-                        className="w-full px-2 py-2 text-sm outline-none bg-white"
-                        value={row?.[k] ?? ""}
-                        onChange={(e) => setCell(rowIndex, k, e.target.value)}
-                        onPaste={(e) => {
-                          const text = e.clipboardData.getData("text");
-                          if (!text) return;
+                  {selectedColumns.map((k, colIndex) => {
+                    const step = getStep(k);
+                    const widthPx = widthPxFromStep(step);
 
-                          const t = normalizeClipboardText(text);
-                          const linesRaw = t.split("\n");
-                          const lines = linesRaw.filter((x) => x.length > 0);
-                          const firstLine = lines[0] ?? "";
-                          const parts = firstLine.split("\t");
-                          const isMulti = lines.length > 1 || parts.length > 1;
+                    return (
+                      <div
+                        key={`${rowIndex}-${k}`}
+                        className="border-r last:border-r-0"
+                        style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
+                      >
+                        <input
+                          className="w-full h-8 px-2 py-1 text-sm outline-none bg-white"
+                          value={row?.[k] ?? ""}
+                          onChange={(e) => setCell(rowIndex, k, e.target.value)}
+                          onPaste={(e) => {
+                            const text = e.clipboardData.getData("text");
+                            if (!text) return;
 
-                          if (!isMulti) return;
+                            const t = normalizeClipboardText(text);
+                            const linesRaw = t.split("\n");
+                            const lines = linesRaw.filter((x) => x.length > 0);
+                            const firstLine = lines[0] ?? "";
+                            const parts = firstLine.split("\t");
+                            const isMulti = lines.length > 1 || parts.length > 1;
 
-                          e.preventDefault();
-                          fillFromTSV(rowIndex, colIndex, text);
-                        }}
-                      />
-                    </div>
-                  ))}
+                            if (!isMulti) return;
+
+                            e.preventDefault();
+                            fillFromTSV(rowIndex, colIndex, text);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
