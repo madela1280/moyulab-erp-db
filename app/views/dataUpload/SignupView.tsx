@@ -100,7 +100,6 @@ export default function SignupView() {
     }
   }
 
-  // 최초 로드: 컬럼 + 템플릿(자동 저장된 것) 불러오기
   useEffect(() => {
     void loadColumns();
 
@@ -129,34 +128,24 @@ export default function SignupView() {
     }
   }, []);
 
-  // 템플릿(선택 순서) 자동 저장
   useEffect(() => {
     try {
       localStorage.setItem(LS_SELECTED_KEYS, JSON.stringify(selectedKeys));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [selectedKeys]);
 
-  // 열 넓이(step) 자동 저장
   useEffect(() => {
     try {
       localStorage.setItem(LS_COL_WIDTH_STEPS, JSON.stringify(colWidthSteps));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [colWidthSteps]);
 
-  // 행 수 자동 저장
   useEffect(() => {
     try {
       localStorage.setItem(LS_ROW_COUNT, String(rows.length));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [rows.length]);
 
-  // 사용자 선택 순서 유지 + 현재 존재하는 컬럼만 필터
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
     return selectedKeys.filter((k) => set.has(k));
@@ -165,7 +154,7 @@ export default function SignupView() {
   function getStep(key: string) {
     const s = Number(colWidthSteps[key]);
     if (Number.isFinite(s)) return Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(s)));
-    return 16; // 기본 160px
+    return 16;
   }
 
   function setStep(key: string, next: number) {
@@ -205,7 +194,6 @@ export default function SignupView() {
     if (lines.length === 0) return;
 
     const grid = lines.map((line) => line.split("\t"));
-
     const isMulti = grid.length > 1 || (grid[0]?.length ?? 0) > 1;
     if (!isMulti) return;
 
@@ -233,7 +221,6 @@ export default function SignupView() {
   }
 
   async function handleSubmit() {
-    // 전송 기능은 이후 확장 예정: 현재는 기존 동작 유지
     setError("");
 
     if (selectedColumns.length === 0) {
@@ -279,20 +266,20 @@ export default function SignupView() {
 
   const showToolbar = selectedColumns.length > 0;
 
-  // 통합관리 느낌의 버튼 스타일(간단 버전)
+  // 버튼 배경: 엷은 회색
   const btnBase =
-    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-white hover:bg-slate-50";
+    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-100 hover:bg-slate-200";
   const btnIcon = "text-slate-700";
 
   return (
-    <div className="w-full h-full flex flex-col p-3 gap-3 overflow-auto bg-white">
-      {/* Header: "신규가입" + (10cm 띄움) + "양식" */}
+    <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
+      {/* Header */}
       <div className="flex items-center">
         <div className="text-base font-semibold text-slate-800">신규가입</div>
-        <div style={{ width: "10cm" }} />
+        <div style={{ width: "5cm" }} />
         <button
           type="button"
-          className="text-xs px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
+          className="text-xs px-3 py-[6px] rounded bg-yellow-50 hover:bg-yellow-100 border disabled:opacity-60"
           onClick={() => setPickerOpen(true)}
           disabled={loadingColumns}
         >
@@ -302,7 +289,7 @@ export default function SignupView() {
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      {/* Grid Toolbar: 좌측(행10추가/행삭제/열넓이) 우측(전송) */}
+      {/* Toolbar */}
       {showToolbar && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -344,7 +331,8 @@ export default function SignupView() {
         </div>
       )}
 
-      <div className="border rounded bg-white overflow-auto">
+      {/* Grid wrapper: 좌우/상하 스크롤 둘 다 */}
+      <div className="flex-1 min-h-0 border rounded bg-white overflow-auto">
         {selectedColumns.length === 0 ? (
           <div className="p-3 text-xs text-slate-500">“양식”에서 컬럼을 선택하면 표가 생성됩니다.</div>
         ) : (
@@ -388,7 +376,7 @@ export default function SignupView() {
               })}
             </div>
 
-            {/* Body rows (행높이 30% 감소: py-2 -> py-1, h-8) */}
+            {/* Body rows: 행높이 20% 추가 감소 (h-7, py-0.5) */}
             <div>
               {rows.map((row, rowIndex) => (
                 <div key={rowIndex} className="flex border-b last:border-b-0">
@@ -403,7 +391,7 @@ export default function SignupView() {
                         style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
                       >
                         <input
-                          className="w-full h-8 px-2 py-1 text-sm outline-none bg-white"
+                          className="w-full h-7 px-2 py-0.5 text-sm outline-none bg-white"
                           value={row?.[k] ?? ""}
                           onChange={(e) => setCell(rowIndex, k, e.target.value)}
                           onPaste={(e) => {
