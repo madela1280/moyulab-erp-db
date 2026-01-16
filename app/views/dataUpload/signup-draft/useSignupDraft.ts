@@ -28,13 +28,13 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
   const inflightRef = useRef(false);
   const queuedRef = useRef<RowValues[] | null>(null);
 
-  // 최신 rows를 항상 들고 있어, beforeunload/언마운트에서 flush 저장 가능
+  // 최신 rows 스냅샷(언마운트/이탈 flush 저장용)
   const latestRowsRef = useRef<RowValues[]>([]);
   useEffect(() => {
     latestRowsRef.current = rowsState;
   }, [rowsState]);
 
-  // 최초 로드(복원)
+  // 최초 로드(복원) - ★ 중요: 사용자가 이미 입력(touched)했으면 복원 응답으로 덮어쓰지 않음
   useEffect(() => {
     let mounted = true;
 
@@ -45,10 +45,15 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         if (!mounted) return;
 
         const restored = Array.isArray(j?.rows) ? j.rows : [];
-        setRowsState(restored);
 
-        // 복원은 "사용자 수정"이 아님
-        touchedRef.current = false;
+        // ✅ 사용자가 이미 수정했다면(=touched) 늦게 도착한 복원 응답이 입력값을 덮지 못하게 방지
+        if (!touchedRef.current) {
+          setRowsState(restored);
+          latestRowsRef.current = restored;
+          // 복원은 "사용자 수정"이 아님
+          touchedRef.current = false;
+        }
+
         hydratedRef.current = true;
       } catch (e: any) {
         hydratedRef.current = true;
@@ -83,7 +88,9 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       // 서버가 "빈 PATCH 무시"를 했다면, 서버가 가진 rows로 즉시 되돌려서
       // 클라이언트가 빈값 상태로 굳어지는 것을 방지
       if (resp?.ignored_empty_patch) {
-        setRowsState(Array.isArray(resp?.rows) ? resp.rows : []);
+        const serverRows = Array.isArray(resp?.rows) ? resp.rows : [];
+        setRowsState(serverRows);
+        latestRowsRef.current = serverRows;
         touchedRef.current = false;
       }
 
@@ -104,7 +111,9 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
           const resp2 = (await apiPatchSignupDraft(next)) as PatchResponse;
 
           if (resp2?.ignored_empty_patch) {
-            setRowsState(Array.isArray(resp2?.rows) ? resp2.rows : []);
+            const serverRows2 = Array.isArray(resp2?.rows) ? resp2.rows : [];
+            setRowsState(serverRows2);
+            latestRowsRef.current = serverRows2;
             touchedRef.current = false;
           }
 
@@ -150,14 +159,20 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
   // 외부(그리드)에서 호출하는 setter: 이때만 touched=true
   function setRows(next: RowValues[]) {
+    const safe = Array.isArray(next) ? next : [];
+
+    // ✅ 언마운트/이탈 순간 flushSave가 최신값을 보게 즉시 ref를 갱신
+    latestRowsRef.current = safe;
+
     touchedRef.current = true;
-    setRowsState(Array.isArray(next) ? next : []);
+    setRowsState(safe);
   }
 
   async function clear() {
     try {
       await apiDeleteSignupDraft();
       setRowsState([]);
+      latestRowsRef.current = [];
       touchedRef.current = false;
 
       // 삭제도 다른 탭에 알림
@@ -171,9 +186,10 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     try {
       const j = await apiGetSignupDraft();
       const restored = Array.isArray(j?.rows) ? j.rows : [];
-      setRowsState(restored);
 
       // reload는 사용자 수정이 아님
+      setRowsState(restored);
+      latestRowsRef.current = restored;
       touchedRef.current = false;
     } catch (e: any) {
       onError?.(e?.message || "임시저장 불러오기에 실패했습니다.");

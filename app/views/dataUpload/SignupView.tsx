@@ -1,6 +1,6 @@
 "use client";
 
-// 소켓 클라이언트는 이 import(사이드이펙트)로 연결/조인이 보장됨 (코어 수정 없이 "호출/사용"만)
+// 소켓 클라이언트 연결 보장(코어 수정 없이 import만)
 import "@/global-socket/socket-client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,10 @@ function toUserMessage(raw: string) {
   return m;
 }
 
+function isPlainObject(v: any) {
+  return v && typeof v === "object" && !Array.isArray(v);
+}
+
 export default function SignupView() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -52,8 +56,11 @@ export default function SignupView() {
   const [rowCount, setRowCount] = useState<number>(DEFAULT_SETTINGS.rowCount);
   const [partnerOptions, setPartnerOptions] = useState<string[]>(DEFAULT_SETTINGS.partnerOptions);
 
+  // settings hydrate / patch queue
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
+
+  // hydrated 전/후 상관없이 여기에 누적(중요: hydrate 전 사용자 변경 유실 방지)
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
 
   async function loadColumns() {
@@ -72,6 +79,24 @@ export default function SignupView() {
     }
   }
 
+  function normalizeSettings(j: any): SignupSettings {
+    const nextSelectedKeys = Array.isArray(j?.selectedKeys) ? j.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys;
+
+    const nextColWidthSteps =
+      isPlainObject(j?.colWidthSteps) ? (j.colWidthSteps as Record<string, number>) : DEFAULT_SETTINGS.colWidthSteps;
+
+    const nextRowCount = Number.isFinite(Number(j?.rowCount)) ? Math.max(1, Math.floor(Number(j?.rowCount))) : DEFAULT_SETTINGS.rowCount;
+
+    const nextPartnerOptions = Array.isArray(j?.partnerOptions) ? j.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions;
+
+    return {
+      selectedKeys: nextSelectedKeys,
+      colWidthSteps: nextColWidthSteps,
+      rowCount: nextRowCount,
+      partnerOptions: nextPartnerOptions,
+    };
+  }
+
   async function loadSettings() {
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
@@ -81,28 +106,43 @@ export default function SignupView() {
       }
 
       const j = (await r.json()) as Partial<SignupSettings> | null;
+      const server = normalizeSettings(j);
 
-      const nextSelectedKeys = Array.isArray(j?.selectedKeys) ? j!.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys;
-      const nextColWidthSteps =
-        j?.colWidthSteps && typeof j.colWidthSteps === "object" ? (j.colWidthSteps as Record<string, number>) : DEFAULT_SETTINGS.colWidthSteps;
-      const nextRowCount = Number.isFinite(Number(j?.rowCount)) ? Math.max(1, Math.floor(Number(j?.rowCount))) : DEFAULT_SETTINGS.rowCount;
-      const nextPartnerOptions = Array.isArray(j?.partnerOptions) ? j!.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions;
+      // ✅ 핵심: hydrate 전/중 사용자가 바꾼 값이 있으면( pendingPatchRef ) 그 값을 우선 적용
+      // - 서버 응답이 늦게 와도 로컬 변경을 덮어쓰지 않음
+      const pending = pendingPatchRef.current || {};
+      const merged: SignupSettings = {
+        selectedKeys: "selectedKeys" in pending ? (Array.isArray(pending.selectedKeys) ? pending.selectedKeys.map(String) : []) : server.selectedKeys,
+        colWidthSteps: "colWidthSteps" in pending && isPlainObject(pending.colWidthSteps) ? (pending.colWidthSteps as Record<string, number>) : server.colWidthSteps,
+        rowCount: "rowCount" in pending ? Math.max(1, Math.floor(Number(pending.rowCount))) : server.rowCount,
+        partnerOptions: "partnerOptions" in pending
+          ? (Array.isArray(pending.partnerOptions) ? pending.partnerOptions.map(String) : [])
+          : server.partnerOptions,
+      };
 
-      setSelectedKeys(nextSelectedKeys);
-      setColWidthSteps(nextColWidthSteps);
-      setRowCount(nextRowCount);
-      setPartnerOptions(nextPartnerOptions);
+      setSelectedKeys(merged.selectedKeys);
+      setColWidthSteps(merged.colWidthSteps);
+      setRowCount(merged.rowCount);
+      setPartnerOptions(merged.partnerOptions);
 
+      const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
+
+      // ✅ 최초 hydrate 직후 pending이 있으면 1회 flush 예약
+      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+        queuePatch({});
+      }
     } catch {
       settingsHydratedRef.current = true;
     }
   }
 
   function queuePatch(partial: Partial<SignupSettings>) {
-    if (!settingsHydratedRef.current) return;
-
+    // ✅ hydrate 전에도 pending에는 누적(유실 방지)
     pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
+
+    // hydrate 전이면 실제 PATCH는 하지 않음(서버값 모르는 상태에서 덮어쓰기 위험)
+    if (!settingsHydratedRef.current) return;
 
     if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
     patchTimerRef.current = window.setTimeout(async () => {
@@ -131,7 +171,6 @@ export default function SignupView() {
       patchTimerRef.current = null;
     }
 
-    // pending이 있든 없든 현재 스냅샷을 1번 저장(열넓이 등 누락 방지)
     const snapshot: SignupSettings = {
       selectedKeys: Array.isArray(selectedKeys) ? selectedKeys : [],
       colWidthSteps: colWidthSteps && typeof colWidthSteps === "object" ? colWidthSteps : {},
@@ -139,7 +178,6 @@ export default function SignupView() {
       partnerOptions: Array.isArray(partnerOptions) ? partnerOptions : [],
     };
 
-    // pendingPatch와 합쳐서 보냄(중복 포함돼도 PATCH merge로 안전)
     const body: Partial<SignupSettings> = { ...pendingPatchRef.current, ...snapshot };
     pendingPatchRef.current = {};
 
@@ -148,12 +186,9 @@ export default function SignupView() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        // beforeunload 상황에서도 최대한 전송 시도
         keepalive: reason === "beforeunload",
       });
-    } catch {
-      // 이탈 중에는 에러 표시로 UX 깨지 않게 무시
-    }
+    } catch {}
   }
 
   useEffect(() => {
@@ -183,7 +218,6 @@ export default function SignupView() {
 
   const filteredSelectedKeys = useMemo(() => selectedKeys, [selectedKeys]);
 
-  // Draft(임시입력값) 자동저장/복원: unified 테이블에 data로 저장
   const draft = useSignupDraft({
     onError: (msg) => setError(toUserMessage(msg)),
   });
