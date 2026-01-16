@@ -11,7 +11,7 @@ export default function CellEditor({
   onChange,
   onFocus,
 
-  // 추가: 상위에서 내려주면 사용, 없으면 기본값으로 컴파일/동작 유지
+  // 상위에서 내려주면 사용(없어도 동작해야 함)
   partnerOptions = [],
   onAddPartnerOption,
 }: {
@@ -43,6 +43,10 @@ export default function CellEditor({
     <input
       className="w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center"
       value={value}
+      onPointerDown={(e) => {
+        // Grid 상위 포인터 캡처로 인해 input 동작이 막히는 케이스 방지
+        e.stopPropagation();
+      }}
       onFocus={onFocus}
       onChange={(e) => onChange(e.target.value)}
     />
