@@ -6,10 +6,16 @@ import { apiDeleteSignupDraft, apiGetSignupDraft, apiPatchSignupDraft } from "@/
 type RowValues = Record<string, string>;
 
 export function useSignupDraft({ onError }: { onError?: (msg: string) => void } = {}) {
-  const [rows, setRows] = useState<RowValues[]>([]);
+  const [rowsState, setRowsState] = useState<RowValues[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 최초 로드 완료(복원 완료) 여부
   const hydratedRef = useRef(false);
+
+  // 사용자가 실제로 수정했는지(초기 로드/복원으로 인한 저장 덮어쓰기 방지)
+  const touchedRef = useRef(false);
+
+  // 디바운스/동시요청 제어
   const timerRef = useRef<number | null>(null);
   const inflightRef = useRef(false);
   const queuedRef = useRef<RowValues[] | null>(null);
@@ -23,7 +29,12 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         setLoading(true);
         const j = await apiGetSignupDraft();
         if (!mounted) return;
-        setRows(Array.isArray(j?.rows) ? j.rows : []);
+
+        const restored = Array.isArray(j?.rows) ? j.rows : [];
+        setRowsState(restored);
+
+        // 복원은 "사용자 수정"이 아님
+        touchedRef.current = false;
         hydratedRef.current = true;
       } catch (e: any) {
         hydratedRef.current = true;
@@ -40,33 +51,33 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 디바운스 자동저장
+  // 디바운스 자동저장: "사용자 수정(touched)" 이후에만 저장
   useEffect(() => {
     if (!hydratedRef.current) return;
+    if (!touchedRef.current) return;
 
     if (timerRef.current) window.clearTimeout(timerRef.current);
 
     timerRef.current = window.setTimeout(async () => {
-      // 연속 변경 중이면 최신 rows만 저장
       if (inflightRef.current) {
-        queuedRef.current = rows;
+        queuedRef.current = rowsState;
         return;
       }
 
       inflightRef.current = true;
       try {
-        await apiPatchSignupDraft(rows);
+        await apiPatchSignupDraft(rowsState);
       } catch (e: any) {
         onError?.(e?.message || "임시저장에 실패했습니다.");
       } finally {
         inflightRef.current = false;
 
-        // 저장 중 추가 변경이 쌓였으면 1회 더 저장
         if (queuedRef.current) {
           const next = queuedRef.current;
           queuedRef.current = null;
+
+          inflightRef.current = true;
           try {
-            inflightRef.current = true;
             await apiPatchSignupDraft(next);
           } catch (e: any) {
             onError?.(e?.message || "임시저장에 실패했습니다.");
@@ -78,15 +89,24 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     }, 600);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows]);
+  }, [rowsState]);
+
+  // 외부(그리드)에서 호출하는 setter: 이때만 touched=true
+  function setRows(next: RowValues[]) {
+    touchedRef.current = true;
+    setRowsState(Array.isArray(next) ? next : []);
+  }
 
   async function clear() {
     try {
       await apiDeleteSignupDraft();
+      // 삭제 후 상태도 초기화
+      setRowsState([]);
+      touchedRef.current = false;
     } catch (e: any) {
       onError?.(e?.message || "임시저장 삭제에 실패했습니다.");
     }
   }
 
-  return { rows, setRows, loading, clear };
+  return { rows: rowsState, setRows, loading, clear };
 }

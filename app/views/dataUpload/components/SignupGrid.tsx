@@ -71,17 +71,14 @@ export default function SignupGrid({
   loadingColumns,
   onError,
 
-  // settings (상위에서 API로 로드)
   initialColWidthSteps,
   initialRowCount,
   onColWidthStepsChange,
   onRowCountChange,
 
-  // 거래처 옵션(상위에서 API/설정으로 관리)
   partnerOptions,
   onAddPartnerOption,
 
-  // draft(입력값) 복원/자동저장
   initialRows,
   onRowsChange,
   onSubmitSuccess,
@@ -91,19 +88,15 @@ export default function SignupGrid({
   loadingColumns: boolean;
   onError: (msg: string) => void;
 
-  // settings (상위에서 API로 로드)
   initialColWidthSteps?: Record<string, number>;
   initialRowCount?: number;
 
-  // settings 변경 콜백 (상위에서 PATCH 처리)
   onColWidthStepsChange?: (next: Record<string, number>) => void;
   onRowCountChange?: (count: number) => void;
 
-  // partner options
   partnerOptions?: string[];
   onAddPartnerOption?: (name: string) => void | Promise<void>;
 
-  // draft rows
   initialRows?: RowValues[];
   onRowsChange?: (rows: RowValues[]) => void;
   onSubmitSuccess?: () => void | Promise<void>;
@@ -124,11 +117,12 @@ export default function SignupGrid({
   const suppressFocusSelectionRef = useRef(false);
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
-  // settings hydrate(1회)
   const settingsHydratedRef = useRef(false);
 
-  // rows hydrate(초기/복원) 1회 + 이후 변경만 저장
+  // rows hydrate/저장 덮어쓰기 방지용
   const rowsHydratedRef = useRef(false);
+  const rowsTouchedRef = useRef(false);
+  const rowsInitSourceRef = useRef<"none" | "draft" | "blank">("none");
 
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
@@ -154,30 +148,40 @@ export default function SignupGrid({
     settingsHydratedRef.current = true;
   }, [initialColWidthSteps]);
 
-  // rows hydrate: draft rows 우선, 없으면 rowCount 기반
+  // rows hydrate: draft가 "나중에" 도착하는 케이스까지 고려
   useEffect(() => {
-    if (rowsHydratedRef.current) return;
+    const hasDraftRows = Array.isArray(initialRows) && initialRows.length >= 1;
 
-    if (Array.isArray(initialRows) && initialRows.length >= 1) {
-      setRows(initialRows.map((r) => (r && typeof r === "object" ? r : {})));
+    // draft rows가 있고, 아직 사용자가 편집(터치)하기 전이면 언제든 draft로 덮어써서 "복원"이 되게 함
+    if (hasDraftRows && (!rowsHydratedRef.current || !rowsTouchedRef.current)) {
+      setRows(initialRows!.map((r) => (r && typeof r === "object" ? r : {})));
       rowsHydratedRef.current = true;
+      rowsInitSourceRef.current = "draft";
       return;
     }
 
-    const rawCount = Number(initialRowCount);
-    if (Number.isFinite(rawCount) && rawCount >= 1) {
-      const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
-      setRows(Array.from({ length: count }, () => ({})));
-    } else {
-      setRows([{}]);
-    }
+    // 아직 hydrate 안 됐고 draft도 없으면 rowCount로 빈표 생성
+    if (!rowsHydratedRef.current && !hasDraftRows) {
+      const rawCount = Number(initialRowCount);
+      if (Number.isFinite(rawCount) && rawCount >= 1) {
+        const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
+        setRows(Array.from({ length: count }, () => ({})));
+      } else {
+        setRows([{}]);
+      }
 
-    rowsHydratedRef.current = true;
+      rowsHydratedRef.current = true;
+      rowsInitSourceRef.current = "blank";
+    }
   }, [initialRows, initialRowCount]);
 
   // rows 변경 시 상위로 알림(자동저장 훅에서 처리)
   useEffect(() => {
     if (!rowsHydratedRef.current) return;
+
+    // 초기 blank 생성 직후(사용자가 아직 아무것도 안 건드림)에는 저장 호출하지 않음
+    if (rowsInitSourceRef.current === "blank" && !rowsTouchedRef.current) return;
+
     onRowsChange?.(rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
@@ -218,6 +222,7 @@ export default function SignupGrid({
   }
 
   function updateRows(updater: (prev: RowValues[]) => RowValues[]) {
+    rowsTouchedRef.current = true;
     setRows((prev) => {
       const next = updater(prev);
       if (next.length !== prev.length) {
@@ -239,6 +244,7 @@ export default function SignupGrid({
   }
 
   function setCell(rowIndex: number, key: string, value: string) {
+    rowsTouchedRef.current = true;
     setRows((prev) => {
       const next = prev.slice();
       const row = { ...(next[rowIndex] || {}) };
@@ -308,6 +314,7 @@ export default function SignupGrid({
   function clearSelectionValues() {
     if (!range || selectedColumns.length === 0) return;
 
+    rowsTouchedRef.current = true;
     setRows((prev) => {
       const next = prev.slice();
       for (let r = range.r1; r <= range.r2; r++) {
@@ -325,6 +332,8 @@ export default function SignupGrid({
   function pasteMatrixAt(start: CellPos, matrix: string[][]) {
     if (selectedColumns.length === 0) return;
     if (matrix.length === 0) return;
+
+    rowsTouchedRef.current = true;
 
     const needRows = start.r + matrix.length;
     ensureRowsCount(needRows);
@@ -416,8 +425,6 @@ export default function SignupGrid({
     setActive(p);
     setRange(normalizeRange(p, p));
 
-    // 입력 요소 기본동작(클릭/커서/드롭다운 등)은 유지하고,
-    // 그 외 영역에서는 드래그 선택을 위해 preventDefault
     const t = e.target as HTMLElement | null;
     const tag = t?.tagName?.toUpperCase?.() ?? "";
     const isInteractive = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t as any)?.isContentEditable;
@@ -511,10 +518,9 @@ export default function SignupGrid({
 
       syncEmitUnifiedUpdate();
 
-      // 전송 성공 시 grid 입력값 초기화
+      rowsTouchedRef.current = true;
       setRows((prev) => prev.map(() => ({})));
 
-      // draft 삭제(상위에서 처리)
       await onSubmitSuccess?.();
     } catch (e: any) {
       onError(e?.message ? "저장에 실패했습니다." : "저장에 실패했습니다.");

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import SignupGrid from "@/views/dataUpload/components/SignupGrid";
+import { useSignupDraft } from "@/views/dataUpload/signup-draft/useSignupDraft";
 
 type UnifiedColumnsResponse = {
   order: string[];
@@ -27,7 +28,6 @@ function toUserMessage(raw: string) {
   const m = String(raw || "");
   if (!m) return "";
 
-  // 서버/DB 에러 원문(영문)을 사용자 화면에 그대로 보여주지 않기 위한 치환
   if (m.includes("relation") && m.includes("does not exist")) return "설정 정보를 불러오지 못했습니다.";
   if (m.includes("SIGNUP_SETTINGS_")) return "설정 정보를 불러오지 못했습니다.";
   if (m.includes("FAILED(")) return "요청 처리에 실패했습니다.";
@@ -69,12 +69,8 @@ export default function SignupView() {
   }
 
   async function loadSettings() {
-    // 설정 로딩 실패로 인해 화면 상단에 영문(DB 에러) 한 줄이 노출되던 문제를 방지:
-    // - 실패해도 기본값으로 진행
-    // - 사용자 화면에는 에러 원문을 표시하지 않음
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
-
       if (!r.ok) {
         settingsHydratedRef.current = true;
         return;
@@ -100,7 +96,6 @@ export default function SignupView() {
   }
 
   function queuePatch(partial: Partial<SignupSettings>) {
-    // 초기 hydrate 전에는 PATCH를 보내지 않음
     if (!settingsHydratedRef.current) return;
 
     pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
@@ -116,10 +111,7 @@ export default function SignupView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!r.ok) {
-          // 에러 원문(영문) 노출 방지: 사용자 메시지로만 표시
-          setError("설정 저장에 실패했습니다.");
-        }
+        if (!r.ok) setError("설정 저장에 실패했습니다.");
       } catch {
         setError("설정 저장에 실패했습니다.");
       }
@@ -141,11 +133,12 @@ export default function SignupView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKeys]);
 
-  const filteredSelectedKeys = useMemo(() => {
-    // 컬럼 목록이 아직 로드 전이어도 UI 흐름을 깨지 않기 위해 그대로 두되,
-    // Grid에서 실제 렌더는 allColumns 기준으로 필터링됨
-    return selectedKeys;
-  }, [selectedKeys]);
+  const filteredSelectedKeys = useMemo(() => selectedKeys, [selectedKeys]);
+
+  // Draft(임시입력값) 자동저장/복원: unified 테이블에 data로 저장
+  const draft = useSignupDraft({
+    onError: (msg) => setError(toUserMessage(msg)),
+  });
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
@@ -170,6 +163,22 @@ export default function SignupView() {
         onError={(msg) => setError(toUserMessage(msg))}
         initialColWidthSteps={colWidthSteps}
         initialRowCount={rowCount}
+        partnerOptions={partnerOptions}
+        onAddPartnerOption={async (name) => {
+          const next = Array.from(new Set([...(partnerOptions || []), String(name || "").trim()])).filter(Boolean);
+          setPartnerOptions(next);
+          queuePatch({ partnerOptions: next });
+        }}
+        // draft 복원값 주입
+        initialRows={draft.rows}
+        // 사용자가 편집했을 때만 draft.setRows가 touched 처리 + 자동저장 트리거
+        onRowsChange={(nextRows) => {
+          draft.setRows(nextRows);
+        }}
+        // 전송 성공 시 draft 삭제
+        onSubmitSuccess={async () => {
+          await draft.clear();
+        }}
         onColWidthStepsChange={(next) => {
           setColWidthSteps(next);
           queuePatch({ colWidthSteps: next });
