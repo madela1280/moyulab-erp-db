@@ -28,7 +28,6 @@ export default function PartnerSelectCell({
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
   const [optimisticAdded, setOptimisticAdded] = useState<string[]>([]);
 
-  // options가 비어있으면 내부에서 API로 로드(다른 파일 수정 없이도 동작하도록)
   useEffect(() => {
     if (Array.isArray(options) && options.length > 0) return;
 
@@ -64,7 +63,6 @@ export default function PartnerSelectCell({
       return;
     }
 
-    // UI 즉시 반영(낙관적)
     setOptimisticAdded((prev) => (prev.includes(n) ? prev : [...prev, n]));
 
     try {
@@ -83,7 +81,15 @@ export default function PartnerSelectCell({
 
   return (
     <select
-      className="w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center"
+      className={[
+        "w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center",
+        // ▼ 아이콘 숨김
+        "appearance-none",
+      ].join(" ")}
+      style={{
+        // 브라우저별 기본 화살표/배경 제거 보강
+        backgroundImage: "none",
+      }}
       value={value}
       onFocus={onFocus}
       onChange={async (e) => {

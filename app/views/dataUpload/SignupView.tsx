@@ -1,5 +1,8 @@
 "use client";
 
+// 소켓 클라이언트는 이 import(사이드이펙트)로 연결/조인이 보장됨 (코어 수정 없이 "호출/사용"만)
+import "@/global-socket/socket-client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import SignupGrid from "@/views/dataUpload/components/SignupGrid";
@@ -119,14 +122,58 @@ export default function SignupView() {
     }, 250);
   }
 
+  // 페이지 이탈 시 settings 저장 누락 방지(특히 열넓이)
+  async function flushSettingsPatch(reason: "unmount" | "beforeunload") {
+    if (!settingsHydratedRef.current) return;
+
+    if (patchTimerRef.current) {
+      window.clearTimeout(patchTimerRef.current);
+      patchTimerRef.current = null;
+    }
+
+    // pending이 있든 없든 현재 스냅샷을 1번 저장(열넓이 등 누락 방지)
+    const snapshot: SignupSettings = {
+      selectedKeys: Array.isArray(selectedKeys) ? selectedKeys : [],
+      colWidthSteps: colWidthSteps && typeof colWidthSteps === "object" ? colWidthSteps : {},
+      rowCount: Number.isFinite(Number(rowCount)) ? Number(rowCount) : 1,
+      partnerOptions: Array.isArray(partnerOptions) ? partnerOptions : [],
+    };
+
+    // pendingPatch와 합쳐서 보냄(중복 포함돼도 PATCH merge로 안전)
+    const body: Partial<SignupSettings> = { ...pendingPatchRef.current, ...snapshot };
+    pendingPatchRef.current = {};
+
+    try {
+      await fetch("/api/signup-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        // beforeunload 상황에서도 최대한 전송 시도
+        keepalive: reason === "beforeunload",
+      });
+    } catch {
+      // 이탈 중에는 에러 표시로 UX 깨지 않게 무시
+    }
+  }
+
   useEffect(() => {
     void loadColumns();
     void loadSettings();
 
     return () => {
-      if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
+      void flushSettingsPatch("unmount");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      void flushSettingsPatch("beforeunload");
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKeys, colWidthSteps, rowCount, partnerOptions]);
 
   // selectedKeys 변경 시 DB 저장
   useEffect(() => {
@@ -141,10 +188,11 @@ export default function SignupView() {
     onError: (msg) => setError(toUserMessage(msg)),
   });
 
-  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft 다시 로드
+  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft + settings 재로드
   useEffect(() => {
     const off = syncListen(() => {
       void draft.reload();
+      void loadSettings();
     });
     return () => {
       off?.();

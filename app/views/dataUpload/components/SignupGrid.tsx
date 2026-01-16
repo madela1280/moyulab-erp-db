@@ -124,6 +124,9 @@ export default function SignupGrid({
   const rowsTouchedRef = useRef(false);
   const rowsInitSourceRef = useRef<"none" | "draft" | "blank">("none");
 
+  // 열넓이 모드 ON/OFF 감지(OFF 순간에 1회 저장 트리거)
+  const prevResizeModeRef = useRef(false);
+
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
     return selectedKeys.filter((k) => set.has(k));
@@ -148,11 +151,20 @@ export default function SignupGrid({
     settingsHydratedRef.current = true;
   }, [initialColWidthSteps]);
 
+  // 열넓이 모드 OFF 순간에 상위로 한번 더 저장 호출(누락 방지)
+  useEffect(() => {
+    const prev = prevResizeModeRef.current;
+    if (prev === true && resizeMode === false) {
+      onColWidthStepsChange?.({ ...colWidthSteps });
+    }
+    prevResizeModeRef.current = resizeMode;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resizeMode]);
+
   // rows hydrate: draft가 "나중에" 도착하는 케이스까지 고려
   useEffect(() => {
     const hasDraftRows = Array.isArray(initialRows) && initialRows.length >= 1;
 
-    // draft rows가 있고, 아직 사용자가 편집(터치)하기 전이면 언제든 draft로 덮어써서 "복원"이 되게 함
     if (hasDraftRows && (!rowsHydratedRef.current || !rowsTouchedRef.current)) {
       setRows(initialRows!.map((r) => (r && typeof r === "object" ? r : {})));
       rowsHydratedRef.current = true;
@@ -160,7 +172,6 @@ export default function SignupGrid({
       return;
     }
 
-    // 아직 hydrate 안 됐고 draft도 없으면 rowCount로 빈표 생성
     if (!rowsHydratedRef.current && !hasDraftRows) {
       const rawCount = Number(initialRowCount);
       if (Number.isFinite(rawCount) && rawCount >= 1) {
@@ -178,10 +189,7 @@ export default function SignupGrid({
   // rows 변경 시 상위로 알림(자동저장 훅에서 처리)
   useEffect(() => {
     if (!rowsHydratedRef.current) return;
-
-    // 초기 blank 생성 직후(사용자가 아직 아무것도 안 건드림)에는 저장 호출하지 않음
     if (rowsInitSourceRef.current === "blank" && !rowsTouchedRef.current) return;
-
     onRowsChange?.(rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
