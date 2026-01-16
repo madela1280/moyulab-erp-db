@@ -70,10 +70,21 @@ export default function SignupGrid({
   selectedKeys,
   loadingColumns,
   onError,
+
+  // settings (상위에서 API로 로드)
   initialColWidthSteps,
   initialRowCount,
   onColWidthStepsChange,
   onRowCountChange,
+
+  // 거래처 옵션(상위에서 API/설정으로 관리)
+  partnerOptions,
+  onAddPartnerOption,
+
+  // draft(입력값) 복원/자동저장
+  initialRows,
+  onRowsChange,
+  onSubmitSuccess,
 }: {
   allColumns: string[];
   selectedKeys: string[];
@@ -87,6 +98,15 @@ export default function SignupGrid({
   // settings 변경 콜백 (상위에서 PATCH 처리)
   onColWidthStepsChange?: (next: Record<string, number>) => void;
   onRowCountChange?: (count: number) => void;
+
+  // partner options
+  partnerOptions?: string[];
+  onAddPartnerOption?: (name: string) => void | Promise<void>;
+
+  // draft rows
+  initialRows?: RowValues[];
+  onRowsChange?: (rows: RowValues[]) => void;
+  onSubmitSuccess?: () => void | Promise<void>;
 }) {
   const [rows, setRows] = useState<RowValues[]>([{}]);
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
@@ -104,10 +124,11 @@ export default function SignupGrid({
   const suppressFocusSelectionRef = useRef(false);
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
-  // 상위 settings가 늦게 로드되는 경우를 고려한 1회성 hydrate
-  const hydratedRef = useRef(false);
-  const touchedColWidthRef = useRef(false);
-  const touchedRowCountRef = useRef(false);
+  // settings hydrate(1회)
+  const settingsHydratedRef = useRef(false);
+
+  // rows hydrate(초기/복원) 1회 + 이후 변경만 저장
+  const rowsHydratedRef = useRef(false);
 
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
@@ -116,10 +137,10 @@ export default function SignupGrid({
 
   const showToolbar = selectedColumns.length > 0;
 
+  // settings hydrate
   useEffect(() => {
-    if (hydratedRef.current) return;
+    if (settingsHydratedRef.current) return;
 
-    // colWidthSteps hydrate
     if (initialColWidthSteps && typeof initialColWidthSteps === "object") {
       const next: Record<string, number> = {};
       for (const [k, v] of Object.entries(initialColWidthSteps)) {
@@ -130,15 +151,36 @@ export default function SignupGrid({
       setColWidthSteps(next);
     }
 
-    // rowCount hydrate
+    settingsHydratedRef.current = true;
+  }, [initialColWidthSteps]);
+
+  // rows hydrate: draft rows 우선, 없으면 rowCount 기반
+  useEffect(() => {
+    if (rowsHydratedRef.current) return;
+
+    if (Array.isArray(initialRows) && initialRows.length >= 1) {
+      setRows(initialRows.map((r) => (r && typeof r === "object" ? r : {})));
+      rowsHydratedRef.current = true;
+      return;
+    }
+
     const rawCount = Number(initialRowCount);
     if (Number.isFinite(rawCount) && rawCount >= 1) {
       const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
       setRows(Array.from({ length: count }, () => ({})));
+    } else {
+      setRows([{}]);
     }
 
-    hydratedRef.current = true;
-  }, [initialColWidthSteps, initialRowCount]);
+    rowsHydratedRef.current = true;
+  }, [initialRows, initialRowCount]);
+
+  // rows 변경 시 상위로 알림(자동저장 훅에서 처리)
+  useEffect(() => {
+    if (!rowsHydratedRef.current) return;
+    onRowsChange?.(rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   useEffect(() => {
     const onPointerUp = () => {
@@ -167,8 +209,6 @@ export default function SignupGrid({
   }
 
   function setStep(key: string, next: number) {
-    touchedColWidthRef.current = true;
-
     const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(next)));
     setColWidthSteps((prev) => {
       const merged = { ...prev, [key]: s };
@@ -181,7 +221,6 @@ export default function SignupGrid({
     setRows((prev) => {
       const next = updater(prev);
       if (next.length !== prev.length) {
-        touchedRowCountRef.current = true;
         onRowCountChange?.(next.length);
       }
       return next;
@@ -471,9 +510,14 @@ export default function SignupGrid({
       }
 
       syncEmitUnifiedUpdate();
+
+      // 전송 성공 시 grid 입력값 초기화
       setRows((prev) => prev.map(() => ({})));
-    } catch {
-      onError("저장에 실패했습니다.");
+
+      // draft 삭제(상위에서 처리)
+      await onSubmitSuccess?.();
+    } catch (e: any) {
+      onError(e?.message ? "저장에 실패했습니다." : "저장에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -593,9 +637,9 @@ export default function SignupGrid({
                           isActive ? "ring-2 ring-blue-400 ring-inset" : "",
                         ].join(" ")}
                         style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
-                        onPointerDown={(e) => handleCellPointerDown(e, r, c)}
-                        onPointerMove={handleCellPointerMove}
-                        onPointerUp={handleCellPointerUp}
+                        onPointerDownCapture={(e) => handleCellPointerDown(e, r, c)}
+                        onPointerMoveCapture={handleCellPointerMove}
+                        onPointerUpCapture={handleCellPointerUp}
                         onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                       >
                         <CellEditor
@@ -603,6 +647,8 @@ export default function SignupGrid({
                           value={String(row?.[key] ?? "")}
                           onFocus={() => handleEditorFocus(r, c)}
                           onChange={(v) => setCell(r, key, v)}
+                          partnerOptions={partnerOptions || []}
+                          onAddPartnerOption={onAddPartnerOption}
                         />
                       </div>
                     );
