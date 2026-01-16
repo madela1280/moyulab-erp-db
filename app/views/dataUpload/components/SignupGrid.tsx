@@ -117,8 +117,6 @@ export default function SignupGrid({
   const suppressFocusSelectionRef = useRef(false);
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
-  const settingsHydratedRef = useRef(false);
-
   // rows hydrate/저장 덮어쓰기 방지용
   const rowsHydratedRef = useRef(false);
   const rowsTouchedRef = useRef(false);
@@ -127,6 +125,9 @@ export default function SignupGrid({
   // 열넓이 모드 ON/OFF 감지(OFF 순간에 1회 저장 트리거)
   const prevResizeModeRef = useRef(false);
 
+  // ★ 중요: settings가 늦게 도착해도(사용자 조작 전까지) colWidthSteps를 다시 적용하기 위한 플래그
+  const colWidthTouchedRef = useRef(false);
+
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
     return selectedKeys.filter((k) => set.has(k));
@@ -134,21 +135,18 @@ export default function SignupGrid({
 
   const showToolbar = selectedColumns.length > 0;
 
-  // settings hydrate
+  // ★ colWidthSteps hydrate: "1회만"이 아니라, settings가 늦게 들어와도 사용자 조작 전이면 재적용
   useEffect(() => {
-    if (settingsHydratedRef.current) return;
+    if (colWidthTouchedRef.current) return;
+    if (!initialColWidthSteps || typeof initialColWidthSteps !== "object") return;
 
-    if (initialColWidthSteps && typeof initialColWidthSteps === "object") {
-      const next: Record<string, number> = {};
-      for (const [k, v] of Object.entries(initialColWidthSteps)) {
-        const n = Number(v);
-        if (!Number.isFinite(n)) continue;
-        next[String(k)] = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(n)));
-      }
-      setColWidthSteps(next);
+    const next: Record<string, number> = {};
+    for (const [k, v] of Object.entries(initialColWidthSteps)) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) continue;
+      next[String(k)] = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(n)));
     }
-
-    settingsHydratedRef.current = true;
+    setColWidthSteps(next);
   }, [initialColWidthSteps]);
 
   // 열넓이 모드 OFF 순간에 상위로 한번 더 저장 호출(누락 방지)
@@ -221,6 +219,9 @@ export default function SignupGrid({
   }
 
   function setStep(key: string, next: number) {
+    // ★ 사용자가 열넓이를 건드린 순간부터는 서버에서 늦게 온 값으로 덮어쓰지 않음
+    colWidthTouchedRef.current = true;
+
     const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(next)));
     setColWidthSteps((prev) => {
       const merged = { ...prev, [key]: s };
