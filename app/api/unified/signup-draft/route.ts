@@ -35,6 +35,16 @@ function normalizeRows(input: any): RowValues[] {
   return rows.slice(0, 2000);
 }
 
+function hasAnyValueInRows(rows: RowValues[]): boolean {
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    for (const v of Object.values(row)) {
+      if (String(v ?? "").trim() !== "") return true;
+    }
+  }
+  return false;
+}
+
 async function getDraftRow(client: any): Promise<{ id: number; data: DraftData } | null> {
   const { rows } = await client.query(
     `SELECT id, data
@@ -80,29 +90,47 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
     }
 
-    const rows = normalizeRows((body as any).rows);
-
-    const nextData: DraftData = {
-      __type: "signup_draft",
-      rows,
-      updated_at: new Date().toISOString(),
-    };
+    const incomingRows = normalizeRows((body as any).rows);
+    const incomingHasValue = hasAnyValueInRows(incomingRows);
 
     await client.query("BEGIN");
 
     const found = await getDraftRow(client);
 
+    // 핵심 방어: 클라이언트 하이드레이트/초기화 타이밍으로 "빈 rows"가 들어와도
+    // 기존에 값이 있는 draft를 덮어써서 '초기화'되는 것을 막는다.
+    if (found) {
+      const existingRows = Array.isArray(found.data?.rows) ? found.data.rows : [];
+      const existingHasValue = hasAnyValueInRows(existingRows);
+
+      if (!incomingHasValue && existingHasValue) {
+        await client.query("COMMIT");
+        return NextResponse.json({
+          id: found.id,
+          rows: existingRows,
+          updated_at: found.data?.updated_at ?? null,
+          ignored_empty_patch: true,
+        });
+      }
+    }
+
+    const nextData: DraftData = {
+      __type: "signup_draft",
+      rows: incomingRows,
+      updated_at: new Date().toISOString(),
+    };
+
     if (!found) {
       const ins = await client.query("INSERT INTO unified (data) VALUES ($1::jsonb) RETURNING id", [nextData]);
       const id = Number(ins.rows?.[0]?.id);
       await client.query("COMMIT");
-      return NextResponse.json({ id: Number.isFinite(id) ? id : null, rows, updated_at: nextData.updated_at });
+      return NextResponse.json({ id: Number.isFinite(id) ? id : null, rows: incomingRows, updated_at: nextData.updated_at });
     }
 
     await client.query("UPDATE unified SET data = $1::jsonb WHERE id = $2", [nextData, found.id]);
 
     await client.query("COMMIT");
-    return NextResponse.json({ id: found.id, rows, updated_at: nextData.updated_at });
+    return NextResponse.json({ id: found.id, rows: incomingRows, updated_at: nextData.updated_at });
   } catch {
     try {
       await client.query("ROLLBACK");

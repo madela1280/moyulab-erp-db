@@ -6,6 +6,13 @@ import { apiDeleteSignupDraft, apiGetSignupDraft, apiPatchSignupDraft } from "@/
 
 type RowValues = Record<string, string>;
 
+type PatchResponse = {
+  id: number | null;
+  rows: RowValues[];
+  updated_at?: string | null;
+  ignored_empty_patch?: boolean;
+};
+
 export function useSignupDraft({ onError }: { onError?: (msg: string) => void } = {}) {
   const [rowsState, setRowsState] = useState<RowValues[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,12 +78,18 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
     inflightRef.current = true;
     try {
-      await apiPatchSignupDraft(snapshot);
+      const resp = (await apiPatchSignupDraft(snapshot)) as PatchResponse;
+
+      // 서버가 "빈 PATCH 무시"를 했다면, 서버가 가진 rows로 즉시 되돌려서
+      // 클라이언트가 빈값 상태로 굳어지는 것을 방지
+      if (resp?.ignored_empty_patch) {
+        setRowsState(Array.isArray(resp?.rows) ? resp.rows : []);
+        touchedRef.current = false;
+      }
 
       // 다른 탭/화면에 변경 알림(코어 수정 없이 호출만)
       syncEmitUnifiedUpdate();
     } catch (e: any) {
-      // beforeunload에서는 사용자 방해 최소화
       if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
     } finally {
       inflightRef.current = false;
@@ -88,7 +101,13 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
         inflightRef.current = true;
         try {
-          await apiPatchSignupDraft(next);
+          const resp2 = (await apiPatchSignupDraft(next)) as PatchResponse;
+
+          if (resp2?.ignored_empty_patch) {
+            setRowsState(Array.isArray(resp2?.rows) ? resp2.rows : []);
+            touchedRef.current = false;
+          }
+
           syncEmitUnifiedUpdate();
         } catch (e: any) {
           if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
@@ -116,7 +135,6 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
   // 페이지 이탈/탭 닫힘 시에도 저장을 시도(타이머 미실행으로 유실되는 케이스 방지)
   useEffect(() => {
     const onBeforeUnload = () => {
-      // 브라우저 제한 때문에 await는 못하지만, 최대한 저장 트리거
       void flushSave("beforeunload");
     };
 
@@ -149,7 +167,6 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     }
   }
 
-  // 다른 탭에서 unified.update를 받으면 외부에서 reload 호출 가능하도록 제공
   async function reload() {
     try {
       const j = await apiGetSignupDraft();
