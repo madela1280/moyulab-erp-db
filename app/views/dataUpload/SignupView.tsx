@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import SignupGrid from "@/views/dataUpload/components/SignupGrid";
 import { useSignupDraft } from "@/views/dataUpload/signup-draft/useSignupDraft";
+import { syncListen } from "@/global-sync/sync-engine";
 
 type UnifiedColumnsResponse = {
   order: string[];
@@ -140,6 +141,17 @@ export default function SignupView() {
     onError: (msg) => setError(toUserMessage(msg)),
   });
 
+  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft 다시 로드
+  useEffect(() => {
+    const off = syncListen(() => {
+      void draft.reload();
+    });
+    return () => {
+      off?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
       <div className="flex items-center gap-3">
@@ -169,13 +181,10 @@ export default function SignupView() {
           setPartnerOptions(next);
           queuePatch({ partnerOptions: next });
         }}
-        // draft 복원값 주입
         initialRows={draft.rows}
-        // 사용자가 편집했을 때만 draft.setRows가 touched 처리 + 자동저장 트리거
         onRowsChange={(nextRows) => {
           draft.setRows(nextRows);
         }}
-        // 전송 성공 시 draft 삭제
         onSubmitSuccess={async () => {
           await draft.clear();
         }}

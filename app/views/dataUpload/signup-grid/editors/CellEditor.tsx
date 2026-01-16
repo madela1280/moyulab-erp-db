@@ -10,7 +10,6 @@ export default function CellEditor({
   value,
   onChange,
   onFocus,
-
   partnerOptions = [],
   onAddPartnerOption,
 }: {
@@ -38,9 +37,15 @@ export default function CellEditor({
     return <DateCell value={value} onChange={onChange} onFocus={onFocus} />;
   }
 
+  // 계약자주소: 헤더는 기존대로(중앙) 유지, 셀 입력값만 좌측정렬
+  const isAddress = columnKey === "계약자주소";
+
   return (
     <input
-      className="w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center"
+      className={[
+        "w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500",
+        isAddress ? "text-left" : "text-center",
+      ].join(" ")}
       value={value}
       onFocus={onFocus}
       onChange={(e) => onChange(e.target.value)}
