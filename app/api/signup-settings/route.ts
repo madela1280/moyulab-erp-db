@@ -24,24 +24,21 @@ const pool =
 
 (globalThis as any).__signupSettingsPool = pool;
 
-async function ensureRowAndGetSettings(client: any): Promise<SignupSettings> {
-  const { rows } = await client.query("SELECT settings FROM signup_settings WHERE id = 1");
-  if (rows.length === 0) {
-    await client.query("INSERT INTO signup_settings (id, settings) VALUES (1, $1::jsonb)", [DEFAULT_SETTINGS]);
-    return DEFAULT_SETTINGS;
-  }
-
-  const s = rows[0]?.settings ?? {};
-  return {
-    selectedKeys: Array.isArray(s?.selectedKeys) ? s.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys,
-    colWidthSteps: s?.colWidthSteps && typeof s.colWidthSteps === "object" ? (s.colWidthSteps as Record<string, number>) : DEFAULT_SETTINGS.colWidthSteps,
-    rowCount: Number.isFinite(Number(s?.rowCount)) ? Math.max(1, Math.floor(Number(s.rowCount))) : DEFAULT_SETTINGS.rowCount,
-    partnerOptions: Array.isArray(s?.partnerOptions) ? s.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions,
-  };
-}
-
 function isPlainObject(v: any) {
   return v && typeof v === "object" && !Array.isArray(v);
+}
+
+function normalizeSettings(s: any): SignupSettings {
+  const safe = s ?? {};
+  return {
+    selectedKeys: Array.isArray(safe?.selectedKeys) ? safe.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys,
+    colWidthSteps:
+      safe?.colWidthSteps && typeof safe.colWidthSteps === "object"
+        ? (safe.colWidthSteps as Record<string, number>)
+        : DEFAULT_SETTINGS.colWidthSteps,
+    rowCount: Number.isFinite(Number(safe?.rowCount)) ? Math.max(1, Math.floor(Number(safe.rowCount))) : DEFAULT_SETTINGS.rowCount,
+    partnerOptions: Array.isArray(safe?.partnerOptions) ? safe.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions,
+  };
 }
 
 function mergeSettings(base: SignupSettings, patch: any): SignupSettings {
@@ -64,13 +61,41 @@ function mergeSettings(base: SignupSettings, patch: any): SignupSettings {
   return next;
 }
 
+// 운영 DB에 테이블이 없어서 "relation does not exist"가 노출되는 문제 방지:
+// API 내부에서 안전하게 테이블을 보장합니다(핵심 스키마(unified/locks 등) 변경 아님).
+async function ensureTable(client: any) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS signup_settings (
+      id INTEGER PRIMARY KEY,
+      settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+}
+
+async function ensureRowAndGetSettings(client: any): Promise<SignupSettings> {
+  await ensureTable(client);
+
+  const { rows } = await client.query("SELECT settings FROM signup_settings WHERE id = 1");
+  if (rows.length === 0) {
+    await client.query(
+      "INSERT INTO signup_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_at = now()",
+      [DEFAULT_SETTINGS]
+    );
+    return DEFAULT_SETTINGS;
+  }
+
+  return normalizeSettings(rows[0]?.settings);
+}
+
 export async function GET() {
   const client = await pool.connect();
   try {
     const settings = await ensureRowAndGetSettings(client);
     return NextResponse.json(settings);
-  } catch (e: any) {
-    return new NextResponse(e?.message || "FAILED", { status: 500 });
+  } catch {
+    // 에러 원문(예: relation does not exist)을 그대로 노출하지 않음
+    return NextResponse.json({ error: "SIGNUP_SETTINGS_GET_FAILED" }, { status: 500 });
   } finally {
     client.release();
   }
@@ -81,7 +106,7 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     if (!isPlainObject(body)) {
-      return new NextResponse("INVALID_BODY", { status: 400 });
+      return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
     }
 
     await client.query("BEGIN");
@@ -89,15 +114,19 @@ export async function PATCH(req: Request) {
     const current = await ensureRowAndGetSettings(client);
     const merged = mergeSettings(current, body);
 
-    await client.query("UPDATE signup_settings SET settings = $1::jsonb, updated_at = now() WHERE id = 1", [merged]);
+    await client.query(
+      "INSERT INTO signup_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_at = now()",
+      [merged]
+    );
 
     await client.query("COMMIT");
     return NextResponse.json(merged);
-  } catch (e: any) {
+  } catch {
     try {
       await client.query("ROLLBACK");
     } catch {}
-    return new NextResponse(e?.message || "FAILED", { status: 500 });
+    // 에러 원문 노출 금지
+    return NextResponse.json({ error: "SIGNUP_SETTINGS_PATCH_FAILED" }, { status: 500 });
   } finally {
     client.release();
   }

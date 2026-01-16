@@ -23,6 +23,18 @@ const DEFAULT_SETTINGS: SignupSettings = {
   partnerOptions: [],
 };
 
+function toUserMessage(raw: string) {
+  const m = String(raw || "");
+  if (!m) return "";
+
+  // 서버/DB 에러 원문(영문)을 사용자 화면에 그대로 보여주지 않기 위한 치환
+  if (m.includes("relation") && m.includes("does not exist")) return "설정 정보를 불러오지 못했습니다.";
+  if (m.includes("SIGNUP_SETTINGS_")) return "설정 정보를 불러오지 못했습니다.";
+  if (m.includes("FAILED(")) return "요청 처리에 실패했습니다.";
+
+  return m;
+}
+
 export default function SignupView() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -50,17 +62,23 @@ export default function SignupView() {
       const order = Array.isArray(j?.order) ? j.order.map(String) : [];
       setAllColumns(order);
     } catch (e: any) {
-      setError(e?.message || "컬럼 목록을 불러오지 못했습니다.");
+      setError(toUserMessage(e?.message) || "컬럼 목록을 불러오지 못했습니다.");
     } finally {
       setLoadingColumns(false);
     }
   }
 
   async function loadSettings() {
-    setError("");
+    // 설정 로딩 실패로 인해 화면 상단에 영문(DB 에러) 한 줄이 노출되던 문제를 방지:
+    // - 실패해도 기본값으로 진행
+    // - 사용자 화면에는 에러 원문을 표시하지 않음
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
-      if (!r.ok) throw new Error(`FAILED(${r.status})`);
+
+      if (!r.ok) {
+        settingsHydratedRef.current = true;
+        return;
+      }
 
       const j = (await r.json()) as Partial<SignupSettings> | null;
 
@@ -76,9 +94,7 @@ export default function SignupView() {
       setPartnerOptions(nextPartnerOptions);
 
       settingsHydratedRef.current = true;
-    } catch (e: any) {
-      // settings 로딩 실패 시에도 화면은 뜨되, 에러만 표시 (localStorage fallback 금지)
-      setError(e?.message || "설정 정보를 불러오지 못했습니다.");
+    } catch {
       settingsHydratedRef.current = true;
     }
   }
@@ -101,12 +117,11 @@ export default function SignupView() {
           body: JSON.stringify(body),
         });
         if (!r.ok) {
-          const t = await r.text().catch(() => "");
-          throw new Error(t || `FAILED(${r.status})`);
+          // 에러 원문(영문) 노출 방지: 사용자 메시지로만 표시
+          setError("설정 저장에 실패했습니다.");
         }
-      } catch (e: any) {
-        // 저장 실패는 치명적 동작 중단 대신 오류 표시만 (기존 흐름 보호)
-        setError(e?.message || "설정 저장에 실패했습니다.");
+      } catch {
+        setError("설정 저장에 실패했습니다.");
       }
     }, 250);
   }
@@ -134,7 +149,6 @@ export default function SignupView() {
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
-      {/* Header: 신규가입 + 양식(바로 옆) */}
       <div className="flex items-center gap-3">
         <div className="text-base font-semibold text-slate-800">신규가입</div>
         <button
@@ -153,7 +167,7 @@ export default function SignupView() {
         allColumns={allColumns}
         selectedKeys={filteredSelectedKeys}
         loadingColumns={loadingColumns}
-        onError={setError}
+        onError={(msg) => setError(toUserMessage(msg))}
         initialColWidthSteps={colWidthSteps}
         initialRowCount={rowCount}
         onColWidthStepsChange={(next) => {
