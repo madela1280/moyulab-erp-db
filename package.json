@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check:browser-storage": "node scripts/forbid-browser-storage.mjs",
+    "prebuild": "npm run check:browser-storage"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.17",
@@ -31,5 +33,3 @@
     "@types/node": "24.9.1"
   }
 }
-
-

@@ -1,6 +1,6 @@
-// partnerOptions.ts
-// 목적: "거래처분류" 옵션을 다루기 위한 정규화/병합 유틸
-// 주의: localStorage 등 클라이언트 저장소를 절대 사용하지 않음 (정책 준수)
+﻿// partnerOptions.ts
+// 紐⑹쟻: "嫄곕옒泥섎텇瑜? ?듭뀡???ㅻ（湲??꾪븳 ?뺢퇋??蹂묓빀 ?좏떥
+// 二쇱쓽: 브라우저저장소(로컬) ???대씪?댁뼵????μ냼瑜??덈? ?ъ슜?섏? ?딆쓬 (?뺤콉 以??
 
 export function normalizePartnerName(name: unknown): string {
   return String(name ?? "").trim();
@@ -16,7 +16,7 @@ export function normalizePartnerOptions(list: unknown): string[] {
 }
 
 /**
- * 현재 셀 값(value)이 options에 없으면 맨 앞에 포함시켜, 드롭다운에서 즉시 선택/표시되도록 한다.
+ * ?꾩옱 ? 媛?value)??options???놁쑝硫?留??욎뿉 ?ы븿?쒖폒, ?쒕∼?ㅼ슫?먯꽌 利됱떆 ?좏깮/?쒖떆?섎룄濡??쒕떎.
  */
 export function mergePartnerOptionsWithValue(options: unknown, value: unknown): string[] {
   const base = normalizePartnerOptions(options);
@@ -28,7 +28,7 @@ export function mergePartnerOptionsWithValue(options: unknown, value: unknown): 
 }
 
 /**
- * 옵션 리스트에 name을 추가한 "새 리스트"를 반환한다. (저장은 상위에서 API로 처리)
+ * ?듭뀡 由ъ뒪?몄뿉 name??異붽???"??由ъ뒪??瑜?諛섑솚?쒕떎. (??μ? ?곸쐞?먯꽌 API濡?泥섎━)
  */
 export function addPartnerOptionToList(options: unknown, name: unknown): string[] {
   const base = normalizePartnerOptions(options);

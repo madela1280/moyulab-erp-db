@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
@@ -71,7 +71,7 @@ export default function SignupGrid({
   loadingColumns,
   onError,
 
-  // (추가) settings는 상위에서 API로 로드/저장 (localStorage 사용 금지 정책 준수)
+  // (異붽?) settings???곸쐞?먯꽌 API濡?濡쒕뱶/???(브라우저저장소(로컬) ?ъ슜 湲덉? ?뺤콉 以??
   initialColWidthSteps,
   initialRowCount,
   onColWidthStepsChange,
@@ -82,11 +82,11 @@ export default function SignupGrid({
   loadingColumns: boolean;
   onError: (msg: string) => void;
 
-  // settings (상위에서 내려줌)
+  // settings (?곸쐞?먯꽌 ?대젮以?
   initialColWidthSteps?: Record<string, number>;
   initialRowCount?: number;
 
-  // settings 변경 통지 (상위에서 PATCH 등 처리)
+  // settings 蹂寃??듭? (?곸쐞?먯꽌 PATCH ??泥섎━)
   onColWidthStepsChange?: (next: Record<string, number>) => void;
   onRowCountChange?: (count: number) => void;
 }) {
@@ -106,7 +106,7 @@ export default function SignupGrid({
   const suppressFocusSelectionRef = useRef(false);
   const gridFocusRef = useRef<HTMLDivElement | null>(null);
 
-  // 상위 settings가 늦게 로드되는 경우를 고려한 1회성 hydrate
+  // ?곸쐞 settings媛 ??쾶 濡쒕뱶?섎뒗 寃쎌슦瑜?怨좊젮??1?뚯꽦 hydrate
   const hydratedRef = useRef(false);
   const touchedColWidthRef = useRef(false);
   const touchedRowCountRef = useRef(false);
@@ -379,7 +379,7 @@ export default function SignupGrid({
     setActive(p);
     setRange(normalizeRange(p, p));
 
-    // select/date 같은 컨트롤은 기본 동작(클릭/드롭다운/캘린더)을 살리기 위해 preventDefault를 피함
+    // select/date 媛숈? 而⑦듃濡ㅼ? 湲곕낯 ?숈옉(?대┃/?쒕∼?ㅼ슫/罹섎┛?????대━湲??꾪빐 preventDefault瑜??쇳븿
     const t = e.target as HTMLElement | null;
     const tag = t?.tagName?.toUpperCase?.() ?? "";
     const isInteractive = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t as any)?.isContentEditable;
@@ -440,7 +440,7 @@ export default function SignupGrid({
     onError("");
 
     if (selectedColumns.length === 0) {
-      onError("전송할 컬럼을 먼저 선택해 주세요.");
+      onError("?꾩넚??而щ읆??癒쇱? ?좏깮??二쇱꽭??");
       return;
     }
 
@@ -453,7 +453,7 @@ export default function SignupGrid({
       .filter((data) => hasAnyValue(data));
 
     if (targets.length === 0) {
-      onError("전송할 데이터가 없습니다.");
+      onError("?꾩넚???곗씠?곌? ?놁뒿?덈떎.");
       return;
     }
 
@@ -474,7 +474,7 @@ export default function SignupGrid({
       syncEmitUnifiedUpdate();
       setRows((prev) => prev.map(() => ({})));
     } catch (e: any) {
-      onError(e?.message || "전송에 실패했습니다.");
+      onError(e?.message || "?꾩넚???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setSubmitting(false);
     }
@@ -498,14 +498,14 @@ export default function SignupGrid({
               <span className={btnIcon}>
                 <IconPlus />
               </span>
-              행10추가
+              ??0異붽?
             </button>
 
             <button type="button" className={btnBase} onClick={delete1RowFromBottom}>
               <span className={btnIcon}>
                 <IconMinus />
               </span>
-              행삭제
+              ?됱궘??
             </button>
 
             <button
@@ -516,7 +516,7 @@ export default function SignupGrid({
               <span className={resizeMode ? "text-white" : btnIcon}>
                 <IconColumns />
               </span>
-              열넓이
+              ?대꼻??
             </button>
           </div>
 
@@ -527,14 +527,14 @@ export default function SignupGrid({
             disabled={submitting || loadingColumns}
           >
             <IconSend className="w-4 h-4" />
-            {submitting ? "전송 중..." : "전송"}
+            {submitting ? "?꾩넚 以?.." : "?꾩넚"}
           </button>
         </div>
       )}
 
       <div className="flex-1 min-h-0 border rounded bg-white overflow-auto">
         {selectedColumns.length === 0 ? (
-          <div className="p-3 text-xs text-slate-500">“양식”에서 컬럼을 선택하면 표가 생성됩니다.</div>
+          <div className="p-3 text-xs text-slate-500">?쒖뼇?앪앹뿉??而щ읆???좏깮?섎㈃ ?쒓? ?앹꽦?⑸땲??</div>
         ) : (
           <div className="min-w-max">
             <div className="flex border-b bg-slate-100 sticky top-0 z-10">
@@ -558,7 +558,7 @@ export default function SignupGrid({
                           className="w-6 h-6 border rounded bg-white hover:bg-slate-50 text-xs"
                           onClick={() => setStep(k, step - 1)}
                         >
-                          ‹
+                          ??
                         </button>
                         <div className="w-10 text-center text-[11px] tabular-nums">{step}</div>
                         <button
@@ -566,7 +566,7 @@ export default function SignupGrid({
                           className="w-6 h-6 border rounded bg-white hover:bg-slate-50 text-xs"
                           onClick={() => setStep(k, step + 1)}
                         >
-                          ›
+                          ??
                         </button>
                       </div>
                     )}
@@ -625,21 +625,21 @@ export default function SignupGrid({
           onClose={() => setMenu((m) => ({ ...m, open: false }))}
           items={[
             {
-              label: "지우기",
+              label: "吏?곌린",
               onClick: () => {
                 clearSelectionValues();
                 setMenu((m) => ({ ...m, open: false }));
               },
             },
             {
-              label: "복사",
+              label: "蹂듭궗",
               onClick: async () => {
                 await copySelection();
                 setMenu((m) => ({ ...m, open: false }));
               },
             },
             {
-              label: "붙여넣기",
+              label: "遺숈뿬?ｊ린",
               onClick: async () => {
                 await pasteFromClipboard();
                 setMenu((m) => ({ ...m, open: false }));
