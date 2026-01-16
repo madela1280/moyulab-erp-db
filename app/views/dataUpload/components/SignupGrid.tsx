@@ -82,6 +82,9 @@ export default function SignupGrid({
   initialRows,
   onRowsChange,
   onSubmitSuccess,
+
+  // ✅ 외부 reload(다른 탭 수정 등) 반영 강제용 토큰
+  rowsReloadToken,
 }: {
   allColumns: string[];
   selectedKeys: string[];
@@ -100,6 +103,8 @@ export default function SignupGrid({
   initialRows?: RowValues[];
   onRowsChange?: (rows: RowValues[]) => void;
   onSubmitSuccess?: () => void | Promise<void>;
+
+  rowsReloadToken?: number;
 }) {
   const [rows, setRows] = useState<RowValues[]>([{}]);
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
@@ -122,11 +127,17 @@ export default function SignupGrid({
   const rowsTouchedRef = useRef(false);
   const rowsInitSourceRef = useRef<"none" | "draft" | "blank">("none");
 
+  // ✅ 외부(다른 탭) reload로 들어온 rows를 그리드에 적용할 때, onRowsChange로 다시 저장 루프가 돌지 않게 차단
+  const suppressOnRowsChangeRef = useRef(false);
+
   // 열넓이 모드 ON/OFF 감지(OFF 순간에 1회 저장 트리거)
   const prevResizeModeRef = useRef(false);
 
-  // ★ 중요: settings가 늦게 도착해도(사용자 조작 전까지) colWidthSteps를 다시 적용하기 위한 플래그
+  // settings가 늦게 도착해도(사용자 조작 전까지) colWidthSteps를 다시 적용하기 위한 플래그
   const colWidthTouchedRef = useRef(false);
+
+  // 외부 reload 토큰 추적
+  const lastRowsReloadTokenRef = useRef<number | null>(null);
 
   const selectedColumns = useMemo(() => {
     const set = new Set(allColumns);
@@ -135,7 +146,7 @@ export default function SignupGrid({
 
   const showToolbar = selectedColumns.length > 0;
 
-  // ★ colWidthSteps hydrate: "1회만"이 아니라, settings가 늦게 들어와도 사용자 조작 전이면 재적용
+  // colWidthSteps hydrate: settings가 늦게 들어와도 사용자 조작 전이면 재적용
   useEffect(() => {
     if (colWidthTouchedRef.current) return;
     if (!initialColWidthSteps || typeof initialColWidthSteps !== "object") return;
@@ -163,7 +174,31 @@ export default function SignupGrid({
   useEffect(() => {
     const hasDraftRows = Array.isArray(initialRows) && initialRows.length >= 1;
 
+    // ✅ 외부 reload 토큰이 바뀐 경우: 사용자가 편집했더라도(=touched) 서버 최신 rows를 강제로 반영
+    const token = typeof rowsReloadToken === "number" ? rowsReloadToken : null;
+    const tokenChanged = token != null && token !== lastRowsReloadTokenRef.current;
+
+    if (tokenChanged && hasDraftRows) {
+      lastRowsReloadTokenRef.current = token;
+
+      suppressOnRowsChangeRef.current = true;
+      setRows(initialRows!.map((r) => (r && typeof r === "object" ? r : {})));
+      // 외부 reload는 "사용자 수정"이 아님
+      rowsTouchedRef.current = false;
+      rowsHydratedRef.current = true;
+      rowsInitSourceRef.current = "draft";
+
+      // 선택/포커스는 유지해도 되지만, 점멸/오동작 방지 위해 range만 최소 정리
+      setRange(null);
+      setAnchor(null);
+      setActive(null);
+
+      // 다음 rows effect에서 1회만 차단 후 자동 해제
+      return;
+    }
+
     if (hasDraftRows && (!rowsHydratedRef.current || !rowsTouchedRef.current)) {
+      suppressOnRowsChangeRef.current = true;
       setRows(initialRows!.map((r) => (r && typeof r === "object" ? r : {})));
       rowsHydratedRef.current = true;
       rowsInitSourceRef.current = "draft";
@@ -174,19 +209,28 @@ export default function SignupGrid({
       const rawCount = Number(initialRowCount);
       if (Number.isFinite(rawCount) && rawCount >= 1) {
         const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
+        suppressOnRowsChangeRef.current = true;
         setRows(Array.from({ length: count }, () => ({})));
       } else {
+        suppressOnRowsChangeRef.current = true;
         setRows([{}]);
       }
 
       rowsHydratedRef.current = true;
       rowsInitSourceRef.current = "blank";
     }
-  }, [initialRows, initialRowCount]);
+  }, [initialRows, initialRowCount, rowsReloadToken]);
 
   // rows 변경 시 상위로 알림(자동저장 훅에서 처리)
   useEffect(() => {
     if (!rowsHydratedRef.current) return;
+
+    // ✅ 외부 hydrate/reload로 setRows된 경우: 저장 루프 방지
+    if (suppressOnRowsChangeRef.current) {
+      suppressOnRowsChangeRef.current = false;
+      return;
+    }
+
     if (rowsInitSourceRef.current === "blank" && !rowsTouchedRef.current) return;
     onRowsChange?.(rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -219,7 +263,7 @@ export default function SignupGrid({
   }
 
   function setStep(key: string, next: number) {
-    // ★ 사용자가 열넓이를 건드린 순간부터는 서버에서 늦게 온 값으로 덮어쓰지 않음
+    // 사용자가 열넓이를 건드린 순간부터는 서버에서 늦게 온 값으로 덮어쓰지 않음
     colWidthTouchedRef.current = true;
 
     const s = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.floor(next)));

@@ -77,6 +77,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         if (!touchedRef.current) {
           setRowsState(restored);
           latestRowsRef.current = restored;
+
           // 복원은 "사용자 수정"이 아님
           touchedRef.current = false;
         }
@@ -112,8 +113,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     try {
       const resp = (await apiPatchSignupDraft(snapshot)) as PatchResponse;
 
-      // 서버가 "빈 PATCH 무시"를 했다면, 서버가 가진 rows로 즉시 되돌려서
-      // 클라이언트가 빈값 상태로 굳어지는 것을 방지
+      // 서버가 "빈 PATCH 무시"를 했다면 서버 rows로 복원해서 빈값 고착 방지
       if (resp?.ignored_empty_patch) {
         const serverRows = Array.isArray(resp?.rows) ? resp.rows : [];
         setRowsState(serverRows);
@@ -144,7 +144,6 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
             touchedRef.current = false;
           }
 
-          // ✅ 다른 탭/화면에 변경 알림(폭주 방지 스로틀)
           emitUnifiedUpdateThrottled();
         } catch (e: any) {
           if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
@@ -155,7 +154,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     }
   }
 
-  // 디바운스 자동저장: "사용자 수정(touched)" 이후에만 저장
+  // 디바운스 자동저장: 사용자 수정(touched) 이후에만 저장
   useEffect(() => {
     if (!hydratedRef.current) return;
     if (!touchedRef.current) return;
@@ -169,7 +168,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsState]);
 
-  // 페이지 이탈/탭 닫힘 시에도 저장을 시도(타이머 미실행으로 유실되는 케이스 방지)
+  // 페이지 이탈/탭 닫힘 시에도 저장 시도
   useEffect(() => {
     const onBeforeUnload = () => {
       void flushSave("beforeunload");
@@ -190,7 +189,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
   function setRows(next: RowValues[]) {
     const safe = Array.isArray(next) ? next : [];
 
-    // ✅ 언마운트/이탈 순간 flushSave가 최신값을 보게 즉시 ref를 갱신
+    // ✅ 언마운트/이탈 flushSave가 최신값을 보게 즉시 ref 갱신
     latestRowsRef.current = safe;
 
     touchedRef.current = true;
@@ -204,7 +203,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       latestRowsRef.current = [];
       touchedRef.current = false;
 
-      // ✅ 삭제도 다른 탭에 알림(폭주 방지 스로틀)
+      // 삭제도 알림(폭주 방지 스로틀)
       emitUnifiedUpdateThrottled();
     } catch (e: any) {
       onError?.(e?.message || "임시저장 삭제에 실패했습니다.");

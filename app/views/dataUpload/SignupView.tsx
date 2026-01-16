@@ -60,12 +60,19 @@ export default function SignupView() {
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
 
-  // hydrate 전/후 상관없이 여기에 누적(중요: hydrate 전 사용자 변경 유실 방지)
+  // hydrate 전/후 상관없이 여기에 누적(단, 사용자 액션에서만 넣는 방식)
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
 
   // unified.update 수신 시 reload 폭주 방지(점멸 방지)
   const reloadTimerRef = useRef<number | null>(null);
   const settingsReloadTimerRef = useRef<number | null>(null);
+
+  // 다른 탭 수정 내용을 Grid에 "강제 적용"하기 위한 토큰
+  const [rowsReloadToken, setRowsReloadToken] = useState(0);
+
+  const draft = useSignupDraft({
+    onError: (msg) => setError(toUserMessage(msg)),
+  });
 
   async function loadColumns() {
     setLoadingColumns(true);
@@ -85,12 +92,9 @@ export default function SignupView() {
 
   function normalizeSettings(j: any): SignupSettings {
     const nextSelectedKeys = Array.isArray(j?.selectedKeys) ? j.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys;
-
     const nextColWidthSteps =
       isPlainObject(j?.colWidthSteps) ? (j.colWidthSteps as Record<string, number>) : DEFAULT_SETTINGS.colWidthSteps;
-
     const nextRowCount = Number.isFinite(Number(j?.rowCount)) ? Math.max(1, Math.floor(Number(j?.rowCount))) : DEFAULT_SETTINGS.rowCount;
-
     const nextPartnerOptions = Array.isArray(j?.partnerOptions) ? j.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions;
 
     return {
@@ -115,12 +119,13 @@ export default function SignupView() {
       // ✅ hydrate 전/중 사용자가 바꾼 값이 있으면( pendingPatchRef ) 그 값을 우선 적용
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
-        selectedKeys: "selectedKeys" in pending ? (Array.isArray(pending.selectedKeys) ? pending.selectedKeys.map(String) : []) : server.selectedKeys,
-        colWidthSteps: "colWidthSteps" in pending && isPlainObject(pending.colWidthSteps) ? (pending.colWidthSteps as Record<string, number>) : server.colWidthSteps,
+        selectedKeys:
+          "selectedKeys" in pending ? (Array.isArray(pending.selectedKeys) ? pending.selectedKeys.map(String) : []) : server.selectedKeys,
+        colWidthSteps:
+          "colWidthSteps" in pending && isPlainObject(pending.colWidthSteps) ? (pending.colWidthSteps as Record<string, number>) : server.colWidthSteps,
         rowCount: "rowCount" in pending ? Math.max(1, Math.floor(Number(pending.rowCount))) : server.rowCount,
-        partnerOptions: "partnerOptions" in pending
-          ? (Array.isArray(pending.partnerOptions) ? pending.partnerOptions.map(String) : [])
-          : server.partnerOptions,
+        partnerOptions:
+          "partnerOptions" in pending ? (Array.isArray(pending.partnerOptions) ? pending.partnerOptions.map(String) : []) : server.partnerOptions,
       };
 
       setSelectedKeys(merged.selectedKeys);
@@ -141,10 +146,10 @@ export default function SignupView() {
   }
 
   function queuePatch(partial: Partial<SignupSettings>) {
-    // ✅ hydrate 전에도 pending에는 누적(유실 방지)
+    // ✅ hydrate 전에도 pending에 누적(유실 방지)
     pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
 
-    // hydrate 전이면 실제 PATCH는 하지 않음(서버값 모르는 상태에서 덮어쓰기 위험)
+    // hydrate 전이면 실제 PATCH는 하지 않음
     if (!settingsHydratedRef.current) return;
 
     if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
@@ -165,7 +170,7 @@ export default function SignupView() {
     }, 250);
   }
 
-  // 페이지 이탈 시 settings 저장 누락 방지(특히 열넓이)
+  // 페이지 이탈 시 settings 저장 누락 방지
   async function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (!settingsHydratedRef.current) return;
 
@@ -194,15 +199,17 @@ export default function SignupView() {
     } catch {}
   }
 
-  // unified.update 수신 시: draft/settings 즉시 재로드하지 말고 디바운스해서 점멸 방지
+  // unified.update 수신 시: reload를 디바운스해서 점멸 방지 + Grid 반영 토큰 증가
   function scheduleReloadFromSync() {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
-      void draft.reload();
+      (async () => {
+        await draft.reload();
+        setRowsReloadToken((v) => v + 1);
+      })().catch(() => {});
       reloadTimerRef.current = null;
     }, 350);
 
-    // settings는 더 자주 바뀌지 않으므로 별도(더 느리게) 1회로 합치기
     if (settingsReloadTimerRef.current) return;
     settingsReloadTimerRef.current = window.setTimeout(() => {
       void loadSettings();
@@ -231,19 +238,6 @@ export default function SignupView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKeys, colWidthSteps, rowCount, partnerOptions]);
 
-  // selectedKeys 변경 시 DB 저장
-  useEffect(() => {
-    queuePatch({ selectedKeys });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKeys]);
-
-  const filteredSelectedKeys = useMemo(() => selectedKeys, [selectedKeys]);
-
-  const draft = useSignupDraft({
-    onError: (msg) => setError(toUserMessage(msg)),
-  });
-
-  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft + settings 재로드(디바운스)
   useEffect(() => {
     const off = syncListen(() => {
       scheduleReloadFromSync();
@@ -253,6 +247,8 @@ export default function SignupView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const filteredSelectedKeys = useMemo(() => selectedKeys, [selectedKeys]);
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
@@ -284,6 +280,7 @@ export default function SignupView() {
           queuePatch({ partnerOptions: next });
         }}
         initialRows={draft.rows}
+        rowsReloadToken={rowsReloadToken}
         onRowsChange={(nextRows) => {
           draft.setRows(nextRows);
         }}
@@ -305,7 +302,11 @@ export default function SignupView() {
         onClose={() => setPickerOpen(false)}
         allColumns={allColumns}
         selectedKeys={selectedKeys}
-        onChangeSelectedKeys={(next) => setSelectedKeys(next)}
+        onChangeSelectedKeys={(next) => {
+          setSelectedKeys(next);
+          // ✅ selectedKeys 저장은 "사용자 액션"에서만 트리거
+          queuePatch({ selectedKeys: next });
+        }}
         onReloadColumns={loadColumns}
         loadingColumns={loadingColumns}
       />
