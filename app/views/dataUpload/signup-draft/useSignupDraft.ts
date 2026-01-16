@@ -34,7 +34,34 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     latestRowsRef.current = rowsState;
   }, [rowsState]);
 
-  // 최초 로드(복원) - ★ 중요: 사용자가 이미 입력(touched)했으면 복원 응답으로 덮어쓰지 않음
+  // unified:update emit 폭주 방지(점멸/리로드 폭주 방지)
+  const lastEmitAtRef = useRef(0);
+  const emitTimerRef = useRef<number | null>(null);
+  const EMIT_THROTTLE_MS = 1200;
+
+  function emitUnifiedUpdateThrottled() {
+    if (typeof window === "undefined") return;
+
+    const now = Date.now();
+    const elapsed = now - lastEmitAtRef.current;
+
+    if (elapsed >= EMIT_THROTTLE_MS) {
+      lastEmitAtRef.current = now;
+      syncEmitUnifiedUpdate();
+      return;
+    }
+
+    if (emitTimerRef.current) return;
+
+    const wait = Math.max(50, EMIT_THROTTLE_MS - elapsed);
+    emitTimerRef.current = window.setTimeout(() => {
+      emitTimerRef.current = null;
+      lastEmitAtRef.current = Date.now();
+      syncEmitUnifiedUpdate();
+    }, wait);
+  }
+
+  // 최초 로드(복원) - 사용자가 이미 입력(touched)했으면 복원 응답으로 덮어쓰지 않음
   useEffect(() => {
     let mounted = true;
 
@@ -94,8 +121,8 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         touchedRef.current = false;
       }
 
-      // 다른 탭/화면에 변경 알림(코어 수정 없이 호출만)
-      syncEmitUnifiedUpdate();
+      // ✅ 다른 탭/화면에 변경 알림(폭주 방지 스로틀)
+      emitUnifiedUpdateThrottled();
     } catch (e: any) {
       if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
     } finally {
@@ -117,7 +144,8 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
             touchedRef.current = false;
           }
 
-          syncEmitUnifiedUpdate();
+          // ✅ 다른 탭/화면에 변경 알림(폭주 방지 스로틀)
+          emitUnifiedUpdateThrottled();
         } catch (e: any) {
           if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
         } finally {
@@ -152,6 +180,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       if (timerRef.current) window.clearTimeout(timerRef.current);
+      if (emitTimerRef.current) window.clearTimeout(emitTimerRef.current);
       void flushSave("unmount");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,8 +204,8 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       latestRowsRef.current = [];
       touchedRef.current = false;
 
-      // 삭제도 다른 탭에 알림
-      syncEmitUnifiedUpdate();
+      // ✅ 삭제도 다른 탭에 알림(폭주 방지 스로틀)
+      emitUnifiedUpdateThrottled();
     } catch (e: any) {
       onError?.(e?.message || "임시저장 삭제에 실패했습니다.");
     }

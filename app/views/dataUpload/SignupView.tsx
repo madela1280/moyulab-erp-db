@@ -60,8 +60,12 @@ export default function SignupView() {
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
 
-  // hydrated 전/후 상관없이 여기에 누적(중요: hydrate 전 사용자 변경 유실 방지)
+  // hydrate 전/후 상관없이 여기에 누적(중요: hydrate 전 사용자 변경 유실 방지)
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
+
+  // unified.update 수신 시 reload 폭주 방지(점멸 방지)
+  const reloadTimerRef = useRef<number | null>(null);
+  const settingsReloadTimerRef = useRef<number | null>(null);
 
   async function loadColumns() {
     setLoadingColumns(true);
@@ -108,8 +112,7 @@ export default function SignupView() {
       const j = (await r.json()) as Partial<SignupSettings> | null;
       const server = normalizeSettings(j);
 
-      // ✅ 핵심: hydrate 전/중 사용자가 바꾼 값이 있으면( pendingPatchRef ) 그 값을 우선 적용
-      // - 서버 응답이 늦게 와도 로컬 변경을 덮어쓰지 않음
+      // ✅ hydrate 전/중 사용자가 바꾼 값이 있으면( pendingPatchRef ) 그 값을 우선 적용
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
         selectedKeys: "selectedKeys" in pending ? (Array.isArray(pending.selectedKeys) ? pending.selectedKeys.map(String) : []) : server.selectedKeys,
@@ -191,12 +194,30 @@ export default function SignupView() {
     } catch {}
   }
 
+  // unified.update 수신 시: draft/settings 즉시 재로드하지 말고 디바운스해서 점멸 방지
+  function scheduleReloadFromSync() {
+    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => {
+      void draft.reload();
+      reloadTimerRef.current = null;
+    }, 350);
+
+    // settings는 더 자주 바뀌지 않으므로 별도(더 느리게) 1회로 합치기
+    if (settingsReloadTimerRef.current) return;
+    settingsReloadTimerRef.current = window.setTimeout(() => {
+      void loadSettings();
+      settingsReloadTimerRef.current = null;
+    }, 1200);
+  }
+
   useEffect(() => {
     void loadColumns();
     void loadSettings();
 
     return () => {
       void flushSettingsPatch("unmount");
+      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+      if (settingsReloadTimerRef.current) window.clearTimeout(settingsReloadTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -222,11 +243,10 @@ export default function SignupView() {
     onError: (msg) => setError(toUserMessage(msg)),
   });
 
-  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft + settings 재로드
+  // 다른 탭/화면에서 unified.update 이벤트가 오면 draft + settings 재로드(디바운스)
   useEffect(() => {
     const off = syncListen(() => {
-      void draft.reload();
-      void loadSettings();
+      scheduleReloadFromSync();
     });
     return () => {
       off?.();
