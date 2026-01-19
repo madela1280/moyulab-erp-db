@@ -1,12 +1,13 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 import {
   addPartnerOptionViaApi,
   fetchPartnerOptionsFromApi,
-  mergePartnerOptionsWithValue,
   normalizePartnerName,
   normalizePartnerOptions,
+  savePartnerOptionsToApi,
 } from "@/views/dataUpload/signup-grid/editors/partnerOptions";
 
 export default function PartnerSelectCell({
@@ -33,8 +34,11 @@ export default function PartnerSelectCell({
 
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
   const [optimisticAdded, setOptimisticAdded] = useState<string[]>([]);
+  const [optimisticRemoved, setOptimisticRemoved] = useState<Set<string>>(() => new Set());
+
   const [draftText, setDraftText] = useState<string>(String(value ?? ""));
 
+  // options prop이 없거나 비어있으면 원격 로드
   useEffect(() => {
     if (Array.isArray(options) && options.length > 0) return;
 
@@ -54,7 +58,7 @@ export default function PartnerSelectCell({
     };
   }, [options]);
 
-  // 외부에서 value가 바뀌면 draftText도 동기화(단, 열려있을 땐 사용자가 편집중일 수 있으니 덮지 않음)
+  // 열려있지 않을 때만 외부 value를 draftText로 반영
   useEffect(() => {
     if (open) return;
     setDraftText(String(value ?? ""));
@@ -77,24 +81,38 @@ export default function PartnerSelectCell({
     return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const baseOptions = options.length > 0 ? options : remoteOptions;
+  const baseOptions = useMemo(() => {
+    const src = Array.isArray(options) && options.length > 0 ? options : remoteOptions;
+    return normalizePartnerOptions(src);
+  }, [options, remoteOptions]);
 
-  const mergedOptions = useMemo(() => {
-    const combined = [...baseOptions, ...optimisticAdded];
-    return mergePartnerOptionsWithValue(combined, value);
-  }, [baseOptions, optimisticAdded, value]);
+  const visibleOptions = useMemo(() => {
+    const removed = optimisticRemoved;
+    const combined = normalizePartnerOptions([...baseOptions, ...optimisticAdded]).filter((x) => !removed.has(x));
+    return combined;
+  }, [baseOptions, optimisticAdded, optimisticRemoved]);
 
-  const normalizedBaseSet = useMemo(() => new Set(normalizePartnerOptions(baseOptions)), [baseOptions]);
+  const filteredOptions = useMemo(() => {
+    // 사진처럼: 입력칸은 필터 역할도 겸함(입력 중이면 포함 검색)
+    const q = normalizePartnerName(draftText).toLowerCase();
+    if (!q) return visibleOptions;
+    return visibleOptions.filter((o) => String(o).toLowerCase().includes(q));
+  }, [visibleOptions, draftText]);
 
-  async function persistIfNew(nameRaw: string) {
-    const n = normalizePartnerName(nameRaw);
+  async function handleAddPartner() {
+    const name = window.prompt("신규 거래처를 입력해 주세요.");
+    const n = normalizePartnerName(name);
+
     if (!n) return;
 
-    // 이미 있으면 저장(추가) 불필요
-    if (normalizedBaseSet.has(n)) return;
-
-    // optimistic 반영
+    // UI 즉시 반영
     setOptimisticAdded((prev) => (prev.includes(n) ? prev : [...prev, n]));
+    setOptimisticRemoved((prev) => {
+      if (!prev.has(n)) return prev;
+      const next = new Set(prev);
+      next.delete(n);
+      return next;
+    });
 
     try {
       if (onAddPartnerOption) {
@@ -103,51 +121,68 @@ export default function PartnerSelectCell({
         const saved = await addPartnerOptionViaApi(n);
         setRemoteOptions(saved);
       }
+
+      // 추가 후: 값도 그걸로 선택된 상태가 되게
+      onChange(n);
+      setDraftText(n);
+
+      // 다른 탭/작업자에게도 반영되게 sync
+      syncEmitUnifiedUpdate();
     } catch {
-      // ignore (UI 흐름은 유지)
+      // ignore
     }
   }
 
-  async function commitDraftAndClose() {
-    const next = normalizePartnerName(draftText);
-    onChange(next);
-    await persistIfNew(next);
-    setOpen(false);
-  }
+  async function handleDeletePartner(name: string) {
+    const n = normalizePartnerName(name);
+    if (!n) return;
 
-  function pickOption(opt: string) {
-    const next = normalizePartnerName(opt);
-    onChange(next);
-    setDraftText(next);
-    setOpen(false);
-  }
+    const ok = window.confirm(`거래처 "${n}" 를 삭제할까요?`);
+    if (!ok) return;
 
-  const filteredOptions = useMemo(() => {
-    const q = normalizePartnerName(draftText).toLowerCase();
-    if (!q) return mergedOptions;
-    return mergedOptions.filter((o) => String(o).toLowerCase().includes(q));
-  }, [mergedOptions, draftText]);
+    // UI 즉시 반영
+    setOptimisticRemoved((prev) => {
+      if (prev.has(n)) return prev;
+      const next = new Set(prev);
+      next.add(n);
+      return next;
+    });
+
+    try {
+      // 상위 콜백(삭제용)이 없으므로, 이 셀에서 API로 직접 저장
+      const nextList = visibleOptions.filter((x) => x !== n);
+      const saved = await savePartnerOptionsToApi(nextList);
+      setRemoteOptions(saved);
+
+      // 현재 셀 값이 삭제된 항목이면 비움
+      if (normalizePartnerName(value) === n) {
+        onChange("");
+        setDraftText("");
+      }
+
+      syncEmitUnifiedUpdate();
+    } catch {
+      // ignore
+    }
+  }
 
   return (
     <div ref={rootRef} className="w-full h-[26px] relative">
-      {/* 표시/클릭 영역: 기존처럼 "목록에서 선택" UX를 유지하면서, 클릭하면 패널을 띄움 */}
-      <button
-        type="button"
+      {/* 셀 클릭 영역(사진처럼 클릭하면 패널이 뜸) */}
+      <div
         className={[
           "w-full h-[26px] px-2",
           "text-[12px] font-normal text-slate-500 text-center",
+          "flex items-center justify-center",
           "bg-transparent",
-          "outline-none",
+          "select-none",
         ].join(" ")}
-        onFocus={() => {
-          onFocus();
-        }}
         onMouseDown={(e) => {
-          // 셀 드래그/선택 흐름을 깨지 않게 mousedown에서 열기
+          // 그리드 드래그/선택 흐름 유지
           e.preventDefault();
+          onFocus();
           setOpen(true);
 
-          // 패널 열릴 때 입력칸에 포커스
           requestAnimationFrame(() => {
             try {
               inputRef.current?.focus();
@@ -157,17 +192,14 @@ export default function PartnerSelectCell({
         }}
       >
         {String(value ?? "")}
-      </button>
+      </div>
 
       {open && (
         <div
-          className="absolute left-0 top-[26px] z-[90] w-[260px] bg-white border rounded shadow-md"
-          onMouseDown={(e) => {
-            // 패널 내부 클릭이 "바깥 클릭"으로 처리되지 않게
-            e.stopPropagation();
-          }}
+          className="absolute left-0 top-[26px] z-[90] w-[220px] bg-white border rounded shadow-md overflow-hidden"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* 1) 거래처 입력하는 곳 (직접입력) */}
+          {/* 1) 첫번째 칸: 입력 가능 */}
           <div className="p-2 border-b">
             <input
               ref={inputRef}
@@ -177,50 +209,56 @@ export default function PartnerSelectCell({
               onChange={(e) => {
                 const v = e.target.value;
                 setDraftText(v);
-                onChange(v); // 셀 값은 즉시 반영(기존 그리드 입력 흐름 유지)
+                onChange(v); // 직접입력은 즉시 셀 값 반영
               }}
-              onKeyDown={async (e) => {
+              onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
                 e.preventDefault();
-                await commitDraftAndClose();
-              }}
-              onBlur={() => {
-                // blur만으로 닫지 않음(목록 클릭 시 blur 발생 가능)
-                // 바깥 클릭은 window mousedown에서 닫힘 처리
+                setOpen(false);
               }}
             />
-
-            {/* 3) 신규거래처 입력(확정/저장) */}
-            <div className="mt-2 flex items-center justify-end">
-              <button
-                type="button"
-                className="text-[11px] px-2 py-1 border rounded bg-white hover:bg-slate-50"
-                onClick={async () => {
-                  await commitDraftAndClose();
-                }}
-              >
-                신규거래처 입력
-              </button>
-            </div>
           </div>
 
-          {/* 2) 분류된 거래처 리스트(선택) */}
-          <div className="max-h-[220px] overflow-auto py-1">
+          {/* 2) 두번째 칸부터: 추가된 거래처 목록 */}
+          <div className="max-h-[220px] overflow-auto">
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-slate-500">검색 결과가 없습니다.</div>
+              <div className="px-3 py-2 text-[11px] text-slate-500">등록된 거래처가 없습니다.</div>
             ) : (
               filteredOptions.map((o) => (
-                <button
-                  key={o}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"
-                  onClick={() => pickOption(o)}
-                >
-                  {o}
-                </button>
+                <div key={o} className="flex items-stretch border-b last:border-b-0">
+                  <button
+                    type="button"
+                    className="flex-1 text-left px-3 py-2 text-xs hover:bg-slate-50"
+                    onClick={() => {
+                      const n = normalizePartnerName(o);
+                      onChange(n);
+                      setDraftText(n);
+                      setOpen(false);
+                    }}
+                  >
+                    {o}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-10 text-[11px] border-l hover:bg-red-50 text-red-600"
+                    onClick={() => void handleDeletePartner(o)}
+                    title="삭제"
+                  >
+                    삭제
+                  </button>
+                </div>
               ))
             )}
           </div>
+
+          {/* 3) 신규거래처 추가 */}
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"
+            onClick={() => void handleAddPartner()}
+          >
+            신규거래처 추가
+          </button>
         </div>
       )}
     </div>

@@ -50,6 +50,13 @@ export default function DateCell({
   const [text, setText] = useState<string>("");
 
   const isoFromValue = useMemo(() => toIsoIfPossible(value), [value]);
+  const normalizedText = useMemo(() => toIsoIfPossible(text), [text]);
+
+  const showCalendarIcon = useMemo(() => {
+    // 표시 기준은 "현재 입력(text)" 우선
+    // (입력/변환이 완료되면 아이콘 숨김)
+    return !isCompleteIso(normalizedText);
+  }, [normalizedText]);
 
   // ✅ 외부에서 값이 바뀌었을 때만 동기화(입력 중에는 덮어쓰기 방지)
   useEffect(() => {
@@ -77,6 +84,7 @@ export default function DateCell({
 
   function commitNormalized(raw: string) {
     const normalized = toIsoIfPossible(raw);
+
     // 표시도 정규화로 맞춤
     setText(normalized);
 
@@ -100,7 +108,9 @@ export default function DateCell({
           onFocus();
         }}
         onMouseDown={(e) => {
-          // 오른쪽 아이콘 영역 클릭 시 달력 열기
+          // 오른쪽 아이콘 영역 클릭 시 달력 열기(아이콘이 보일 때만)
+          if (!showCalendarIcon) return;
+
           const rect = (e.currentTarget as HTMLInputElement).getBoundingClientRect();
           const hitFromRight = rect.right - e.clientX;
           if (hitFromRight >= 0 && hitFromRight <= 26) {
@@ -139,14 +149,16 @@ export default function DateCell({
         }}
       />
 
-      {/* 달력 아이콘: 항상 표시(직접입력 + 클릭 모두 가능) */}
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center pointer-events-none text-slate-600">
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M7 2v3M17 2v3" />
-          <path d="M3 9h18" />
-          <path d="M5 5h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
-        </svg>
-      </div>
+      {/* 달력 아이콘: 날짜가 완성되면 숨김(기존 동작 복구) */}
+      {showCalendarIcon && (
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center pointer-events-none text-slate-600">
+          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M7 2v3M17 2v3" />
+            <path d="M3 9h18" />
+            <path d="M5 5h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+          </svg>
+        </div>
+      )}
 
       {/* 실제 달력 선택용(숨김) */}
       <input
