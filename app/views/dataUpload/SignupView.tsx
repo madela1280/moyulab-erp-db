@@ -60,14 +60,14 @@ export default function SignupView() {
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
 
-  // hydrate 전/후 상관없이 여기에 누적(단, 사용자 액션에서만 넣는 방식)
+  // hydrate 전/후 상관없이 여기에 누적(유실 방지)
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
 
-  // unified.update 수신 시 reload 폭주 방지(점멸 방지)
+  // unified.update 수신 시 reload 폭주 방지
   const reloadTimerRef = useRef<number | null>(null);
   const settingsReloadTimerRef = useRef<number | null>(null);
 
-  // 다른 탭 수정 내용을 Grid에 "강제 적용"하기 위한 토큰
+  // 다른 탭 수정 내용을 Grid에 강제 적용할 토큰
   const [rowsReloadToken, setRowsReloadToken] = useState(0);
 
   // ✅ settings 변경 시 unified:update emit 스로틀(다른 탭에 실시간 반영)
@@ -132,18 +132,63 @@ export default function SignupView() {
     };
   }
 
+  async function patchSettingsNow(body: Partial<SignupSettings>, keepalive: boolean) {
+    const r = await fetch("/api/signup-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive,
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      throw new Error(t || `FAILED(${r.status})`);
+    }
+    return (await r.json()) as SignupSettings;
+  }
+
+  function queuePatch(partial: Partial<SignupSettings>) {
+    // ✅ hydrate 전에도 pending에 누적(유실 방지)
+    pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
+
+    // hydrate 전이면 실제 PATCH는 하지 않음
+    if (!settingsHydratedRef.current) return;
+
+    if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
+    patchTimerRef.current = window.setTimeout(async () => {
+      const body = pendingPatchRef.current;
+      pendingPatchRef.current = {};
+
+      try {
+        await patchSettingsNow(body, false);
+        emitUnifiedUpdateThrottled();
+      } catch {
+        setError("설정 저장에 실패했습니다.");
+        // 실패 시 다시 누적(유실 방지)
+        pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
+      }
+    }, 250);
+  }
+
   async function loadSettings() {
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
+
+      // ✅ GET 실패여도 "pending이 있으면 저장"이 가능하도록 hydrate는 true로
       if (!r.ok) {
+        const wasHydrated = settingsHydratedRef.current;
         settingsHydratedRef.current = true;
+
+        // hydrate 이전에 사용자 변경이 있었다면 저장을 시도(유실 방지)
+        if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+          queuePatch({});
+        }
         return;
       }
 
       const j = (await r.json()) as Partial<SignupSettings> | null;
       const server = normalizeSettings(j);
 
-      // ✅ hydrate 전/중 사용자가 바꾼 값이 있으면( pendingPatchRef ) 그 값을 우선 적용
+      // ✅ hydrate 전/중 사용자가 바꾼 값이 있으면 pending 우선
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
         selectedKeys:
@@ -168,48 +213,37 @@ export default function SignupView() {
         queuePatch({});
       }
     } catch {
+      // ✅ 예외여도 hydrate true + pending flush 시도(유실 방지)
+      const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
+      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+        queuePatch({});
+      }
     }
   }
 
-  function queuePatch(partial: Partial<SignupSettings>) {
-    // ✅ hydrate 전에도 pending에 누적(유실 방지)
-    pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
-
-    // hydrate 전이면 실제 PATCH는 하지 않음
-    if (!settingsHydratedRef.current) return;
-
-    if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
-    patchTimerRef.current = window.setTimeout(async () => {
-      const body = pendingPatchRef.current;
-      pendingPatchRef.current = {};
-
-      try {
-        const r = await fetch("/api/signup-settings", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!r.ok) {
-          setError("설정 저장에 실패했습니다.");
-          return;
-        }
-
-        // ✅ 설정 저장 성공 → 다른 탭에 실시간 반영
-        emitUnifiedUpdateThrottled();
-      } catch {
-        setError("설정 저장에 실패했습니다.");
-      }
-    }, 250);
-  }
-
-  // 페이지 이탈 시 settings 저장 누락 방지
-  async function flushSettingsPatch(reason: "unmount" | "beforeunload") {
-    if (!settingsHydratedRef.current) return;
-
+  // ✅ 페이지 이탈 시 settings 저장 누락 방지(클라이언트 라우팅에서도 fetch가 취소될 수 있어 keepalive 사용)
+  function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (patchTimerRef.current) {
       window.clearTimeout(patchTimerRef.current);
       patchTimerRef.current = null;
+    }
+
+    const pending = pendingPatchRef.current || {};
+    const hasPending = Object.keys(pending).length > 0;
+
+    // hydrate 전이라면 "pending만" 저장(스냅샷으로 기본값 덮어쓰는 사고 방지)
+    if (!settingsHydratedRef.current) {
+      if (!hasPending) return;
+      pendingPatchRef.current = {};
+
+      void patchSettingsNow(pending, true)
+        .then(() => emitUnifiedUpdateThrottled())
+        .catch(() => {
+          // 실패 시 다시 누적(유실 방지)
+          pendingPatchRef.current = { ...pending, ...pendingPatchRef.current };
+        });
+      return;
     }
 
     const snapshot: SignupSettings = {
@@ -219,25 +253,17 @@ export default function SignupView() {
       partnerOptions: Array.isArray(partnerOptions) ? partnerOptions : [],
     };
 
-    const body: Partial<SignupSettings> = { ...pendingPatchRef.current, ...snapshot };
+    const body: Partial<SignupSettings> = { ...pending, ...snapshot };
     pendingPatchRef.current = {};
 
-    try {
-      const r = await fetch("/api/signup-settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        keepalive: reason === "beforeunload",
+    void patchSettingsNow(body, true)
+      .then(() => emitUnifiedUpdateThrottled())
+      .catch(() => {
+        // 실패 시 다시 누적(유실 방지)
+        pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
       });
-
-      if (r.ok) {
-        // ✅ 이탈 저장 성공 → 다른 탭에 실시간 반영
-        emitUnifiedUpdateThrottled();
-      }
-    } catch {}
   }
 
-  // unified.update 수신 시: reload를 디바운스해서 점멸 방지 + Grid 반영 토큰 증가
   function scheduleReloadFromSync() {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
@@ -260,7 +286,7 @@ export default function SignupView() {
     void loadSettings();
 
     return () => {
-      void flushSettingsPatch("unmount");
+      flushSettingsPatch("unmount");
       if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
       if (settingsReloadTimerRef.current) window.clearTimeout(settingsReloadTimerRef.current);
       if (emitTimerRef.current) window.clearTimeout(emitTimerRef.current);
@@ -270,7 +296,7 @@ export default function SignupView() {
 
   useEffect(() => {
     const onBeforeUnload = () => {
-      void flushSettingsPatch("beforeunload");
+      flushSettingsPatch("beforeunload");
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
@@ -343,7 +369,6 @@ export default function SignupView() {
         selectedKeys={selectedKeys}
         onChangeSelectedKeys={(next) => {
           setSelectedKeys(next);
-          // ✅ selectedKeys 저장은 "사용자 액션"에서만 트리거
           queuePatch({ selectedKeys: next });
         }}
         onReloadColumns={loadColumns}
