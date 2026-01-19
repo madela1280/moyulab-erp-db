@@ -83,6 +83,7 @@ export default function SignupGrid({
   initialRows,
   onRowsChange,
   onSubmitSuccess,
+  onTransferFailed,
 
   // ✅ 외부 reload(다른 탭 수정 등) 반영 강제용 토큰
   rowsReloadToken,
@@ -104,6 +105,7 @@ export default function SignupGrid({
   initialRows?: RowValues[];
   onRowsChange?: (rows: RowValues[]) => void;
   onSubmitSuccess?: () => void | Promise<void>;
+  onTransferFailed?: (message: string) => void;
 
   rowsReloadToken?: number;
 }) {
@@ -111,10 +113,7 @@ export default function SignupGrid({
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-   // 전송 실패 시 "강제전송" 버튼 노출
-  const [forceVisible, setForceVisible] = useState(false);
-
+   
   const [active, setActive] = useState<CellPos | null>(null);
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [range, setRange] = useState<{ r1: number; r2: number; c1: number; c2: number } | null>(null);
@@ -604,9 +603,8 @@ export default function SignupGrid({
     selectSingle(r, c);
   }
 
-   async function handleSubmit(force: boolean) {
+     async function handleSubmit(force: boolean) {
     onError("");
-    setForceVisible(false);
 
     if (selectedColumns.length === 0) {
       onError("저장할 컬럼을 먼저 선택해 주세요.");
@@ -627,24 +625,22 @@ export default function SignupGrid({
 
     setSubmitting(true);
     try {
-      // 1) 1차 전송
-       const j1 = await apiSignupTransfer({
+      const j1 = await apiSignupTransfer({
         rows,
         selectedKeys: selectedColumns,
         force: !!force,
         confirmDuplicates: false,
       });
 
-      // 2) 추가출고 confirm 필요
+      // 추가출고 confirm 필요
       if (j1?.anyConfirmNeeded) {
         const ok = window.confirm("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
         if (!ok) {
-          setForceVisible(true);
-          onError("전송이 취소되었습니다.");
+          onTransferFailed?.("전송이 취소되었습니다.");
           return;
         }
 
-         const j2 = await apiSignupTransfer({
+        const j2 = await apiSignupTransfer({
           rows,
           selectedKeys: selectedColumns,
           force: !!force,
@@ -652,13 +648,13 @@ export default function SignupGrid({
         });
 
         if (!j2?.ok) {
-                    setForceVisible(true);
           const firstFail = Array.isArray(j2?.results)
             ? j2.results.find(
                 (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
               )
             : undefined;
-          onError(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
+
+          onTransferFailed?.(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
           return;
         }
 
@@ -670,28 +666,25 @@ export default function SignupGrid({
         return;
       }
 
-      // 3) 일반 실패(필수/중복출고 등)
+      // 일반 실패(필수/중복출고 등)
       if (!j1?.ok) {
-                setForceVisible(true);
         const firstFail = Array.isArray(j1?.results)
           ? j1.results.find(
               (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
             )
           : undefined;
-        onError(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
+
+        onTransferFailed?.(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
         return;
       }
 
-      // 4) 성공 처리
+      // 성공 처리
       syncEmitUnifiedUpdate();
-
       rowsTouchedRef.current = true;
       setRows((prev) => prev.map(() => ({})));
-
       await onSubmitSuccess?.();
     } catch (e: any) {
-      setForceVisible(true);
-      onError("저장(전송)에 실패했습니다.");
+      onTransferFailed?.("저장(전송)에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -704,7 +697,7 @@ export default function SignupGrid({
     <div className="w-full flex flex-col gap-1.5 flex-1 min-h-0" onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePasteCapture}>
       <div ref={gridFocusRef} tabIndex={0} className="absolute opacity-0 pointer-events-none" />
 
-           {showToolbar && (
+        {showToolbar && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button type="button" className={btnBase} onClick={add10Rows}>
@@ -733,31 +726,17 @@ export default function SignupGrid({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            {forceVisible && (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white disabled:opacity-60"
-                onClick={() => handleSubmit(true)}
-                disabled={submitting || loadingColumns}
-                title="검증 경고가 있어도 강제로 전송"
-              >
-                강제전송
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
-              onClick={() => handleSubmit(false)}
-              disabled={submitting || loadingColumns}
-            >
-              <IconSend className="w-4 h-4" />
-              {submitting ? "저장 중.." : "저장"}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
+            onClick={() => handleSubmit(false)}
+            disabled={submitting || loadingColumns}
+          >
+            <IconSend className="w-4 h-4" />
+            {submitting ? "저장 중.." : "저장"}
+          </button>
         </div>
-      )}
+      )} 
 
       <div className="flex-1 min-h-0 border rounded bg-white overflow-auto">
         {selectedColumns.length === 0 ? (
