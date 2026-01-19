@@ -7,7 +7,7 @@ import {
   fetchPartnerOptionsFromApi,
   normalizePartnerName,
   normalizePartnerOptions,
-  savePartnerOptionsToApi,
+  removePartnerOptionViaApi,
 } from "@/views/dataUpload/signup-grid/editors/partnerOptions";
 
 export default function PartnerSelectCell({
@@ -21,19 +21,32 @@ export default function PartnerSelectCell({
   onChange: (v: string) => void;
   onFocus: () => void;
 
+  // 상위에서 내려주면 사용(없으면 내부에서 /api 로드로 보완)
   options: string[];
+
+  // 상위에서 DB/API 저장을 맡길 수도 있음(없으면 내부에서 /api/signup-settings로 저장)
   onAddPartnerOption?: (name: string) => void | Promise<void>;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const popupInputRef = useRef<HTMLInputElement | null>(null);
+
+  // select 모드 입력칸(직접입력)
+  const selectInputRef = useRef<HTMLInputElement | null>(null);
+
+  // manage 모드 입력칸(신규 추가)
+  const manageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"select" | "manage">("select");
 
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
   const [optimisticAdded, setOptimisticAdded] = useState<string[]>([]);
   const [optimisticRemoved, setOptimisticRemoved] = useState<Set<string>>(() => new Set());
 
+  // select 모드: 직접입력 텍스트
   const [draftText, setDraftText] = useState<string>(String(value ?? ""));
+
+  // manage 모드: 신규 거래처 입력 텍스트
+  const [newName, setNewName] = useState<string>("");
 
   // options prop이 없거나 비어있으면 원격 로드
   useEffect(() => {
@@ -61,7 +74,7 @@ export default function PartnerSelectCell({
     setDraftText(String(value ?? ""));
   }, [value, open]);
 
-  // 바깥 클릭/터치 시 닫기 (mousedown 대신 pointerdown으로 통일)
+  // 바깥 클릭 시 닫기
   useEffect(() => {
     if (!open) return;
 
@@ -71,12 +84,32 @@ export default function PartnerSelectCell({
       const t = e.target as Node | null;
       if (!t) return;
       if (root.contains(t)) return;
+
       setOpen(false);
+      setMode("select");
+      setNewName("");
     };
 
     window.addEventListener("pointerdown", onDown);
     return () => window.removeEventListener("pointerdown", onDown);
   }, [open]);
+
+  // 팝업이 열릴 때 포커스
+  useEffect(() => {
+    if (!open) return;
+
+    requestAnimationFrame(() => {
+      try {
+        if (mode === "select") {
+          selectInputRef.current?.focus();
+          selectInputRef.current?.select();
+        } else {
+          manageInputRef.current?.focus();
+          manageInputRef.current?.select();
+        }
+      } catch {}
+    });
+  }, [open, mode]);
 
   const baseOptions = useMemo(() => {
     const src = Array.isArray(options) && options.length > 0 ? options : remoteOptions;
@@ -90,15 +123,14 @@ export default function PartnerSelectCell({
   }, [baseOptions, optimisticAdded, optimisticRemoved]);
 
   const filteredOptions = useMemo(() => {
-    // 사진처럼: 입력칸은 필터 역할도 겸함(입력 중이면 포함 검색)
+    // select 모드에서만 입력값으로 필터 (사진처럼 입력칸이 맨 위에 있고, 아래는 목록)
     const q = normalizePartnerName(draftText).toLowerCase();
     if (!q) return visibleOptions;
     return visibleOptions.filter((o) => String(o).toLowerCase().includes(q));
   }, [visibleOptions, draftText]);
 
-  async function handleAddPartner() {
-    const name = window.prompt("신규 거래처를 입력해 주세요.");
-    const n = normalizePartnerName(name);
+  async function addPartner(nameRaw: string) {
+    const n = normalizePartnerName(nameRaw);
     if (!n) return;
 
     // UI 즉시 반영
@@ -117,19 +149,14 @@ export default function PartnerSelectCell({
         const saved = await addPartnerOptionViaApi(n);
         setRemoteOptions(saved);
       }
-
-      // 추가 후: 값도 그걸로 선택
-      onChange(n);
-      setDraftText(n);
-
       syncEmitUnifiedUpdate();
     } catch {
       // ignore
     }
   }
 
-  async function handleDeletePartner(name: string) {
-    const n = normalizePartnerName(name);
+  async function deletePartner(nameRaw: string) {
+    const n = normalizePartnerName(nameRaw);
     if (!n) return;
 
     const ok = window.confirm(`거래처 "${n}" 를 삭제할까요?`);
@@ -144,12 +171,9 @@ export default function PartnerSelectCell({
     });
 
     try {
-      // signup_settings.partnerOptions 배열에서 삭제 후 저장
-      const nextList = visibleOptions.filter((x) => x !== n);
-      const saved = await savePartnerOptionsToApi(nextList);
+      const saved = await removePartnerOptionViaApi(n);
       setRemoteOptions(saved);
 
-      // 현재 셀 값이 삭제된 항목이면 비움
       if (normalizePartnerName(value) === n) {
         onChange("");
         setDraftText("");
@@ -163,28 +187,26 @@ export default function PartnerSelectCell({
 
   function openPopup() {
     setOpen(true);
-    requestAnimationFrame(() => {
-      try {
-        popupInputRef.current?.focus();
-        popupInputRef.current?.select();
-      } catch {}
-    });
+    setMode("select");
+    setNewName("");
+  }
+
+  function closePopup() {
+    setOpen(false);
+    setMode("select");
+    setNewName("");
   }
 
   return (
     <div ref={rootRef} className="w-full h-[26px] relative">
-      {/* ✅ 셀 "쉘"은 input으로 둬서 Grid의 pointerdown 로직에서 interactive로 인식되게 함(클릭 불가 문제 방지) */}
+      {/* 셀 쉘: Grid에서 interactive로 인식되도록 input 유지 */}
       <input
         readOnly
         className="w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center cursor-pointer"
         value={String(value ?? "")}
         onFocus={onFocus}
-        onPointerDown={(e) => {
-          // 셀 선택/드래그 흐름은 Grid가 처리. 여기서는 팝업만 연다.
-          // readOnly input이라도 포커스는 필요.
-          try {
-            (e.currentTarget as HTMLInputElement).focus();
-          } catch {}
+        onPointerDown={() => {
+          // Grid가 셀 선택/드래그를 처리하고, 여기서는 팝업만 연다.
           openPopup();
         }}
       />
@@ -197,66 +219,150 @@ export default function PartnerSelectCell({
             e.stopPropagation();
           }}
         >
-          {/* 1) 첫번째 칸: 직접 입력 가능 */}
-          <div className="p-2 border-b">
-            <input
-              ref={popupInputRef}
-              className="w-full border rounded px-2 py-1 text-xs outline-none"
-              placeholder="거래처 입력..."
-              value={draftText}
-              onChange={(e) => {
-                const v = e.target.value;
-                setDraftText(v);
-                onChange(v); // 직접입력은 즉시 셀 값 반영
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                setOpen(false);
-              }}
-            />
-          </div>
+          {/* ---------------- select 모드 ---------------- */}
+          {mode === "select" && (
+            <>
+              {/* 1) 첫번째 칸: 직접 입력 가능 */}
+              <div className="p-2 border-b">
+                <input
+                  ref={selectInputRef}
+                  className="w-full border rounded px-2 py-1 text-xs outline-none"
+                  placeholder="거래처 입력..."
+                  value={draftText}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDraftText(v);
+                    onChange(v); // 직접입력 즉시 반영
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    closePopup();
+                  }}
+                />
+              </div>
 
-          {/* 2) 등록된 거래처 목록 */}
-          <div className="max-h-[220px] overflow-auto">
-            {filteredOptions.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-slate-500">등록된 거래처가 없습니다.</div>
-            ) : (
-              filteredOptions.map((o) => (
-                <div key={o} className="flex items-stretch border-b last:border-b-0">
+              {/* 2) 두번째 칸부터: 기존거래처(추가된 거래처들) */}
+              <div className="max-h-[220px] overflow-auto">
+                {filteredOptions.length === 0 ? (
+                  <div className="px-3 py-2 text-[11px] text-slate-500">등록된 거래처가 없습니다.</div>
+                ) : (
+                  filteredOptions.map((o) => (
+                    <button
+                      key={o}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 border-b last:border-b-0"
+                      onClick={() => {
+                        const n = normalizePartnerName(o);
+                        onChange(n);
+                        setDraftText(n);
+                        closePopup(); // ✅ 기존거래처 클릭 후 입력창(팝업) 사라짐
+                      }}
+                    >
+                      {o}
+                    </button>
+                  ))
+                )}
+              </div>
+
+              {/* 신규거래처 추가(관리 모드로 진입: 여기에서 추가/삭제 모두) */}
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"
+                onClick={() => {
+                  setMode("manage");
+                  setNewName("");
+                }}
+              >
+                신규거래처 추가
+              </button>
+            </>
+          )}
+
+          {/* ---------------- manage 모드(추가/삭제) ---------------- */}
+          {mode === "manage" && (
+            <>
+              <div className="px-2 py-2 border-b flex items-center justify-between">
+                <div className="text-[11px] font-semibold text-slate-700">거래처 관리</div>
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 border rounded bg-white hover:bg-slate-50"
+                  onClick={() => {
+                    setMode("select");
+                    setNewName("");
+                  }}
+                >
+                  돌아가기
+                </button>
+              </div>
+
+              {/* 신규 입력 + 추가 버튼 */}
+              <div className="p-2 border-b">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={manageInputRef}
+                    className="flex-1 border rounded px-2 py-1 text-xs outline-none"
+                    placeholder="신규 거래처 입력..."
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const n = normalizePartnerName(newName);
+                      if (!n) return;
+                      await addPartner(n);
+                      setNewName("");
+                    }}
+                  />
                   <button
                     type="button"
-                    className="flex-1 text-left px-3 py-2 text-xs hover:bg-slate-50"
-                    onClick={() => {
-                      const n = normalizePartnerName(o);
-                      onChange(n);
-                      setDraftText(n);
-                      setOpen(false);
+                    className="text-[11px] px-2 py-1 border rounded bg-white hover:bg-slate-50"
+                    onClick={async () => {
+                      const n = normalizePartnerName(newName);
+                      if (!n) return;
+                      await addPartner(n);
+                      setNewName("");
                     }}
                   >
-                    {o}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-10 text-[11px] border-l hover:bg-red-50 text-red-600"
-                    onClick={() => void handleDeletePartner(o)}
-                    title="삭제"
-                  >
-                    삭제
+                    추가
                   </button>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
 
-          {/* 3) 신규거래처 추가 */}
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"
-            onClick={() => void handleAddPartner()}
-          >
-            신규거래처 추가
-          </button>
+              {/* 삭제는 여기에서만 제공 */}
+              <div className="max-h-[220px] overflow-auto">
+                {visibleOptions.length === 0 ? (
+                  <div className="px-3 py-2 text-[11px] text-slate-500">등록된 거래처가 없습니다.</div>
+                ) : (
+                  visibleOptions.map((o) => (
+                    <div key={o} className="flex items-stretch border-b last:border-b-0">
+                      <button
+                        type="button"
+                        className="flex-1 text-left px-3 py-2 text-xs hover:bg-slate-50"
+                        onClick={() => {
+                          // 관리 화면에서도 클릭 선택 가능(편의)
+                          const n = normalizePartnerName(o);
+                          onChange(n);
+                          setDraftText(n);
+                          closePopup();
+                        }}
+                      >
+                        {o}
+                      </button>
+                      <button
+                        type="button"
+                        className="w-12 text-[11px] border-l hover:bg-red-50 text-red-600"
+                        onClick={() => void deletePartner(o)}
+                        title="삭제"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
