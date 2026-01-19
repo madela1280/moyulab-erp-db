@@ -652,9 +652,13 @@ export default function SignupGrid({
         });
 
         if (!j2?.ok) {
-          setForceVisible(true);
-          const firstFail = Array.isArray(j2?.results) ? j2.results.find((x: any) => x && x.ok === false) : null;
-          onError(firstFail?.reason || "저장(전송)에 실패했습니다.");
+                    setForceVisible(true);
+          const firstFail = Array.isArray(j2?.results)
+            ? j2.results.find(
+                (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
+              )
+            : undefined;
+          onError(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
           return;
         }
 
@@ -668,9 +672,13 @@ export default function SignupGrid({
 
       // 3) 일반 실패(필수/중복출고 등)
       if (!j1?.ok) {
-        setForceVisible(true);
-        const firstFail = Array.isArray(j1?.results) ? j1.results.find((x: any) => x && x.ok === false) : null;
-        onError(firstFail?.reason || "저장(전송)에 실패했습니다.");
+                setForceVisible(true);
+        const firstFail = Array.isArray(j1?.results)
+          ? j1.results.find(
+              (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
+            )
+          : undefined;
+        onError(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
         return;
       }
 
