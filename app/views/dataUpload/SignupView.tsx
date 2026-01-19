@@ -28,29 +28,6 @@ const DEFAULT_SETTINGS: SignupSettings = {
   partnerOptions: [],
 };
 
-/**
- * ✅ 카테고리 이동(클라이언트 라우팅) 시 "잠깐/계속 빈 화면"이 되는 현상 방지용
- * - localStorage/sessionStorage/indexedDB 사용 금지 준수
- * - window 메모리는 새로고침하면 사라짐(=진짜 데이터 소스 아님)
- * - 진짜 데이터는 항상 /api/signup-settings(DB)이며, window는 UI 임시 캐시로만 사용
- */
-type SignupViewMemo = {
-  allColumns?: string[] | null;
-  settings?: SignupSettings | null;
-};
-
-function getMemo(): SignupViewMemo {
-  if (typeof window === "undefined") return {};
-  // @ts-ignore
-  return (window.__MOYULAB_SIGNUP_VIEW_MEMO__ as SignupViewMemo) || {};
-}
-
-function setMemo(next: SignupViewMemo) {
-  if (typeof window === "undefined") return;
-  // @ts-ignore
-  window.__MOYULAB_SIGNUP_VIEW_MEMO__ = next;
-}
-
 function toUserMessage(raw: string) {
   const m = String(raw || "");
   if (!m) return "";
@@ -67,34 +44,50 @@ function isPlainObject(v: any) {
 }
 
 export default function SignupView() {
-  const memo0 = getMemo();
-
-  const [allColumns, setAllColumns] = useState<string[]>(() => (Array.isArray(memo0.allColumns) ? (memo0.allColumns as string[]) : []));
-  const [selectedKeys, setSelectedKeys] = useState<string[]>(() =>
-    Array.isArray(memo0.settings?.selectedKeys) ? (memo0.settings!.selectedKeys as string[]) : []
-  );
+  const [allColumns, setAllColumns] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [error, setError] = useState<string>("");
 
   // settings (DB/API 기반)
-  const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(() => memo0.settings?.colWidthSteps ?? DEFAULT_SETTINGS.colWidthSteps);
-  const [rowCount, setRowCount] = useState<number>(() => memo0.settings?.rowCount ?? DEFAULT_SETTINGS.rowCount);
-  const [partnerOptions, setPartnerOptions] = useState<string[]>(() => memo0.settings?.partnerOptions ?? DEFAULT_SETTINGS.partnerOptions);
+  const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(DEFAULT_SETTINGS.colWidthSteps);
+  const [rowCount, setRowCount] = useState<number>(DEFAULT_SETTINGS.rowCount);
+  const [partnerOptions, setPartnerOptions] = useState<string[]>(DEFAULT_SETTINGS.partnerOptions);
+
+  // ✅ 최신값 ref (언마운트 flush에서 stale closure 방지)
+  const latestSelectedKeysRef = useRef<string[]>([]);
+  const latestColWidthStepsRef = useRef<Record<string, number>>({});
+  const latestRowCountRef = useRef<number>(DEFAULT_SETTINGS.rowCount);
+  const latestPartnerOptionsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    latestSelectedKeysRef.current = Array.isArray(selectedKeys) ? selectedKeys : [];
+  }, [selectedKeys]);
+  useEffect(() => {
+    latestColWidthStepsRef.current = colWidthSteps && typeof colWidthSteps === "object" ? colWidthSteps : {};
+  }, [colWidthSteps]);
+  useEffect(() => {
+    latestRowCountRef.current = Number.isFinite(Number(rowCount)) ? Number(rowCount) : DEFAULT_SETTINGS.rowCount;
+  }, [rowCount]);
+  useEffect(() => {
+    latestPartnerOptionsRef.current = Array.isArray(partnerOptions) ? partnerOptions : [];
+  }, [partnerOptions]);
 
   // settings hydrate / patch queue
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
 
-  // hydrate 전/후 상관없이 여기에 누적(유실 방지)
+  // ✅ pendingPatchRef는 "진짜 저장 대기중인 것만" 유지
+  // - selectedKeys는 즉시 저장이 기본이며, 즉시 저장 실패한 경우에만 pending에 쌓음
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
 
-  // unified.update 수신 시 reload 폭주 방지
+  // unified.update 수신 시 reload 폭주 방지(점멸 방지)
   const reloadTimerRef = useRef<number | null>(null);
   const settingsReloadTimerRef = useRef<number | null>(null);
 
-  // 다른 탭 수정 내용을 Grid에 강제 적용할 토큰
+  // 다른 탭 수정 내용을 Grid에 "강제 적용"하기 위한 토큰
   const [rowsReloadToken, setRowsReloadToken] = useState(0);
 
   // ✅ settings 변경 시 unified:update emit 스로틀(다른 탭에 실시간 반영)
@@ -137,9 +130,6 @@ export default function SignupView() {
       const j = (await r.json()) as UnifiedColumnsResponse;
       const order = Array.isArray(j?.order) ? j.order.map(String) : [];
       setAllColumns(order);
-
-      const m = getMemo();
-      setMemo({ ...m, allColumns: order });
     } catch (e: any) {
       setError(toUserMessage(e?.message) || "컬럼 목록을 불러오지 못했습니다.");
     } finally {
@@ -176,6 +166,7 @@ export default function SignupView() {
     return (await r.json()) as SignupSettings;
   }
 
+  // ✅ selectedKeys는 즉시 저장(카테고리 이동/언마운트 타이밍에서 "빈값 덮어쓰기" 방지)
   async function saveSelectedKeysImmediately(next: string[]) {
     try {
       const saved = await patchSettingsNow({ selectedKeys: next }, false);
@@ -183,36 +174,25 @@ export default function SignupView() {
       const safe = Array.isArray(saved?.selectedKeys) ? saved.selectedKeys : next;
       setSelectedKeys(safe);
 
-      // pending에서 제거
+      // pending에서 selectedKeys 제거(덮어쓰기/중복 저장 방지)
       const p = pendingPatchRef.current || {};
       if ("selectedKeys" in p) {
         const { selectedKeys: _drop, ...rest } = p as any;
         pendingPatchRef.current = rest;
       }
 
-      // window memo 갱신(카테고리 이동 시 즉시 표시용)
-      const m = getMemo();
-      const prevSettings = m.settings ?? DEFAULT_SETTINGS;
-      setMemo({
-        ...m,
-        settings: {
-          ...prevSettings,
-          selectedKeys: safe,
-          colWidthSteps,
-          rowCount,
-          partnerOptions,
-        },
-      });
-
       emitUnifiedUpdateThrottled();
     } catch {
       setError("양식 저장에 실패했습니다.(selectedKeys)");
+      // 실패 시에만 pending에 쌓음
       pendingPatchRef.current = { ...pendingPatchRef.current, selectedKeys: next };
     }
   }
 
   function queuePatch(partial: Partial<SignupSettings>) {
-    pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
+    // ✅ selectedKeys는 여기서 절대 저장하지 않음(즉시 저장만)
+    const { selectedKeys: _ignore, ...rest } = partial as any;
+    pendingPatchRef.current = { ...pendingPatchRef.current, ...rest };
 
     if (!settingsHydratedRef.current) return;
 
@@ -222,16 +202,11 @@ export default function SignupView() {
       pendingPatchRef.current = {};
 
       try {
-        const saved = await patchSettingsNow(body, false);
-        const normalized = normalizeSettings(saved);
-
-        // window memo 갱신
-        const m = getMemo();
-        setMemo({ ...m, settings: normalized });
-
+        await patchSettingsNow(body, false);
         emitUnifiedUpdateThrottled();
       } catch {
         setError("설정 저장에 실패했습니다.");
+        // 실패 시 다시 누적(유실 방지)
         pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
       }
     }, 250);
@@ -241,16 +216,22 @@ export default function SignupView() {
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
 
+      // GET 실패여도 hydrate true로 전환(이후 저장 큐가 동작하도록)
       if (!r.ok) {
         const wasHydrated = settingsHydratedRef.current;
         settingsHydratedRef.current = true;
-        if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) queuePatch({});
+
+        // hydrate 직후 pending이 있으면 flush
+        if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+          queuePatch({});
+        }
         return;
       }
 
       const j = (await r.json()) as Partial<SignupSettings> | null;
       const server = normalizeSettings(j);
 
+      // ✅ hydrate 전/중 사용자가 바꾼 값(pending)이 있으면 pending 우선 적용
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
         selectedKeys:
@@ -267,21 +248,27 @@ export default function SignupView() {
       setRowCount(merged.rowCount);
       setPartnerOptions(merged.partnerOptions);
 
-      // window memo 갱신
-      const m = getMemo();
-      setMemo({ ...m, settings: merged });
-
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
 
-      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) queuePatch({});
+      // 최초 hydrate 직후 pending이 있으면 1회 flush 예약
+      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+        queuePatch({});
+      }
     } catch {
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
-      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) queuePatch({});
+      if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
+        queuePatch({});
+      }
     }
   }
 
+  /**
+   * ✅ 핵심 수정:
+   * - 언마운트/카테고리 이동 시 flush에서 "selectedKeys 스냅샷"으로 덮어쓰기 금지
+   * - selectedKeys는 이미 즉시 저장이 원칙이며, 즉시 저장 실패로 pending에 남아있는 경우에만 flush에서 전송
+   */
   function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (patchTimerRef.current) {
       window.clearTimeout(patchTimerRef.current);
@@ -294,28 +281,52 @@ export default function SignupView() {
     if (!settingsHydratedRef.current) {
       if (!hasPending) return;
       pendingPatchRef.current = {};
-      void patchSettingsNow(pending, true).then(() => emitUnifiedUpdateThrottled()).catch(() => {
-        pendingPatchRef.current = { ...pending, ...pendingPatchRef.current };
-      });
+
+      void patchSettingsNow(pending, true)
+        .then(() => emitUnifiedUpdateThrottled())
+        .catch(() => {
+          pendingPatchRef.current = { ...pending, ...pendingPatchRef.current };
+        });
       return;
     }
 
-    const snapshot: SignupSettings = {
-      selectedKeys: Array.isArray(selectedKeys) ? selectedKeys : [],
-      colWidthSteps: colWidthSteps && typeof colWidthSteps === "object" ? colWidthSteps : {},
-      rowCount: Number.isFinite(Number(rowCount)) ? Number(rowCount) : 1,
-      partnerOptions: Array.isArray(partnerOptions) ? partnerOptions : [],
+    // ✅ selectedKeys는 snapshot에 포함하지 않는다(덮어쓰기 방지)
+    const snapshot: Partial<SignupSettings> = {
+      colWidthSteps: latestColWidthStepsRef.current,
+      rowCount: latestRowCountRef.current,
+      partnerOptions: latestPartnerOptionsRef.current,
     };
 
-    const body: Partial<SignupSettings> = { ...pending, ...snapshot };
+    // ✅ pending에 selectedKeys가 있을 때만 포함(즉시저장 실패 케이스)
+    const pendingSelectedKeys =
+      "selectedKeys" in pending ? (Array.isArray((pending as any).selectedKeys) ? ((pending as any).selectedKeys as string[]) : []) : null;
+
+    const body: Partial<SignupSettings> = {
+      ...pending,
+      ...snapshot,
+      ...(pendingSelectedKeys ? { selectedKeys: pendingSelectedKeys } : {}),
+    };
+
+    // ✅ 만약 pending에 selectedKeys가 없으면, selectedKeys는 보내지 않음
+    if (!pendingSelectedKeys) {
+      const { selectedKeys: _drop, ...rest } = body as any;
+      // eslint-disable-next-line no-param-reassign
+      (body as any).selectedKeys = undefined;
+      // body에서 selectedKeys 제거 (undefined가 들어가면 merge로 덮을 위험)
+      // @ts-ignore
+      body.selectedKeys = undefined;
+      // 실제 전송 객체에서 제거
+      // @ts-ignore
+      delete body.selectedKeys;
+      // rest를 다시 할당
+      // @ts-ignore
+      Object.assign(body, rest);
+    }
+
     pendingPatchRef.current = {};
 
     void patchSettingsNow(body, reason === "beforeunload")
-      .then((saved) => {
-        const m = getMemo();
-        setMemo({ ...m, settings: normalizeSettings(saved) });
-        emitUnifiedUpdateThrottled();
-      })
+      .then(() => emitUnifiedUpdateThrottled())
       .catch(() => {
         pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
       });
@@ -352,14 +363,18 @@ export default function SignupView() {
   }, []);
 
   useEffect(() => {
-    const onBeforeUnload = () => flushSettingsPatch("beforeunload");
+    const onBeforeUnload = () => {
+      flushSettingsPatch("beforeunload");
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKeys, colWidthSteps, rowCount, partnerOptions]);
+  }, []);
 
   useEffect(() => {
-    const off = syncListen(() => scheduleReloadFromSync());
+    const off = syncListen(() => {
+      scheduleReloadFromSync();
+    });
     return () => {
       off?.();
     };
@@ -422,23 +437,7 @@ export default function SignupView() {
         selectedKeys={selectedKeys}
         onChangeSelectedKeys={(next) => {
           setSelectedKeys(next);
-
-          // 즉시 저장(진짜 데이터는 DB)
           void saveSelectedKeysImmediately(next);
-
-          // window memo 즉시 반영(카테고리 이동 시 빈 화면 방지)
-          const m = getMemo();
-          const prevSettings = m.settings ?? DEFAULT_SETTINGS;
-          setMemo({
-            ...m,
-            settings: {
-              ...prevSettings,
-              selectedKeys: next,
-              colWidthSteps,
-              rowCount,
-              partnerOptions,
-            },
-          });
         }}
         onReloadColumns={loadColumns}
         loadingColumns={loadingColumns}
