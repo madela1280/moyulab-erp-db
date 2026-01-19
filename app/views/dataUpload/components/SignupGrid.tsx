@@ -618,7 +618,7 @@ export default function SignupGrid({
     selectSingle(r, c);
   }
 
-     async function handleSubmit(force: boolean) {
+      async function handleSubmit(force: boolean) {
     onError("");
 
     if (selectedColumns.length === 0) {
@@ -626,7 +626,6 @@ export default function SignupGrid({
       return;
     }
 
-    // API가 내부에서 빈 행은 제외하지만, UI 메시지를 위해 여기서도 체크
     const hasAny = rows.some((row) => {
       const data: Record<string, string> = {};
       for (const k of selectedColumns) data[k] = String(row?.[k] ?? "");
@@ -647,45 +646,23 @@ export default function SignupGrid({
         confirmDuplicates: false,
       });
 
-            // 추가출고 confirm 필요
+      // ✅ 추가출고 확인은 부모 모달에서 처리(강제전송 버튼 = "예")
       if (j1?.anyConfirmNeeded) {
-        // 확인은 부모 모달에서 처리(강제전송 버튼으로 진행)
         onTransferFailed?.("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
-        return;
-      }
-
-        if (!j2?.ok) {
-          const firstFail = Array.isArray(j2?.results)
-            ? j2.results.find(
-                (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
-              )
-            : undefined;
-
-          onTransferFailed?.(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
-          return;
-        }
-
-        // 성공 처리
-        syncEmitUnifiedUpdate();
-        rowsTouchedRef.current = true;
-        setRows((prev) => prev.map(() => ({})));
-        await onSubmitSuccess?.();
         return;
       }
 
       // 일반 실패(필수/중복출고 등)
       if (!j1?.ok) {
         const firstFail = Array.isArray(j1?.results)
-          ? j1.results.find(
-              (x): x is { rowIndex: number; ok: false; code: string; reason: string } => (x as any)?.ok === false
-            )
-          : undefined;
+          ? j1.results.find((x: any) => x && x.ok === false)
+          : null;
 
-        onTransferFailed?.(firstFail ? firstFail.reason : "저장(전송)에 실패했습니다.");
+        onTransferFailed?.((firstFail as any)?.reason || "저장(전송)에 실패했습니다.");
         return;
       }
 
-      // 성공 처리
+      // 성공 처리(양식은 그대로, rows만 비움)
       syncEmitUnifiedUpdate();
       rowsTouchedRef.current = true;
       setRows((prev) => prev.map(() => ({})));
@@ -697,7 +674,7 @@ export default function SignupGrid({
     }
   }
 
-   // 부모 모달의 "강제전송" 버튼이 forceSubmitToken을 +1 하면 여기서 감지해서 강제 전송 실행
+  // 부모 모달의 "강제전송" 버튼이 forceSubmitToken을 +1 하면 여기서 감지해서 강제 전송 실행
   useEffect(() => {
     if (typeof forceSubmitToken !== "number") return;
 
@@ -717,7 +694,7 @@ export default function SignupGrid({
 
     void handleSubmit(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forceSubmitToken]);
+  }, [forceSubmitToken]); 
 
   const btnBase = "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";
