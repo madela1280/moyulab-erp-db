@@ -1,5 +1,5 @@
 ﻿// partnerOptions.ts
-// 목적: 거래처분류 옵션 목록 정규화 + (필요 시) /api/signup-settings 기반 로드/저장 헬퍼
+// 목적: 거래처분류 옵션 목록 정규화 + /api/signup-settings 기반 로드/저장 헬퍼
 // 주의: localStorage/sessionStorage/indexedDB 등 브라우저 영속 저장소 사용 금지(규칙 준수)
 
 export function normalizePartnerName(name: unknown): string {
@@ -14,7 +14,7 @@ export function normalizePartnerOptions(list: unknown): string[] {
 
 /**
  * 현재 값(value)이 options에 없으면 맨 앞에 포함시켜,
- * 드롭다운/자동완성에서 즉시 선택/표시되도록 한다.
+ * 목록에서 즉시 선택/표시되도록 한다.
  */
 export function mergePartnerOptionsWithValue(options: unknown, value: unknown): string[] {
   const base = normalizePartnerOptions(options);
@@ -27,7 +27,6 @@ export function mergePartnerOptionsWithValue(options: unknown, value: unknown): 
 
 /**
  * 옵션 리스트에 name을 추가한 "새 리스트"를 반환한다.
- * (실제 DB 저장은 상위 또는 API 헬퍼에서 처리)
  */
 export function addPartnerOptionToList(options: unknown, name: unknown): string[] {
   const base = normalizePartnerOptions(options);
@@ -37,8 +36,18 @@ export function addPartnerOptionToList(options: unknown, name: unknown): string[
   return [...base, n];
 }
 
+/**
+ * 옵션 리스트에서 name을 제거한 "새 리스트"를 반환한다.
+ */
+export function removePartnerOptionFromList(options: unknown, name: unknown): string[] {
+  const base = normalizePartnerOptions(options);
+  const n = normalizePartnerName(name);
+  if (!n) return base;
+  return base.filter((x) => x !== n);
+}
+
 /* ---------------------------
-   /api/signup-settings 연동(옵션을 DB에 저장/조회)
+   /api/signup-settings 연동
    --------------------------- */
 
 type SignupSettingsResponse = {
@@ -48,9 +57,13 @@ type SignupSettingsResponse = {
   partnerOptions?: string[];
 };
 
-// 간단 캐시(메모리): 새로고침하면 초기화되며, 규칙 위반 아님
+// 메모리 캐시(새로고침하면 초기화되며 규칙 위반 아님)
 let cachedPartnerOptions: string[] | null = null;
 let inflight: Promise<string[]> | null = null;
+
+function setCache(next: unknown) {
+  cachedPartnerOptions = normalizePartnerOptions(next);
+}
 
 export async function fetchPartnerOptionsFromApi(): Promise<string[]> {
   if (cachedPartnerOptions) return cachedPartnerOptions;
@@ -86,11 +99,10 @@ export async function savePartnerOptionsToApi(nextOptions: string[]): Promise<st
     throw new Error(t || `FAILED(${r.status})`);
   }
 
-  // PATCH 응답이 merged settings이므로 partnerOptions만 다시 정규화
   const j = (await r.json()) as SignupSettingsResponse;
   const saved = normalizePartnerOptions(j?.partnerOptions ?? normalized);
 
-  cachedPartnerOptions = saved;
+  setCache(saved);
   return saved;
 }
 
@@ -100,6 +112,14 @@ export async function addPartnerOptionViaApi(name: string): Promise<string[]> {
 
   const cur = await fetchPartnerOptionsFromApi().catch(() => []);
   const next = addPartnerOptionToList(cur, n);
+  return await savePartnerOptionsToApi(next);
+}
 
+export async function removePartnerOptionViaApi(name: string): Promise<string[]> {
+  const n = normalizePartnerName(name);
+  if (!n) return cachedPartnerOptions ?? [];
+
+  const cur = await fetchPartnerOptionsFromApi().catch(() => []);
+  const next = removePartnerOptionFromList(cur, n);
   return await savePartnerOptionsToApi(next);
 }
