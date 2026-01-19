@@ -425,7 +425,13 @@ export default function SignupView() {
           draft.setRows(nextRows);
         }}
         onSubmitSuccess={async () => {
+          // 전송 성공 → draft(데이터)만 삭제, 양식은 유지
           await draft.clear();
+
+          // 전송 후에도 항상 15행 유지(빈 데이터)
+          const KEEP_ROWS = 15;
+          setRowCount(KEEP_ROWS);
+          queuePatch({ rowCount: KEEP_ROWS });
         }}
         onTransferFailed={(message) => {
           setTransferErrorMessage(String(message || "저장(전송)에 실패했습니다."));
