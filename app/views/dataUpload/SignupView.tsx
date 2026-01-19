@@ -146,11 +146,30 @@ export default function SignupView() {
     return (await r.json()) as SignupSettings;
   }
 
+  // ✅ (중요) selectedKeys 저장은 디바운스/큐를 거치지 않고 "즉시 PATCH"로 확정 저장
+  // 카테고리 이동/언마운트에서 fetch가 취소되더라도 이미 저장되게 만들기 위한 안전장치
+  async function saveSelectedKeysImmediately(next: string[]) {
+    try {
+      await patchSettingsNow({ selectedKeys: next }, false);
+
+      // 해당 키는 pending에서 제거(중복 저장/덮어쓰기 방지)
+      const p = pendingPatchRef.current || {};
+      if ("selectedKeys" in p) {
+        const { selectedKeys: _drop, ...rest } = p as any;
+        pendingPatchRef.current = rest;
+      }
+
+      emitUnifiedUpdateThrottled();
+    } catch {
+      setError("양식 저장에 실패했습니다.(selectedKeys)");
+      // 실패 시 pending에 다시 쌓아두기(유실 방지)
+      pendingPatchRef.current = { ...pendingPatchRef.current, selectedKeys: next };
+    }
+  }
+
   function queuePatch(partial: Partial<SignupSettings>) {
-    // ✅ hydrate 전에도 pending에 누적(유실 방지)
     pendingPatchRef.current = { ...pendingPatchRef.current, ...partial };
 
-    // hydrate 전이면 실제 PATCH는 하지 않음
     if (!settingsHydratedRef.current) return;
 
     if (patchTimerRef.current) window.clearTimeout(patchTimerRef.current);
@@ -173,12 +192,11 @@ export default function SignupView() {
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
 
-      // ✅ GET 실패여도 "pending이 있으면 저장"이 가능하도록 hydrate는 true로
+      // ✅ GET 실패여도 hydrate true로 전환(저장 큐가 동작하도록)
       if (!r.ok) {
         const wasHydrated = settingsHydratedRef.current;
         settingsHydratedRef.current = true;
 
-        // hydrate 이전에 사용자 변경이 있었다면 저장을 시도(유실 방지)
         if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
           queuePatch({});
         }
@@ -188,7 +206,6 @@ export default function SignupView() {
       const j = (await r.json()) as Partial<SignupSettings> | null;
       const server = normalizeSettings(j);
 
-      // ✅ hydrate 전/중 사용자가 바꾼 값이 있으면 pending 우선
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
         selectedKeys:
@@ -208,12 +225,10 @@ export default function SignupView() {
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
 
-      // ✅ 최초 hydrate 직후 pending이 있으면 1회 flush 예약
       if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
         queuePatch({});
       }
     } catch {
-      // ✅ 예외여도 hydrate true + pending flush 시도(유실 방지)
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
       if (!wasHydrated && Object.keys(pendingPatchRef.current || {}).length > 0) {
@@ -222,7 +237,7 @@ export default function SignupView() {
     }
   }
 
-  // ✅ 페이지 이탈 시 settings 저장 누락 방지(클라이언트 라우팅에서도 fetch가 취소될 수 있어 keepalive 사용)
+  // ✅ 페이지 이탈 시 settings 저장 누락 방지
   function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (patchTimerRef.current) {
       window.clearTimeout(patchTimerRef.current);
@@ -232,7 +247,6 @@ export default function SignupView() {
     const pending = pendingPatchRef.current || {};
     const hasPending = Object.keys(pending).length > 0;
 
-    // hydrate 전이라면 "pending만" 저장(스냅샷으로 기본값 덮어쓰는 사고 방지)
     if (!settingsHydratedRef.current) {
       if (!hasPending) return;
       pendingPatchRef.current = {};
@@ -240,7 +254,6 @@ export default function SignupView() {
       void patchSettingsNow(pending, true)
         .then(() => emitUnifiedUpdateThrottled())
         .catch(() => {
-          // 실패 시 다시 누적(유실 방지)
           pendingPatchRef.current = { ...pending, ...pendingPatchRef.current };
         });
       return;
@@ -256,10 +269,9 @@ export default function SignupView() {
     const body: Partial<SignupSettings> = { ...pending, ...snapshot };
     pendingPatchRef.current = {};
 
-    void patchSettingsNow(body, true)
+    void patchSettingsNow(body, reason === "beforeunload")
       .then(() => emitUnifiedUpdateThrottled())
       .catch(() => {
-        // 실패 시 다시 누적(유실 방지)
         pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
       });
   }
@@ -369,7 +381,9 @@ export default function SignupView() {
         selectedKeys={selectedKeys}
         onChangeSelectedKeys={(next) => {
           setSelectedKeys(next);
-          queuePatch({ selectedKeys: next });
+
+          // ✅ 즉시 저장(유실 방지)
+          void saveSelectedKeysImmediately(next);
         }}
         onReloadColumns={loadColumns}
         loadingColumns={loadingColumns}
