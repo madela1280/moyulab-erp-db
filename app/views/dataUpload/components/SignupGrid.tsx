@@ -6,6 +6,7 @@ import ContextMenu from "@/views/dataUpload/signup-grid/ContextMenu";
 import { parseTSV, toTSV } from "@/views/dataUpload/signup-grid/tsv";
 import { safeReadClipboardText, safeWriteClipboardText } from "@/views/dataUpload/signup-grid/clipboard";
 import CellEditor from "@/views/dataUpload/signup-grid/editors/CellEditor";
+import { apiSignupTransfer } from "@/views/dataUpload/signup-transfer/serviceSignupTransfer";
 
 type RowValues = Record<string, string>;
 
@@ -110,6 +111,9 @@ export default function SignupGrid({
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+   // 전송 실패 시 "강제전송" 버튼 노출
+  const [forceVisible, setForceVisible] = useState(false);
 
   const [active, setActive] = useState<CellPos | null>(null);
   const [anchor, setAnchor] = useState<CellPos | null>(null);
@@ -600,41 +604,77 @@ export default function SignupGrid({
     selectSingle(r, c);
   }
 
-  async function handleSubmit() {
+   async function handleSubmit(force: boolean) {
     onError("");
+    setForceVisible(false);
 
     if (selectedColumns.length === 0) {
       onError("저장할 컬럼을 먼저 선택해 주세요.");
       return;
     }
 
-    const targets = rows
-      .map((row) => {
-        const data: Record<string, string> = {};
-        for (const k of selectedColumns) data[k] = String(row?.[k] ?? "");
-        return data;
-      })
-      .filter((data) => hasAnyValue(data));
+    // API가 내부에서 빈 행은 제외하지만, UI 메시지를 위해 여기서도 체크
+    const hasAny = rows.some((row) => {
+      const data: Record<string, string> = {};
+      for (const k of selectedColumns) data[k] = String(row?.[k] ?? "");
+      return hasAnyValue(data);
+    });
 
-    if (targets.length === 0) {
+    if (!hasAny) {
       onError("저장할 데이터가 없습니다.");
       return;
     }
 
     setSubmitting(true);
     try {
-      for (const data of targets) {
-        const r = await fetch("/api/unified/signup-submit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data }),
-        });
-        if (!r.ok) {
-          const t = await r.text().catch(() => "");
-          throw new Error(t || `FAILED(${r.status})`);
+      // 1) 1차 전송
+       const j1 = await apiSignupTransfer({
+        rows,
+        selectedKeys: selectedColumns,
+        force: !!force,
+        confirmDuplicates: false,
+      });
+
+      // 2) 추가출고 confirm 필요
+      if (j1?.anyConfirmNeeded) {
+        const ok = window.confirm("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
+        if (!ok) {
+          setForceVisible(true);
+          onError("전송이 취소되었습니다.");
+          return;
         }
+
+         const j2 = await apiSignupTransfer({
+          rows,
+          selectedKeys: selectedColumns,
+          force: !!force,
+          confirmDuplicates: true,
+        });
+
+        if (!j2?.ok) {
+          setForceVisible(true);
+          const firstFail = Array.isArray(j2?.results) ? j2.results.find((x: any) => x && x.ok === false) : null;
+          onError(firstFail?.reason || "저장(전송)에 실패했습니다.");
+          return;
+        }
+
+        // 성공 처리
+        syncEmitUnifiedUpdate();
+        rowsTouchedRef.current = true;
+        setRows((prev) => prev.map(() => ({})));
+        await onSubmitSuccess?.();
+        return;
       }
 
+      // 3) 일반 실패(필수/중복출고 등)
+      if (!j1?.ok) {
+        setForceVisible(true);
+        const firstFail = Array.isArray(j1?.results) ? j1.results.find((x: any) => x && x.ok === false) : null;
+        onError(firstFail?.reason || "저장(전송)에 실패했습니다.");
+        return;
+      }
+
+      // 4) 성공 처리
       syncEmitUnifiedUpdate();
 
       rowsTouchedRef.current = true;
@@ -642,7 +682,8 @@ export default function SignupGrid({
 
       await onSubmitSuccess?.();
     } catch (e: any) {
-      onError(e?.message ? "저장에 실패했습니다." : "저장에 실패했습니다.");
+      setForceVisible(true);
+      onError("저장(전송)에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -655,7 +696,7 @@ export default function SignupGrid({
     <div className="w-full flex flex-col gap-1.5 flex-1 min-h-0" onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePasteCapture}>
       <div ref={gridFocusRef} tabIndex={0} className="absolute opacity-0 pointer-events-none" />
 
-      {showToolbar && (
+           {showToolbar && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button type="button" className={btnBase} onClick={add10Rows}>
@@ -684,15 +725,29 @@ export default function SignupGrid({
             </button>
           </div>
 
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
-            onClick={handleSubmit}
-            disabled={submitting || loadingColumns}
-          >
-            <IconSend className="w-4 h-4" />
-            {submitting ? "저장 중.." : "저장"}
-          </button>
+          <div className="flex items-center gap-2">
+            {forceVisible && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white disabled:opacity-60"
+                onClick={() => handleSubmit(true)}
+                disabled={submitting || loadingColumns}
+                title="검증 경고가 있어도 강제로 전송"
+              >
+                강제전송
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
+              onClick={() => handleSubmit(false)}
+              disabled={submitting || loadingColumns}
+            >
+              <IconSend className="w-4 h-4" />
+              {submitting ? "저장 중.." : "저장"}
+            </button>
+          </div>
         </div>
       )}
 
