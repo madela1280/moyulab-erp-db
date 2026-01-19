@@ -648,7 +648,7 @@ export default function SignupGrid({
 
       // ✅ 추가출고 확인은 부모 모달에서 처리(강제전송 버튼 = "예")
       if (j1?.anyConfirmNeeded) {
-        onTransferFailed?.("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
+        onTransferFailed?.("동일한 수취인에게 출고된(미반납된) 유축기가 있습니다\n추가 출고를 하시겠습니까?");
         return;
       }
 
