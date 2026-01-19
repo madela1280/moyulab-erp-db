@@ -82,12 +82,16 @@ export default function SignupGrid({
 
   initialRows,
   onRowsChange,
-  onSubmitSuccess,
+    onSubmitSuccess,
   onTransferFailed,
+
+  // ✅ 강제전송 트리거(부모 모달에서 +1)
+  forceSubmitToken,
 
   // ✅ 외부 reload(다른 탭 수정 등) 반영 강제용 토큰
   rowsReloadToken,
 }: {
+
   allColumns: string[];
   selectedKeys: string[];
   loadingColumns: boolean;
@@ -104,8 +108,10 @@ export default function SignupGrid({
 
   initialRows?: RowValues[];
   onRowsChange?: (rows: RowValues[]) => void;
-  onSubmitSuccess?: () => void | Promise<void>;
+    onSubmitSuccess?: () => void | Promise<void>;
   onTransferFailed?: (message: string) => void;
+
+  forceSubmitToken?: number;
 
   rowsReloadToken?: number;
 }) {
@@ -113,6 +119,15 @@ export default function SignupGrid({
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>({});
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // 강제전송 토큰 변화 감지(모달에서 +1)
+  const lastForceSubmitTokenRef = useRef<number | null>(null);
+
+  // submitting 최신값을 effect에서 안전하게 보기 위한 ref
+  const submittingRef = useRef(false);
+  useEffect(() => {
+    submittingRef.current = submitting;
+  }, [submitting]);
    
   const [active, setActive] = useState<CellPos | null>(null);
   const [anchor, setAnchor] = useState<CellPos | null>(null);
@@ -632,20 +647,12 @@ export default function SignupGrid({
         confirmDuplicates: false,
       });
 
-      // 추가출고 confirm 필요
+            // 추가출고 confirm 필요
       if (j1?.anyConfirmNeeded) {
-        const ok = window.confirm("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
-        if (!ok) {
-          onTransferFailed?.("전송이 취소되었습니다.");
-          return;
-        }
-
-        const j2 = await apiSignupTransfer({
-          rows,
-          selectedKeys: selectedColumns,
-          force: !!force,
-          confirmDuplicates: true,
-        });
+        // 확인은 부모 모달에서 처리(강제전송 버튼으로 진행)
+        onTransferFailed?.("출고된 유축기가 있습니다. 추가 출고 하시겠습니까?");
+        return;
+      }
 
         if (!j2?.ok) {
           const firstFail = Array.isArray(j2?.results)
@@ -689,6 +696,28 @@ export default function SignupGrid({
       setSubmitting(false);
     }
   }
+
+   // 부모 모달의 "강제전송" 버튼이 forceSubmitToken을 +1 하면 여기서 감지해서 강제 전송 실행
+  useEffect(() => {
+    if (typeof forceSubmitToken !== "number") return;
+
+    // 첫 세팅(마운트)은 트리거로 보지 않음
+    if (lastForceSubmitTokenRef.current === null) {
+      lastForceSubmitTokenRef.current = forceSubmitToken;
+      return;
+    }
+
+    // 같은 값이면 무시
+    if (forceSubmitToken === lastForceSubmitTokenRef.current) return;
+
+    lastForceSubmitTokenRef.current = forceSubmitToken;
+
+    // 이미 전송 중이면 무시
+    if (submittingRef.current) return;
+
+    void handleSubmit(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceSubmitToken]);
 
   const btnBase = "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border rounded bg-slate-50 hover:bg-slate-100";
   const btnIcon = "text-slate-700";

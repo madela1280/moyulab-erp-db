@@ -6,6 +6,7 @@ import "@/global-socket/socket-client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import SignupGrid from "@/views/dataUpload/components/SignupGrid";
+import SignupTransferErrorModal from "@/views/dataUpload/signup-transfer/SignupTransferErrorModal";
 import { useSignupDraft } from "@/views/dataUpload/signup-draft/useSignupDraft";
 import { syncEmitUnifiedUpdate, syncListen } from "@/global-sync/sync-engine";
 
@@ -50,6 +51,12 @@ export default function SignupView() {
 
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [error, setError] = useState<string>("");
+
+  // 전송 실패 모달
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [transferErrorMessage, setTransferErrorMessage] = useState("");
+  // 강제전송 트리거(토큰) - 다음 파일(SignupGrid)에서 이 토큰을 받아 force 전송 실행하게 됨
+  const [forceSubmitToken, setForceSubmitToken] = useState(0);
 
   // settings (DB/API 기반)
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(DEFAULT_SETTINGS.colWidthSteps);
@@ -399,7 +406,7 @@ export default function SignupView() {
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      <SignupGrid
+    <SignupGrid
         allColumns={allColumns}
         selectedKeys={filteredSelectedKeys}
         loadingColumns={loadingColumns}
@@ -420,6 +427,11 @@ export default function SignupView() {
         onSubmitSuccess={async () => {
           await draft.clear();
         }}
+        onTransferFailed={(message) => {
+          setTransferErrorMessage(String(message || "저장(전송)에 실패했습니다."));
+          setTransferModalOpen(true);
+        }}
+        forceSubmitToken={forceSubmitToken}
         onColWidthStepsChange={(next) => {
           setColWidthSteps(next);
           queuePatch({ colWidthSteps: next });
@@ -430,6 +442,16 @@ export default function SignupView() {
         }}
       />
 
+    <SignupTransferErrorModal
+        open={transferModalOpen}
+        message={transferErrorMessage}
+        onClose={() => setTransferModalOpen(false)}
+        onForceTransfer={() => {
+          setTransferModalOpen(false);
+          setForceSubmitToken((v) => v + 1);
+        }}
+      />
+  
       <UnifiedColumnPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
