@@ -28,6 +28,17 @@ const DEFAULT_SETTINGS: SignupSettings = {
   partnerOptions: [],
 };
 
+// ✅ SPA(카테고리 이동) 시 UI가 "빈 상태"로 잠깐/계속 보이는 문제를 막기 위한 메모리 캐시
+// - 브라우저 영속 저장소 아님(localStorage 등 사용 금지 준수)
+// - 새로고침하면 초기화되므로 “진짜 데이터 소스”로 믿지 않고, DB(/api)를 항상 우선한다.
+let __SIGNUP_VIEW_MEMO__: {
+  allColumns: string[] | null;
+  settings: SignupSettings | null;
+} = {
+  allColumns: null,
+  settings: null,
+};
+
 function toUserMessage(raw: string) {
   const m = String(raw || "");
   if (!m) return "";
@@ -44,17 +55,17 @@ function isPlainObject(v: any) {
 }
 
 export default function SignupView() {
-  const [allColumns, setAllColumns] = useState<string[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [allColumns, setAllColumns] = useState<string[]>(() => __SIGNUP_VIEW_MEMO__.allColumns ?? []);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(() => __SIGNUP_VIEW_MEMO__.settings?.selectedKeys ?? []);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [error, setError] = useState<string>("");
 
   // settings (DB/API 기반)
-  const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(DEFAULT_SETTINGS.colWidthSteps);
-  const [rowCount, setRowCount] = useState<number>(DEFAULT_SETTINGS.rowCount);
-  const [partnerOptions, setPartnerOptions] = useState<string[]>(DEFAULT_SETTINGS.partnerOptions);
+  const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(() => __SIGNUP_VIEW_MEMO__.settings?.colWidthSteps ?? DEFAULT_SETTINGS.colWidthSteps);
+  const [rowCount, setRowCount] = useState<number>(() => __SIGNUP_VIEW_MEMO__.settings?.rowCount ?? DEFAULT_SETTINGS.rowCount);
+  const [partnerOptions, setPartnerOptions] = useState<string[]>(() => __SIGNUP_VIEW_MEMO__.settings?.partnerOptions ?? DEFAULT_SETTINGS.partnerOptions);
 
   // settings hydrate / patch queue
   const settingsHydratedRef = useRef(false);
@@ -110,6 +121,9 @@ export default function SignupView() {
       const j = (await r.json()) as UnifiedColumnsResponse;
       const order = Array.isArray(j?.order) ? j.order.map(String) : [];
       setAllColumns(order);
+
+      // ✅ 메모리 캐시 갱신
+      __SIGNUP_VIEW_MEMO__ = { ...__SIGNUP_VIEW_MEMO__, allColumns: order };
     } catch (e: any) {
       setError(toUserMessage(e?.message) || "컬럼 목록을 불러오지 못했습니다.");
     } finally {
@@ -146,11 +160,13 @@ export default function SignupView() {
     return (await r.json()) as SignupSettings;
   }
 
-  // ✅ (중요) selectedKeys 저장은 디바운스/큐를 거치지 않고 "즉시 PATCH"로 확정 저장
-  // 카테고리 이동/언마운트에서 fetch가 취소되더라도 이미 저장되게 만들기 위한 안전장치
+  // ✅ selectedKeys 저장은 즉시 PATCH로 확정 저장(이동/이탈 유실 방지)
   async function saveSelectedKeysImmediately(next: string[]) {
     try {
-      await patchSettingsNow({ selectedKeys: next }, false);
+      const saved = await patchSettingsNow({ selectedKeys: next }, false);
+
+      // state 갱신(서버 값 기준)
+      setSelectedKeys(Array.isArray(saved?.selectedKeys) ? saved.selectedKeys : next);
 
       // 해당 키는 pending에서 제거(중복 저장/덮어쓰기 방지)
       const p = pendingPatchRef.current || {};
@@ -158,6 +174,17 @@ export default function SignupView() {
         const { selectedKeys: _drop, ...rest } = p as any;
         pendingPatchRef.current = rest;
       }
+
+      // ✅ 메모리 캐시 갱신
+      __SIGNUP_VIEW_MEMO__ = {
+        ...__SIGNUP_VIEW_MEMO__,
+        settings: {
+          selectedKeys: Array.isArray(saved?.selectedKeys) ? saved.selectedKeys : next,
+          colWidthSteps: __SIGNUP_VIEW_MEMO__.settings?.colWidthSteps ?? colWidthSteps,
+          rowCount: __SIGNUP_VIEW_MEMO__.settings?.rowCount ?? rowCount,
+          partnerOptions: __SIGNUP_VIEW_MEMO__.settings?.partnerOptions ?? partnerOptions,
+        },
+      };
 
       emitUnifiedUpdateThrottled();
     } catch {
@@ -178,7 +205,11 @@ export default function SignupView() {
       pendingPatchRef.current = {};
 
       try {
-        await patchSettingsNow(body, false);
+        const saved = await patchSettingsNow(body, false);
+
+        // ✅ 메모리 캐시 갱신
+        __SIGNUP_VIEW_MEMO__ = { ...__SIGNUP_VIEW_MEMO__, settings: normalizeSettings(saved) };
+
         emitUnifiedUpdateThrottled();
       } catch {
         setError("설정 저장에 실패했습니다.");
@@ -192,7 +223,7 @@ export default function SignupView() {
     try {
       const r = await fetch("/api/signup-settings", { cache: "no-store" });
 
-      // ✅ GET 실패여도 hydrate true로 전환(저장 큐가 동작하도록)
+      // GET 실패여도 hydrate true로 전환(저장 큐가 동작하도록)
       if (!r.ok) {
         const wasHydrated = settingsHydratedRef.current;
         settingsHydratedRef.current = true;
@@ -222,6 +253,9 @@ export default function SignupView() {
       setRowCount(merged.rowCount);
       setPartnerOptions(merged.partnerOptions);
 
+      // ✅ 메모리 캐시 갱신(서버 기준)
+      __SIGNUP_VIEW_MEMO__ = { ...__SIGNUP_VIEW_MEMO__, settings: merged };
+
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
 
@@ -237,7 +271,7 @@ export default function SignupView() {
     }
   }
 
-  // ✅ 페이지 이탈 시 settings 저장 누락 방지
+  // 페이지 이탈 시 settings 저장 누락 방지
   function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (patchTimerRef.current) {
       window.clearTimeout(patchTimerRef.current);
@@ -252,7 +286,10 @@ export default function SignupView() {
       pendingPatchRef.current = {};
 
       void patchSettingsNow(pending, true)
-        .then(() => emitUnifiedUpdateThrottled())
+        .then((saved) => {
+          __SIGNUP_VIEW_MEMO__ = { ...__SIGNUP_VIEW_MEMO__, settings: normalizeSettings(saved) };
+          emitUnifiedUpdateThrottled();
+        })
         .catch(() => {
           pendingPatchRef.current = { ...pending, ...pendingPatchRef.current };
         });
@@ -270,7 +307,10 @@ export default function SignupView() {
     pendingPatchRef.current = {};
 
     void patchSettingsNow(body, reason === "beforeunload")
-      .then(() => emitUnifiedUpdateThrottled())
+      .then((saved) => {
+        __SIGNUP_VIEW_MEMO__ = { ...__SIGNUP_VIEW_MEMO__, settings: normalizeSettings(saved) };
+        emitUnifiedUpdateThrottled();
+      })
       .catch(() => {
         pendingPatchRef.current = { ...body, ...pendingPatchRef.current };
       });
@@ -384,6 +424,17 @@ export default function SignupView() {
 
           // ✅ 즉시 저장(유실 방지)
           void saveSelectedKeysImmediately(next);
+
+          // ✅ 메모리 캐시에도 즉시 반영(카테고리 이동 시 "빈 화면" 방지)
+          __SIGNUP_VIEW_MEMO__ = {
+            ...__SIGNUP_VIEW_MEMO__,
+            settings: {
+              selectedKeys: next,
+              colWidthSteps,
+              rowCount,
+              partnerOptions,
+            },
+          };
         }}
         onReloadColumns={loadColumns}
         loadingColumns={loadingColumns}
