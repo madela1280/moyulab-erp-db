@@ -345,6 +345,58 @@ export default function SignupGrid({
     return null;
   }
 
+  function clamp(n: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function getMoveBaseCell(): CellPos {
+    if (active) return active;
+    const tl = getSelectionTopLeft();
+    if (tl) return tl;
+    return { r: 0, c: 0 };
+  }
+
+  function focusCellEditor(r: number, c: number) {
+    if (typeof document === "undefined") return;
+
+    const cell = document.querySelector(`[data-sg-cell="1"][data-r="${r}"][data-c="${c}"]`) as HTMLElement | null;
+    if (!cell) return;
+
+    // 스크롤 가시영역으로 이동(엑셀 느낌)
+    try {
+      cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } catch {}
+
+    // 내부 editor로 포커스 이동
+    const editor = cell.querySelector("input,select,textarea,[contenteditable='true']") as HTMLElement | null;
+
+    // DOM 업데이트 타이밍 안정화를 위해 rAF 1회 권장(기록 내용 반영)
+    requestAnimationFrame(() => {
+      try {
+        editor?.focus?.();
+      } catch {}
+    });
+  }
+
+  function moveSelectionBy(dr: number, dc: number, expand: boolean) {
+    if (!showToolbar) return;
+    if (selectedColumns.length === 0) return;
+    if (rows.length === 0) return;
+
+    const base = getMoveBaseCell();
+
+    const nextR = clamp(base.r + dr, 0, rows.length - 1);
+    const nextC = clamp(base.c + dc, 0, selectedColumns.length - 1);
+
+    if (expand) {
+      selectFromAnchor({ r: nextR, c: nextC });
+    } else {
+      selectSingle(nextR, nextC);
+    }
+
+    focusCellEditor(nextR, nextC);
+  }
+
   async function copySelection() {
     if (!range || selectedColumns.length === 0) return;
 
@@ -421,12 +473,26 @@ export default function SignupGrid({
     pasteMatrixAt(start, matrix);
   }
 
-  function handleKeyDownCapture(e: React.KeyboardEvent) {
+    function handleKeyDownCapture(e: React.KeyboardEvent) {
     if (!showToolbar) return;
 
-    const k = e.key.toLowerCase();
+    const k = e.key;
 
-    if (k === "delete") {
+    // 방향키: input/select가 먹기 전에 capture 단계에서 먼저 처리
+    if (k === "ArrowUp" || k === "ArrowDown" || k === "ArrowLeft" || k === "ArrowRight") {
+      e.preventDefault();
+
+      if (k === "ArrowUp") moveSelectionBy(-1, 0, e.shiftKey);
+      if (k === "ArrowDown") moveSelectionBy(1, 0, e.shiftKey);
+      if (k === "ArrowLeft") moveSelectionBy(0, -1, e.shiftKey);
+      if (k === "ArrowRight") moveSelectionBy(0, 1, e.shiftKey);
+
+      return;
+    }
+
+    const lower = k.toLowerCase();
+
+    if (lower === "delete") {
       if (range) {
         e.preventDefault();
         clearSelectionValues();
@@ -434,7 +500,7 @@ export default function SignupGrid({
       return;
     }
 
-    if ((e.ctrlKey || e.metaKey) && k === "c") {
+    if ((e.ctrlKey || e.metaKey) && lower === "c") {
       e.preventDefault();
       void copySelection();
       return;

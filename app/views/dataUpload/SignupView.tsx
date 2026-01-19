@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import UnifiedColumnPickerModal from "@/views/dataUpload/components/UnifiedColumnPickerModal";
 import SignupGrid from "@/views/dataUpload/components/SignupGrid";
 import { useSignupDraft } from "@/views/dataUpload/signup-draft/useSignupDraft";
-import { syncListen } from "@/global-sync/sync-engine";
+import { syncEmitUnifiedUpdate, syncListen } from "@/global-sync/sync-engine";
 
 type UnifiedColumnsResponse = {
   order: string[];
@@ -69,6 +69,33 @@ export default function SignupView() {
 
   // 다른 탭 수정 내용을 Grid에 "강제 적용"하기 위한 토큰
   const [rowsReloadToken, setRowsReloadToken] = useState(0);
+
+  // ✅ settings 변경 시 unified:update emit 스로틀(다른 탭에 실시간 반영)
+  const lastEmitAtRef = useRef(0);
+  const emitTimerRef = useRef<number | null>(null);
+  const EMIT_THROTTLE_MS = 1200;
+
+  function emitUnifiedUpdateThrottled() {
+    if (typeof window === "undefined") return;
+
+    const now = Date.now();
+    const elapsed = now - lastEmitAtRef.current;
+
+    if (elapsed >= EMIT_THROTTLE_MS) {
+      lastEmitAtRef.current = now;
+      syncEmitUnifiedUpdate();
+      return;
+    }
+
+    if (emitTimerRef.current) return;
+
+    const wait = Math.max(50, EMIT_THROTTLE_MS - elapsed);
+    emitTimerRef.current = window.setTimeout(() => {
+      emitTimerRef.current = null;
+      lastEmitAtRef.current = Date.now();
+      syncEmitUnifiedUpdate();
+    }, wait);
+  }
 
   const draft = useSignupDraft({
     onError: (msg) => setError(toUserMessage(msg)),
@@ -163,7 +190,13 @@ export default function SignupView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!r.ok) setError("설정 저장에 실패했습니다.");
+        if (!r.ok) {
+          setError("설정 저장에 실패했습니다.");
+          return;
+        }
+
+        // ✅ 설정 저장 성공 → 다른 탭에 실시간 반영
+        emitUnifiedUpdateThrottled();
       } catch {
         setError("설정 저장에 실패했습니다.");
       }
@@ -190,12 +223,17 @@ export default function SignupView() {
     pendingPatchRef.current = {};
 
     try {
-      await fetch("/api/signup-settings", {
+      const r = await fetch("/api/signup-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         keepalive: reason === "beforeunload",
       });
+
+      if (r.ok) {
+        // ✅ 이탈 저장 성공 → 다른 탭에 실시간 반영
+        emitUnifiedUpdateThrottled();
+      }
     } catch {}
   }
 
@@ -225,6 +263,7 @@ export default function SignupView() {
       void flushSettingsPatch("unmount");
       if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
       if (settingsReloadTimerRef.current) window.clearTimeout(settingsReloadTimerRef.current);
+      if (emitTimerRef.current) window.clearTimeout(emitTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

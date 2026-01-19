@@ -33,7 +33,7 @@ function normalizeSettings(s: any): SignupSettings {
   return {
     selectedKeys: Array.isArray(safe?.selectedKeys) ? safe.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys,
     colWidthSteps:
-      safe?.colWidthSteps && typeof safe.colWidthSteps === "object"
+      safe?.colWidthSteps && typeof safe.colWidthSteps === "object" && !Array.isArray(safe.colWidthSteps)
         ? (safe.colWidthSteps as Record<string, number>)
         : DEFAULT_SETTINGS.colWidthSteps,
     rowCount: Number.isFinite(Number(safe?.rowCount)) ? Math.max(1, Math.floor(Number(safe.rowCount))) : DEFAULT_SETTINGS.rowCount,
@@ -80,7 +80,7 @@ async function ensureRowAndGetSettings(client: any): Promise<SignupSettings> {
   if (rows.length === 0) {
     await client.query(
       "INSERT INTO signup_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_at = now()",
-      [DEFAULT_SETTINGS]
+      [JSON.stringify(DEFAULT_SETTINGS)]
     );
     return DEFAULT_SETTINGS;
   }
@@ -116,7 +116,7 @@ export async function PATCH(req: Request) {
 
     await client.query(
       "INSERT INTO signup_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_at = now()",
-      [merged]
+      [JSON.stringify(merged)]
     );
 
     await client.query("COMMIT");

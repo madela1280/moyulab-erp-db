@@ -14,7 +14,7 @@ export function normalizePartnerOptions(list: unknown): string[] {
 
 /**
  * 현재 값(value)이 options에 없으면 맨 앞에 포함시켜,
- * 드롭다운에서 즉시 선택/표시되도록 한다.
+ * 드롭다운/자동완성에서 즉시 선택/표시되도록 한다.
  */
 export function mergePartnerOptionsWithValue(options: unknown, value: unknown): string[] {
   const base = normalizePartnerOptions(options);

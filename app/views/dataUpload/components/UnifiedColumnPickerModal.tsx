@@ -61,10 +61,7 @@ export default function UnifiedColumnPickerModal({
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/30 flex items-center justify-center" onMouseDown={onClose}>
-      <div
-        className="bg-white w-[980px] max-w-[95vw] rounded border shadow p-4"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+      <div className="bg-white w-[980px] max-w-[95vw] rounded border shadow p-4" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-800">양식(통합관리 컬럼 선택)</div>
           <button className="text-xs px-2 py-1 border rounded bg-slate-50" onClick={onClose} type="button">
@@ -141,9 +138,7 @@ export default function UnifiedColumnPickerModal({
                         <div className={`text-xs ${exists ? "text-slate-800" : "text-red-600"}`}>
                           <span className="truncate block">{k}</span>
                         </div>
-                        {!exists && (
-                          <div className="text-[11px] text-red-600 mt-0.5">현재 컬럼 목록에 없음 — 제거 권장</div>
-                        )}
+                        {!exists && <div className="text-[11px] text-red-600 mt-0.5">현재 컬럼 목록에 없음 — 제거 권장</div>}
                       </div>
 
                       <button
@@ -182,11 +177,7 @@ export default function UnifiedColumnPickerModal({
 
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs text-slate-500">선택: {selectedKeys.length}개</div>
-          <button
-            type="button"
-            className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={onClose}
-          >
+          <button type="button" className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white" onClick={onClose}>
             적용
           </button>
         </div>
