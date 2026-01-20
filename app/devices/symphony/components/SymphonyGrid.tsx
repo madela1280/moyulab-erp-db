@@ -933,7 +933,7 @@ if (isComputedColumn(key)) {
   );
 }
 
-      return (
+   return (
   <td
     key={key}
     className={cls}
@@ -1012,7 +1012,14 @@ if (isComputedColumn(key)) {
       onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
     />
   </td>
-);              
+);
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {/* 우클릭 메뉴 */}
       {contextMenu && (
@@ -1097,4 +1104,4 @@ if (isComputedColumn(key)) {
   );
 });
 
-export default SymphonyGrid;
+export default SymphonyGrid; 
