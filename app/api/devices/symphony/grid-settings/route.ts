@@ -9,42 +9,72 @@ import { query } from "@/lib/db";
  * POST /api/devices/symphony/grid-settings  -> upsert
  */
 
+async function ensureSettingsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS device_symphony_grid_settings (
+      id   INT PRIMARY KEY,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+  `);
+
+  // 기본 row(id=1) 없으면 만들어둠
+  await query(`
+    INSERT INTO device_symphony_grid_settings (id, data)
+    VALUES (1, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+}
+
 export async function GET() {
-  const r = await query(
-    `SELECT data FROM device_symphony_grid_settings WHERE id=1 LIMIT 1`
-  );
+  try {
+    await ensureSettingsTable();
 
-  const data = (r.rows[0]?.data ?? {}) as any;
+    const r = await query(
+      `SELECT data FROM device_symphony_grid_settings WHERE id=1 LIMIT 1`
+    );
 
-  return NextResponse.json({
-    columnOrder: Array.isArray(data.columnOrder) ? data.columnOrder : [],
-    colWidthUnitByKey:
-      data.colWidthUnitByKey && typeof data.colWidthUnitByKey === "object"
-        ? data.colWidthUnitByKey
-        : {},
-  });
+    const data = (r.rows[0]?.data ?? {}) as any;
+
+    return NextResponse.json({
+      columnOrder: Array.isArray(data.columnOrder) ? data.columnOrder : [],
+      colWidthUnitByKey:
+        data.colWidthUnitByKey && typeof data.colWidthUnitByKey === "object"
+          ? data.colWidthUnitByKey
+          : {},
+    });
+  } catch (e) {
+    console.error("GET /api/devices/symphony/grid-settings error:", e);
+    return NextResponse.json({ error: "SERVER" }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  try {
+    await ensureSettingsTable();
 
-  const payload = {
-    columnOrder: Array.isArray(body?.columnOrder) ? body.columnOrder : [],
-    colWidthUnitByKey:
-      body?.colWidthUnitByKey && typeof body.colWidthUnitByKey === "object"
-        ? body.colWidthUnitByKey
-        : {},
-  };
+    const body = await req.json().catch(() => ({}));
 
-  await query(
-    `
-    INSERT INTO device_symphony_grid_settings (id, data)
-    VALUES (1, $1)
-    ON CONFLICT (id)
-    DO UPDATE SET data = EXCLUDED.data
-    `,
-    [payload]
-  );
+    const payload = {
+      columnOrder: Array.isArray(body?.columnOrder) ? body.columnOrder : [],
+      colWidthUnitByKey:
+        body?.colWidthUnitByKey && typeof body.colWidthUnitByKey === "object"
+          ? body.colWidthUnitByKey
+          : {},
+    };
 
-  return NextResponse.json({ ok: true });
+    await query(
+      `
+      INSERT INTO device_symphony_grid_settings (id, data)
+      VALUES (1, $1)
+      ON CONFLICT (id)
+      DO UPDATE SET data = EXCLUDED.data
+      `,
+      [payload]
+    );
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/devices/symphony/grid-settings error:", e);
+    return NextResponse.json({ error: "SERVER" }, { status: 500 });
+  }
 }
