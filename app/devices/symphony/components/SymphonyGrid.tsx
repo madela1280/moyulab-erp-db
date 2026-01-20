@@ -70,7 +70,7 @@ function clampUnit(v: any) {
 }
 
 function isComputedColumn(key: string) {
-  return key === "수리횟수";
+  return key === "수리횟수" || key === "거래처" || key === "대여자명";
 }
 
 function normalizeDeviceNo(v: any) {
@@ -106,7 +106,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     reload,
   } = useSymphonyRows();
 
-  const { rentingDeviceNoSet } = useUnifiedRentalStatus();
+  const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -296,14 +296,28 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
   // ===== 유틸: 셀 표시값(파생 포함) =====
  function getDisplayValue(row: SymphonyRow, colKey: string) {
+  const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
+  const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
+  const rentalInfo = deviceNo ? rentingInfoByDeviceNo?.[deviceNo] : undefined;
+
   if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
+  // ✅ 대여중 표시(기존 유지)
   if (colKey === "유축기 위치") {
-    const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
-    const renting = deviceNo && rentingDeviceNoSet.has(deviceNo);
     const raw = String(row.data?.[colKey] ?? "");
     if (!renting) return raw;
     return raw ? `${raw} (대여중)` : "대여중";
+  }
+
+  // ✅ 거래처/대여자명 자동 반영(대여중일 때만)
+  if (colKey === "거래처") {
+    if (renting) return String(rentalInfo?.거래처분류 ?? "");
+    return String(row.data?.[colKey] ?? "");
+  }
+
+  if (colKey === "대여자명") {
+    if (renting) return String(rentalInfo?.수취인명 ?? "");
+    return String(row.data?.[colKey] ?? "");
   }
 
   if (colKey === "원가") {
@@ -879,43 +893,45 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
                     const cls = `border px-2 py-[3px] ${baseBg} ${!cellSelected ? styleBg : ""}`;
 
-                    // computed: 수리횟수는 편집 불가 + 표시만
-                    if (key === "수리횟수") {
-                      return (
-                        <td
-                          key={key}
-                          className={cls}
-                          onMouseDown={(e) => {
-                            if (e.button !== 0) return;
-                            setIsCellDragging(true);
-                            setCellDragAnchor({ row: rowIndex, col: colIndex });
-                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-                            setSelectedRowRange(null);
-                            setContextMenu(null);
-                            closeFilterPopover();
-                          }}
-                          onMouseEnter={() => {
-                            if (!isCellDragging || !cellDragAnchor) return;
-                            setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-                            setSelectedRowRange(null);
-                            setContextMenuMode("cell");
-                            setContextMenu({ x: e.clientX, y: e.clientY });
-                            closeFilterPopover();
-                          }}
-                        >
-                            <div
-                                className={`w-full text-slate-900 text-center ${getCellTextClass(row.data, row.id, key)}`}
-                            >
-                                {getDisplayValue(row, key)}
-                            </div>
-                        </td>
-                      );
-                    }
+                   // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
+if (isComputedColumn(key)) {
+  return (
+    <td
+      key={key}
+      className={cls}
+      onMouseDown={(e) => {
+        if (e.button !== 0) return;
+        setIsCellDragging(true);
+        setCellDragAnchor({ row: rowIndex, col: colIndex });
+        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+        setSelectedRowRange(null);
+        setContextMenu(null);
+        closeFilterPopover();
+      }}
+      onMouseEnter={() => {
+        if (!isCellDragging || !cellDragAnchor) return;
+        setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+        setSelectedRowRange(null);
+        setContextMenuMode("cell");
+        setContextMenu({ x: e.clientX, y: e.clientY });
+        closeFilterPopover();
+      }}
+    >
+      <div
+        className={`w-full ${key === "수리횟수" ? "text-center" : ""} ${
+          getCellTextClass(row.data, row.id, key) || "text-slate-900"
+        }`}
+      >
+        {getDisplayValue(row, key)}
+      </div>
+    </td>
+  );
+}
 
                     return (
                       <td

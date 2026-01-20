@@ -6,6 +6,9 @@ import { symphonyColumns } from "@/devices/symphony/columns/symphonyColumns";
 type Props = {
   open: boolean;
   onClose: () => void;
+
+  // ✅ 양식추가/삭제 성공 직후, 상위에서 컬럼/그리드 즉시 갱신하기 위한 콜백
+  onChanged?: () => void | Promise<void>;
 };
 
 type ColumnsResponse = {
@@ -13,7 +16,7 @@ type ColumnsResponse = {
   order: string[];
 };
 
-export default function AddTemplateModalSymphony({ open, onClose }: Props) {
+export default function AddTemplateModalSymphony({ open, onClose, onChanged }: Props) {
   const baseSet = useMemo(() => new Set<string>([...symphonyColumns]), []);
   const [loading, setLoading] = useState(false);
   const [columns, setColumns] = useState<string[]>([]);
@@ -34,6 +37,7 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
       }
       const j = (await r.json()) as Partial<ColumnsResponse>;
       const order = Array.isArray(j?.order) ? j!.order.map(String) : [];
+
       setColumns(order.length ? order : ([...(symphonyColumns as unknown as string[])] as string[]));
     } finally {
       setLoading(false);
@@ -63,6 +67,10 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
       return;
     }
 
+    // ✅ 즉시 반영(상위에서 reloadAllColumnState + Grid remount 실행)
+    await onChanged?.();
+
+    // 모달 자체 목록 갱신
     setName("");
     await loadColumns();
   }
@@ -80,6 +88,10 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
       return;
     }
 
+    // ✅ 즉시 반영
+    await onChanged?.();
+
+    // 모달 목록 갱신
     await loadColumns();
   }
 
@@ -102,9 +114,7 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
 
       <div className="relative w-[920px] max-w-[95vw] bg-white rounded shadow border">
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="font-semibold text-slate-800">
-            양식추가(새 컬럼 추가) / 양식삭제
-          </div>
+          <div className="font-semibold text-slate-800">양식추가(새 컬럼 추가) / 양식삭제</div>
           <button className="px-3 py-1 border rounded hover:bg-gray-100" onClick={onClose}>
             닫기
           </button>
@@ -118,7 +128,7 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
             <div className="text-xs text-slate-600 mb-1">양식(컬럼) 이름</div>
             <input
               className="w-full h-9 px-2 border rounded mb-3"
-              placeholder="예: 메모3"
+              placeholder="예: 수리이력6"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -188,7 +198,10 @@ export default function AddTemplateModalSymphony({ open, onClose }: Props) {
             ) : (
               <div className="max-h-[320px] overflow-auto border rounded">
                 {customColumns.map((c) => (
-                  <div key={c} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0">
+                  <div
+                    key={c}
+                    className="flex items-center justify-between px-3 py-2 border-b last:border-b-0"
+                  >
                     <div className="text-sm text-slate-800">{c}</div>
                     <button
                       className="px-3 py-1 border rounded hover:bg-gray-100"

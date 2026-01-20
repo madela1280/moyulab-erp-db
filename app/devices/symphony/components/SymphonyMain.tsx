@@ -23,7 +23,7 @@ export default function SymphonyMain() {
 
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
 
-  // Grid 내부 선택/팝오버/드래그 등 UI 상태를 “완전 초기화”해야 할 때는 remount로 처리
+  // Grid 내부 선택/팝오버/드래그 등 UI 상태까지 즉시 초기화/반영하려면 remount가 가장 확실
   const [gridMountKey, setGridMountKey] = useState(1);
 
   // 필터/정렬
@@ -38,8 +38,13 @@ export default function SymphonyMain() {
   // 양식추가 모달
   const [templateOpen, setTemplateOpen] = useState(false);
 
-  const { columnOrder, setColumnOrder, colWidthUnitByKey, setColWidthUnitByKey } =
-    useSymphonyColumnConfig();
+  const {
+    columnOrder,
+    setColumnOrder,
+    colWidthUnitByKey,
+    setColWidthUnitByKey,
+    reloadAllColumnState, // ✅ 핵심: 양식추가/삭제 즉시 반영용
+  } = useSymphonyColumnConfig();
 
   async function handleAdd10() {
     await insertSymphonyRows({ count: 10, beforeId: null, afterId: null });
@@ -47,25 +52,19 @@ export default function SymphonyMain() {
   }
 
   function handleToggleFilterMode() {
-    // 요구사항: 필터 버튼을 “다시” 누르면
-    // - 현재 필터/검색/정렬 상태 전부 해제
-    // - 숨김/필터링 없는 원상태(기본정렬)로 복귀
+    // 필터 버튼을 다시 누르면 “필터/정렬/검색” 전부 초기화 + 원상태로
     if (filterMode) {
       setFilterMode(false);
       setFilterState(createEmptyFilterState());
       setSortState(defaultSortState());
-
-      // Grid 내부(선택/팝오버 등)까지 원복이 필요하므로 remount
       setGridMountKey((v) => v + 1);
       return;
     }
-
     setFilterMode(true);
   }
 
   async function handleDownload() {
     const blob = await exportSymphonyCsv({ filter: { filterState, sortState } });
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -117,7 +116,15 @@ export default function SymphonyMain() {
         />
       </div>
 
-      <AddTemplateModalSymphony open={templateOpen} onClose={() => setTemplateOpen(false)} />
+      <AddTemplateModalSymphony
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
+        onChanged={async () => {
+          // ✅ 양식추가/삭제 직후 즉시 반영(새로고침/재진입 없이)
+          await reloadAllColumnState();
+          setGridMountKey((v) => v + 1);
+        }}
+      />
 
       <ColorPopover
         open={colorOpen}
