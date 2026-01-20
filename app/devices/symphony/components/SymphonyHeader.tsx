@@ -1,13 +1,26 @@
 "use client";
 
+import FilterButton from "@/devices/symphony/filter/FilterButton";
+import ColorButton from "@/devices/symphony/color/ColorButton";
+
 type Props = {
   onAdd10: () => void;
-  onToggleColumnEditMode: () => void;
-  isColumnEditMode: boolean;
 
+  // 열이동
+  isColumnEditMode: boolean;
+  onToggleColumnEditMode: () => void;
+
+  // 양식추가(추후)
   onAddTemplate: () => void;
-  onOpenFilter: () => void;
-  onToggleColor: () => void;
+
+  // 필터
+  filterMode: boolean;
+  onToggleFilterMode: () => void;
+
+  // 칼라
+  onOpenColor: (anchor: { x: number; y: number }) => void;
+
+  // 다운로드
   onDownload: () => void;
 };
 
@@ -34,11 +47,12 @@ function ToolButton({
 
 export default function SymphonyHeader({
   onAdd10,
-  onToggleColumnEditMode,
   isColumnEditMode,
+  onToggleColumnEditMode,
   onAddTemplate,
-  onOpenFilter,
-  onToggleColor,
+  filterMode,
+  onToggleFilterMode,
+  onOpenColor,
   onDownload,
 }: Props) {
   return (
@@ -46,17 +60,22 @@ export default function SymphonyHeader({
       <span className="text-slate-700 font-semibold text-sm">심포니</span>
 
       <div className="flex items-center gap-2">
-        <ToolButton onClick={onOpenFilter}>필터</ToolButton>
-        <ToolButton onClick={onToggleColor}>칼라</ToolButton>
+        <FilterButton active={filterMode} onClick={onToggleFilterMode} />
+        <ColorButton
+          onClick={() => {
+            // 버튼 클릭 위치 기준으로 팝오버 anchor를 만들기 위해, 마지막 마우스 위치 사용
+            // (정확한 anchor는 SymphonyMain에서 event로 받게 해도 됨)
+            const x = window.innerWidth / 2;
+            const y = 80;
+            onOpenColor({ x, y });
+          }}
+        />
       </div>
 
       <div className="ml-auto flex items-center gap-2">
         <ToolButton onClick={onDownload}>다운로드</ToolButton>
-
         <ToolButton onClick={onAdd10}>행10추가</ToolButton>
-
         <ToolButton onClick={onAddTemplate}>양식추가</ToolButton>
-
         <ToolButton onClick={onToggleColumnEditMode} active={isColumnEditMode}>
           열이동
         </ToolButton>

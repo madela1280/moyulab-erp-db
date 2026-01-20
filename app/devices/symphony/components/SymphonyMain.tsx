@@ -1,27 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import SymphonyHeader from "@/devices/symphony/components/SymphonyHeader";
-import SymphonyGrid from "@/devices/symphony/components/SymphonyGrid";
+import SymphonyGrid, { SymphonyGridHandle } from "@/devices/symphony/components/SymphonyGrid";
 import { useSymphonyColumnConfig } from "@/devices/symphony/column-config/useSymphonyColumnConfig";
-import { insertSymphonyRows } from "@/devices/symphony/service/serviceSymphony";
+import { insertSymphonyRows, exportSymphonyCsv } from "@/devices/symphony/service/serviceSymphony";
+
+import ColorPopover, { type SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
+import {
+  createEmptyFilterState,
+  type ColumnFilterState,
+} from "@/devices/symphony/filter/useSymphonyFilter";
+import { defaultSortState, type SymphonySortState } from "@/devices/symphony/filter/useSymphonySort";
 
 export default function SymphonyMain() {
+  const gridRef = useRef<SymphonyGridHandle | null>(null);
+
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
 
-  // Grid를 "remount" 시켜서 내부 useSymphonyRows()가 reload 되도록(기존 코어 건드리지 않음)
-  const [gridMountKey, setGridMountKey] = useState(1);
+  // 필터
+  const [filterMode, setFilterMode] = useState(false);
+  const [filterState, setFilterState] = useState<ColumnFilterState>(() => createEmptyFilterState());
+  const [sortState, setSortState] = useState<SymphonySortState>(() => defaultSortState());
 
-  const {
-    columnOrder,
-    setColumnOrder,
-    colWidthUnitByKey,
-    setColWidthUnitByKey,
-  } = useSymphonyColumnConfig();
+  // 칼라
+  const [colorOpen, setColorOpen] = useState(false);
+  const [colorAnchor, setColorAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  const { columnOrder, setColumnOrder, colWidthUnitByKey, setColWidthUnitByKey } =
+    useSymphonyColumnConfig();
 
   async function handleAdd10() {
     await insertSymphonyRows({ count: 10, beforeId: null, afterId: null });
-    setGridMountKey((v) => v + 1);
+    await gridRef.current?.reload();
+  }
+
+  async function handleDownload() {
+    const blob = await exportSymphonyCsv({
+      filter: { filterState, sortState },
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "symphony.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function openColor(anchor: { x: number; y: number }) {
+    setColorAnchor(anchor);
+    setColorOpen(true);
+  }
+
+  async function applyColor(color: SymphonySoftColor) {
+    await gridRef.current?.applyColorToSelection(color);
   }
 
   return (
@@ -33,33 +68,37 @@ export default function SymphonyMain() {
         isColumnEditMode={isColumnEditMode}
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
         onAddTemplate={() => {
-          // TODO: 양식추가(컬럼 추가) 모달 연결(기능 모듈로 분리해서 추가)
           alert("양식추가: 준비중");
         }}
-        onOpenFilter={() => {
-          // TODO: 필터 UI/로직(기능 모듈로 분리해서 추가)
-          alert("필터: 준비중");
-        }}
-        onToggleColor={() => {
-          // TODO: 칼라 UI/적용 로직(기능 모듈로 분리해서 추가)
-          alert("칼라: 준비중");
-        }}
-        onDownload={() => {
-          // TODO: 다운로드(기능 모듈로 분리해서 추가)
-          alert("다운로드: 준비중");
-        }}
+        filterMode={filterMode}
+        onToggleFilterMode={() => setFilterMode((v) => !v)}
+        onOpenColor={openColor}
+        onDownload={handleDownload}
       />
 
       <div className="flex-1 min-h-0">
         <SymphonyGrid
-          key={gridMountKey}
+          ref={gridRef}
           isColumnEditMode={isColumnEditMode}
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
           onColWidthUnitByKeyChange={setColWidthUnitByKey}
+          // 필터/정렬 상태(엑셀형)
+          filterMode={filterMode}
+          filterState={filterState}
+          onFilterStateChange={setFilterState}
+          sortState={sortState}
+          onSortStateChange={setSortState}
         />
       </div>
+
+      <ColorPopover
+        open={colorOpen}
+        anchor={colorAnchor}
+        onClose={() => setColorOpen(false)}
+        onApply={applyColor}
+      />
     </div>
   );
 }

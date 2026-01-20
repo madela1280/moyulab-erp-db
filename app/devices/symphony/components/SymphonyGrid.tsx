@@ -1,8 +1,19 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
+
+import { symphonyColumns } from "@/devices/symphony/columns/symphonyColumns";
+import { useSymphonyRows } from "@/devices/symphony/hooks/useSymphonyRows";
 import {
   bulkDeleteSymphony,
   bulkPatchSymphony,
@@ -10,8 +21,28 @@ import {
   patchSymphonyRow,
   type SymphonyRow,
 } from "@/devices/symphony/service/serviceSymphony";
-import { symphonyColumns } from "@/devices/symphony/columns/symphonyColumns";
-import { useSymphonyRows } from "@/devices/symphony/hooks/useSymphonyRows";
+
+import ColumnFilterPopover from "@/devices/symphony/filter/ColumnFilterPopover";
+import {
+  applySymphonyFilter,
+  getUniqueValuesForColumn,
+  isFilterActive,
+  type ColumnFilterState,
+} from "@/devices/symphony/filter/useSymphonyFilter";
+import { applySymphonySort, type SymphonySortState } from "@/devices/symphony/filter/useSymphonySort";
+
+import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRentalStatus";
+
+import {
+  buildColorBulkPatch,
+  getCellBgClass,
+} from "@/devices/symphony/color/applySymphonyColor";
+import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
+
+export type SymphonyGridHandle = {
+  reload: () => Promise<void>;
+  applyColorToSelection: (color: SymphonySoftColor) => Promise<void>;
+};
 
 type Props = {
   isColumnEditMode?: boolean;
@@ -21,10 +52,52 @@ type Props = {
 
   colWidthUnitByKey?: Record<string, number>;
   onColWidthUnitByKeyChange?: (next: Record<string, number>) => void;
+
+  // 필터/정렬
+  filterMode: boolean;
+  filterState: ColumnFilterState;
+  onFilterStateChange: (next: ColumnFilterState) => void;
+
+  sortState: SymphonySortState;
+  onSortStateChange: (next: SymphonySortState) => void;
 };
 
-export default function SymphonyGrid(props: Props) {
-  const { rows, setRows, baseIndex, loading, error, reload, setTotalCount } = useSymphonyRows();
+function clampUnit(v: any) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 20;
+  return Math.max(1, Math.min(200, Math.floor(n)));
+}
+
+function isComputedColumn(key: string) {
+  return key === "수리횟수";
+}
+
+function normalizeDeviceNo(v: any) {
+  return String(v ?? "").trim();
+}
+
+function calcRepairCount(data: Record<string, any>) {
+  const keys = ["수리이력1", "수리이력2", "수리이력3", "수리이력4", "수리이력5"];
+  let c = 0;
+  for (const k of keys) {
+    const v = String(data?.[k] ?? "").trim();
+    if (v) c++;
+  }
+  return c;
+}
+
+const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
+  const {
+    rows,
+    setRows,
+    setTotalCount,
+    baseIndex,
+    loading,
+    error,
+    reload,
+  } = useSymphonyRows();
+
+  const { rentingDeviceNoSet } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -38,23 +111,13 @@ export default function SymphonyGrid(props: Props) {
     if (props.onColumnOrderChange) props.onColumnOrderChange(updater(columnOrder));
     else setColumnOrderState(updater);
   }
-  function setColWidthUnitByKeyNext(
-    updater: (prev: Record<string, number>) => Record<string, number>
-  ) {
+
+  function setColWidthUnitByKeyNext(updater: (prev: Record<string, number>) => Record<string, number>) {
     if (props.onColWidthUnitByKeyChange) props.onColWidthUnitByKeyChange(updater(colWidthUnitByKey));
     else setColWidthUnitByKeyState(updater);
   }
 
   const viewColumns = useMemo(() => columnOrder, [columnOrder]);
-
-  function getWidthPx(key: string) {
-    const unit = colWidthUnitByKey?.[key] ?? 20;
-    const BASE = 140;
-    const MIN = 60;
-    const MAX = 520;
-    const px = Math.round((BASE * unit) / 20);
-    return Math.max(MIN, Math.min(MAX, px));
-  }
 
   function moveColLeft(key: string) {
     setColumnOrderNext((prev) => {
@@ -65,6 +128,7 @@ export default function SymphonyGrid(props: Props) {
       return next;
     });
   }
+
   function moveColRight(key: string) {
     setColumnOrderNext((prev) => {
       const i = prev.indexOf(key);
@@ -74,12 +138,29 @@ export default function SymphonyGrid(props: Props) {
       return next;
     });
   }
+
   function setWidthUnit(key: string, unit: number) {
     const safe = Number.isFinite(unit) ? Math.max(1, Math.min(200, Math.floor(unit))) : 20;
     setColWidthUnitByKeyNext((prev) => ({ ...prev, [key]: safe }));
   }
 
-  // ===== 선택 상태 =====
+  function getWidthPx(key: string) {
+    const unit = clampUnit(colWidthUnitByKey?.[key] ?? 20);
+    const BASE = 140;
+    const MIN = 60;
+    const MAX = 560;
+    const px = Math.round((BASE * unit) / 20);
+    return Math.max(MIN, Math.min(MAX, px));
+  }
+
+  // ===== 필터/정렬 적용된 표시 rows =====
+  const displayRows = useMemo(() => {
+    const filtered = applySymphonyFilter(rows, props.filterState);
+    const sorted = applySymphonySort(filtered, props.sortState);
+    return sorted;
+  }, [rows, props.filterState, props.sortState]);
+
+  // ===== 선택(행/셀) =====
   const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(
     null
   );
@@ -96,9 +177,6 @@ export default function SymphonyGrid(props: Props) {
   const [isCellDragging, setIsCellDragging] = useState(false);
   const [cellDragAnchor, setCellDragAnchor] = useState<{ row: number; col: number } | null>(null);
 
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">("row");
-
   function isRowSelected(rowIndex: number) {
     if (!selectedRowRange) return false;
     return rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end;
@@ -106,7 +184,7 @@ export default function SymphonyGrid(props: Props) {
 
   function setCellRangeByPoints(r1: number, c1: number, r2: number, c2: number) {
     const startRow = Math.max(0, Math.min(r1, r2));
-    const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
+    const endRow = Math.min(displayRows.length - 1, Math.max(r1, r2));
     const startCol = Math.max(0, Math.min(c1, c2));
     const endCol = Math.min(viewColumns.length - 1, Math.max(c1, c2));
     setSelectedCellRange({ startRow, endRow, startCol, endCol });
@@ -118,6 +196,45 @@ export default function SymphonyGrid(props: Props) {
     return rowIndex >= startRow && rowIndex <= endRow && colIndex >= startCol && colIndex <= endCol;
   }
 
+  function getSelectedRowSlice() {
+    if (!selectedRowRange) return { start: 0, end: -1, slice: [] as SymphonyRow[] };
+    const start = Math.max(0, selectedRowRange.start);
+    const end = Math.min(displayRows.length - 1, selectedRowRange.end);
+    return { start, end, slice: displayRows.slice(start, end + 1) };
+  }
+
+  // ===== 컨텍스트 메뉴 =====
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">("row");
+
+  // ===== 필터 팝오버 =====
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const [filterPopoverAnchor, setFilterPopoverAnchor] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
+
+  const filterValues = useMemo(() => {
+    if (!filterColumnKey) return [];
+    return getUniqueValuesForColumn(rows, filterColumnKey);
+  }, [rows, filterColumnKey]);
+
+  const filterSelectedSet = useMemo(() => {
+    if (!filterColumnKey) return new Set<string>();
+    return props.filterState.selectedByKey[filterColumnKey] ?? new Set<string>();
+  }, [props.filterState.selectedByKey, filterColumnKey]);
+
+  const filterSearch = useMemo(() => {
+    if (!filterColumnKey) return "";
+    return props.filterState.searchByKey[filterColumnKey] ?? "";
+  }, [props.filterState.searchByKey, filterColumnKey]);
+
+  function closeFilterPopover() {
+    setFilterPopoverOpen(false);
+    setFilterPopoverAnchor(null);
+    setFilterColumnKey(null);
+  }
+
   // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
@@ -126,11 +243,17 @@ export default function SymphonyGrid(props: Props) {
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+    if (isComputedColumn(key)) {
+      e.target.blur();
+      return;
+    }
+
     editingCellRef.current = { rowId, key };
     setActiveEditCell({ rowId, key });
     setActiveEditValue(initialValue ?? "");
 
     const result = await acquireLock("symphony", rowId);
+
     const stillActive =
       editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
 
@@ -162,6 +285,21 @@ export default function SymphonyGrid(props: Props) {
     await patchSymphonyRow(rowId, { [key]: v });
   }
 
+  // ===== 유틸: 셀 표시값(파생 포함) =====
+  function getDisplayValue(row: SymphonyRow, colKey: string) {
+    if (colKey === "수리횟수") return String(calcRepairCount(row.data));
+
+    if (colKey === "유축기 위치") {
+      const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
+      const renting = deviceNo && rentingDeviceNoSet.has(deviceNo);
+      const raw = String(row.data?.[colKey] ?? "");
+      if (!renting) return raw;
+      return raw ? `${raw} (대여중)` : "대여중";
+    }
+
+    return String(row.data?.[colKey] ?? "");
+  }
+
   // ===== 키보드 이동 =====
   function focusCell(rowIndex: number, colIndex: number) {
     const el = document.querySelector<HTMLInputElement>(
@@ -185,7 +323,7 @@ export default function SymphonyGrid(props: Props) {
 
     switch (e.key) {
       case "ArrowDown":
-        if (rowIndex < rows.length - 1) r = rowIndex + 1;
+        if (rowIndex < displayRows.length - 1) r = rowIndex + 1;
         else return;
         break;
       case "ArrowUp":
@@ -207,57 +345,69 @@ export default function SymphonyGrid(props: Props) {
     if (focusCell(r, c)) e.preventDefault();
   }
 
-  // ===== 컨텍스트 메뉴 동작 =====
-  function getSelectedRowSlice() {
-    if (!selectedRowRange) return { start: 0, end: -1, slice: [] as SymphonyRow[] };
-    const start = Math.max(0, selectedRowRange.start);
-    const end = Math.min(rows.length - 1, selectedRowRange.end);
-    return { start, end, slice: rows.slice(start, end + 1) };
-  }
+  // ===== 붙여넣기/삭제: “첫 셀 누락” 방지를 위해 paste capture 단일 경로로 처리 =====
+  const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
-  async function handleClear() {
+  async function clearSelection() {
+    // 편집 draft 제거(첫 셀만 안 지워지는 잔상 방지)
+    editingCellRef.current = null;
+    setActiveEditCell(null);
+    setActiveEditValue("");
+
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
+
     if (selectedCellRange) {
       const { startRow, endRow, startCol, endCol } = selectedCellRange;
-      const updates: Array<{ id: number; patch: Record<string, any> }> = [];
 
-      const next = [...rows];
+      const updates: Array<{ id: number; patch: Record<string, any> }> = [];
+      const local = [...rows];
+
+      // displayRows 기준 선택이므로 rowId를 기반으로 처리
       for (let r = startRow; r <= endRow; r++) {
-        const row = next[r];
-        if (!row) continue;
+        const dRow = displayRows[r];
+        if (!dRow) continue;
 
         const patch: Record<string, any> = {};
-        const newData: Record<string, any> = { ...row.data };
+        const nextData: Record<string, any> = { ...dRow.data };
 
         for (let c = startCol; c <= endCol; c++) {
           const k = viewColumns[c];
-          if (!k) continue;
-          newData[k] = "";
-          patch[k] = null; // 빈값은 null로 저장
+          if (!k || isComputedColumn(k)) continue;
+          nextData[k] = "";
+          patch[k] = null;
         }
 
-        next[r] = { ...row, data: newData };
-        updates.push({ id: row.id, patch });
+        // 로컬 rows(원본)에도 반영
+        const idx = local.findIndex((x) => x.id === dRow.id);
+        if (idx >= 0) local[idx] = { ...local[idx], data: nextData };
+
+        updates.push({ id: dRow.id, patch });
       }
 
-      setRows(next);
-      await bulkPatchSymphony({ updates });
+      setRows(local);
+      if (updates.length) await bulkPatchSymphony({ updates });
       setContextMenu(null);
       return;
     }
 
+    // 셀 범위 없으면 행 선택 지우기(행 전체 clear)
     const { slice } = getSelectedRowSlice();
     if (!slice.length) return;
 
     const updates = slice.map((row) => {
       const patch: Record<string, any> = {};
-      for (const k of viewColumns) patch[k] = null;
+      for (const k of viewColumns) {
+        if (isComputedColumn(k)) continue;
+        patch[k] = null;
+      }
       return { id: row.id, patch };
     });
 
     setRows((prev) =>
       prev.map((r) =>
         slice.some((x) => x.id === r.id)
-          ? { ...r, data: Object.fromEntries(viewColumns.map((k) => [k, ""])) }
+          ? { ...r, data: { ...r.data, ...Object.fromEntries(viewColumns.map((k) => [k, ""])) } }
           : r
       )
     );
@@ -266,101 +416,139 @@ export default function SymphonyGrid(props: Props) {
     setContextMenu(null);
   }
 
-  async function handleCopy() {
-    if (selectedCellRange) {
-      const { startRow, endRow, startCol, endCol } = selectedCellRange;
-      const lines: string[] = [];
-      for (let r = startRow; r <= endRow; r++) {
-        const row = rows[r];
-        if (!row) continue;
-        const cells: string[] = [];
-        for (let c = startCol; c <= endCol; c++) {
-          const k = viewColumns[c];
-          cells.push(String(row.data?.[k] ?? ""));
-        }
-        lines.push(cells.join("\t"));
-      }
-      await navigator.clipboard.writeText(lines.join("\n"));
-      setContextMenu(null);
-      return;
-    }
-
-    const { slice } = getSelectedRowSlice();
-    if (!slice.length) return;
-
-    const text = slice.map((r) => viewColumns.map((k) => String(r.data?.[k] ?? "")).join("\t")).join("\n");
-    await navigator.clipboard.writeText(text);
-    setContextMenu(null);
-  }
-
-  async function handlePasteFromClipboard() {
-    const text = await navigator.clipboard.readText().catch(() => "");
-    if (!text) return;
-
-    const baseRow = selectedCellRange ? selectedCellRange.startRow : Math.max(0, selectedRowRange?.start ?? 0);
+  async function pasteTextToSelection(text: string) {
+    const baseRow = selectedCellRange
+      ? selectedCellRange.startRow
+      : Math.max(0, selectedRowRange?.start ?? 0);
     const baseCol = selectedCellRange ? selectedCellRange.startCol : 0;
 
-    const lines = text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.length > 0);
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\r/g, "").trimEnd())
+      .filter((l) => l.length > 0);
+
+    if (!lines.length) return;
+
     const parsed = lines.map((l) => l.split("\t"));
 
-    const next = [...rows];
     const updates: Array<{ id: number; patch: Record<string, any> }> = [];
+    const local = [...rows];
 
     for (let ro = 0; ro < parsed.length; ro++) {
-      const rIndex = baseRow + ro;
-      const row = next[rIndex];
-      if (!row) break;
+      const dIndex = baseRow + ro;
+      const dRow = displayRows[dIndex];
+      if (!dRow) break;
 
       const patch: Record<string, any> = {};
-      const newData: Record<string, any> = { ...row.data };
+      const nextData: Record<string, any> = { ...dRow.data };
 
       for (let co = 0; co < parsed[ro].length; co++) {
         const cIndex = baseCol + co;
         if (cIndex >= viewColumns.length) break;
+
         const k = viewColumns[cIndex];
+        if (!k || isComputedColumn(k)) continue;
+
         const v = parsed[ro][co] ?? "";
-        newData[k] = v;
+        nextData[k] = v;
         patch[k] = v === "" ? null : v;
       }
 
-      next[rIndex] = { ...row, data: newData };
-      updates.push({ id: row.id, patch });
+      const idx = local.findIndex((x) => x.id === dRow.id);
+      if (idx >= 0) local[idx] = { ...local[idx], data: nextData };
+
+      updates.push({ id: dRow.id, patch });
     }
 
-    setRows(next);
+    setRows(local);
     if (updates.length) await bulkPatchSymphony({ updates });
     setContextMenu(null);
   }
 
-  async function handleInsertRows() {
-    const anchor = selectedRowRange?.start ?? 0;
-    const beforeId = anchor > 0 ? rows[anchor - 1]?.id ?? null : null;
-    const afterId = rows[anchor]?.id ?? null;
+  // paste 캡처(핵심)
+  useEffect(() => {
+    function onPasteCapture(e: ClipboardEvent) {
+      const hasRange = !!selectedCellRange || !!selectedRowRange;
+      if (!hasRange) return;
 
-    const count = Math.max(1, (selectedRowRange?.end ?? anchor) - anchor + 1);
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text) return;
 
-    await insertSymphonyRows({ count, beforeId, afterId });
-    await reload();
-    setContextMenu(null);
-  }
+      e.preventDefault();
+      e.stopPropagation();
 
-  async function handleDeleteRows() {
-    const { slice } = getSelectedRowSlice();
-    if (!slice.length) return;
+      void pasteTextToSelection(text);
+    }
 
-    const ids = slice.map((r) => r.id);
-    await bulkDeleteSymphony({ ids });
+    window.addEventListener("paste", onPasteCapture, true);
+    return () => window.removeEventListener("paste", onPasteCapture, true);
+  }, [selectedCellRange, selectedRowRange, displayRows, viewColumns, rows]);
 
-    // 로컬 반영(빠른 체감) + totalCount 감소
-    const idSet = new Set(ids);
-    setRows((prev) => prev.filter((r) => !idSet.has(r.id)));
-    setTotalCount((t) => Math.max(0, t - ids.length));
+  // Ctrl+C만 keydown에서 처리, Ctrl+V는 paste 캡처로만 처리(첫 셀 누락 방지)
+  useEffect(() => {
+    async function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setContextMenu(null);
+        closeFilterPopover();
+        return;
+      }
 
-    setSelectedRowRange(null);
-    setContextMenu(null);
-  }
+      if (e.key === "Delete" && (selectedCellRange || selectedRowRange)) {
+        e.preventDefault();
+        e.stopPropagation();
+        void clearSelection();
+        return;
+      }
 
-  // ===== 전역 이벤트 =====
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+
+      const k = (e.key || "").toLowerCase();
+
+      if (k === "c" && (selectedCellRange || selectedRowRange)) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // copy
+        if (selectedCellRange) {
+          const { startRow, endRow, startCol, endCol } = selectedCellRange;
+          const lines: string[] = [];
+          for (let r = startRow; r <= endRow; r++) {
+            const row = displayRows[r];
+            if (!row) continue;
+            const cells: string[] = [];
+            for (let c = startCol; c <= endCol; c++) {
+              const colKey = viewColumns[c];
+              if (!colKey) continue;
+              cells.push(getDisplayValue(row, colKey));
+            }
+            lines.push(cells.join("\t"));
+          }
+          await navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
+          return;
+        }
+
+        const { slice } = getSelectedRowSlice();
+        const text = slice
+          .map((r) => viewColumns.map((key) => getDisplayValue(r, key)).join("\t"))
+          .join("\n");
+        await navigator.clipboard.writeText(text).catch(() => {});
+        return;
+      }
+
+      // Ctrl+V는 여기서 처리하지 않음(브라우저 paste 이벤트로만)
+      if (k === "v" && (selectedCellRange || selectedRowRange)) {
+        // 포커스가 input에 있으면 그 input에서 paste가 발생할 수 있음(우린 capture에서 처리)
+        // 포커스가 애매하면 hidden textarea로 포커스를 이동시켜 paste 이벤트를 확실히 받게 함
+        pasteCatcherRef.current?.focus();
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedCellRange, selectedRowRange, displayRows, viewColumns, rows, filterPopoverOpen]);
+
   useEffect(() => {
     function onMouseUp() {
       setIsRowDragging(false);
@@ -373,34 +561,136 @@ export default function SymphonyGrid(props: Props) {
   }, []);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setContextMenu(null);
-
-      if (e.key === "Delete" && (selectedCellRange || selectedRowRange)) {
-        e.preventDefault();
-        void handleClear();
-      }
-
-      const isMod = e.ctrlKey || e.metaKey;
-      if (!isMod) return;
-
-      const k = (e.key || "").toLowerCase();
-      if (k === "c" && (selectedCellRange || selectedRowRange)) {
-        e.preventDefault();
-        void handleCopy();
-      }
-      if (k === "v" && (selectedCellRange || selectedRowRange)) {
-        // keydown에서 막으면 paste가 취소될 수 있어 readText 방식으로 처리
-        e.preventDefault();
-        void handlePasteFromClipboard();
-      }
+    function onClick() {
+      setContextMenu(null);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, []);
 
+  // ===== 행 삽입/삭제 =====
+  async function handleInsertRows() {
+    const anchor = selectedRowRange?.start ?? 0;
+    const beforeId = anchor > 0 ? displayRows[anchor - 1]?.id ?? null : null;
+    const afterId = displayRows[anchor]?.id ?? null;
+    const count = Math.max(1, (selectedRowRange?.end ?? anchor) - anchor + 1);
+
+    await insertSymphonyRows({ count, beforeId, afterId });
+    await reload();
+
+    setContextMenu(null);
+  }
+
+  async function handleDeleteRows() {
+    const { slice } = getSelectedRowSlice();
+    if (!slice.length) return;
+
+    const ids = slice.map((r) => r.id);
+    await bulkDeleteSymphony({ ids });
+
+    const idSet = new Set(ids);
+    setRows((prev) => prev.filter((r) => !idSet.has(r.id)));
+    setTotalCount((t) => Math.max(0, t - ids.length));
+
+    setSelectedRowRange(null);
+    setContextMenu(null);
+  }
+
+  async function handleCopyFromContext() {
+    // keydown copy 로직 재사용하기 위해 강제 dispatch 대신 단순 호출
+    const ev = new KeyboardEvent("keydown", { key: "c", ctrlKey: true });
+    window.dispatchEvent(ev);
+    setContextMenu(null);
+  }
+
+  async function handlePasteFromContext() {
+    // 컨텍스트 붙여넣기도 paste 캡처 경로로 동일 처리
+    const text = await navigator.clipboard.readText().catch(() => "");
+    if (!text) return;
+    await pasteTextToSelection(text);
+    setContextMenu(null);
+  }
+
+  // ===== 칼라 적용(선택 영역 기반) =====
+  async function applyColorToSelection(color: SymphonySoftColor) {
+    if (!selectedCellRange) return;
+
+    const updates = buildColorBulkPatch({
+      rows: displayRows,
+      viewColumns,
+      range: selectedCellRange,
+      color,
+    });
+
+    if (!updates.length) return;
+
+    // 로컬 반영
+    setRows((prev) => {
+      const map = new Map<number, Record<string, any>>();
+      for (const u of updates) map.set(u.id, u.patch.__cellStyle);
+
+      return prev.map((r) => {
+        const nextStyle = map.get(r.id);
+        if (!nextStyle) return r;
+        return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
+      });
+    });
+
+    await bulkPatchSymphony({ updates });
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      reload,
+      applyColorToSelection,
+    }),
+    [reload, applyColorToSelection]
+  );
+
+  // ===== 필터 팝오버 핸들러 =====
+  function toggleFilterValue(colKey: string, v: string) {
+    const prev = props.filterState.selectedByKey[colKey] ?? new Set<string>();
+    const nextSet = new Set(prev);
+    if (nextSet.has(v)) nextSet.delete(v);
+    else nextSet.add(v);
+
+    props.onFilterStateChange({
+      ...props.filterState,
+      selectedByKey: { ...props.filterState.selectedByKey, [colKey]: nextSet },
+    });
+  }
+
+  function setFilterSearch(colKey: string, q: string) {
+    props.onFilterStateChange({
+      ...props.filterState,
+      searchByKey: { ...props.filterState.searchByKey, [colKey]: q },
+    });
+  }
+
+  function selectAllFilterValues(colKey: string) {
+    const set = new Set<string>(filterValues);
+    props.onFilterStateChange({
+      ...props.filterState,
+      selectedByKey: { ...props.filterState.selectedByKey, [colKey]: set },
+    });
+  }
+
+  function clearFilterForColumn(colKey: string) {
+    const nextSelected = { ...props.filterState.selectedByKey };
+    delete nextSelected[colKey];
+
+    props.onFilterStateChange({
+      ...props.filterState,
+      selectedByKey: nextSelected,
+    });
+  }
+
+  // ===== UI =====
   if (loading) return <div className="text-center text-gray-500 py-10">Loading...</div>;
   if (error) return <div className="text-center text-red-600 py-10">{error}</div>;
+
+  const filterActive = isFilterActive(props.filterState);
 
   return (
     <div
@@ -411,11 +701,30 @@ export default function SymphonyGrid(props: Props) {
         const t = e.target as HTMLElement;
         if (t.closest("table")) return;
         if (t.closest('[data-context-menu="1"]')) return;
+        if (t.closest('[data-filter-popover="1"]')) return;
+
         setSelectedRowRange(null);
         setSelectedCellRange(null);
         setContextMenu(null);
+        closeFilterPopover();
       }}
     >
+      {/* paste 이벤트를 확실히 받기 위한 숨은 textarea */}
+      <textarea
+        ref={pasteCatcherRef}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{
+          position: "fixed",
+          left: -10000,
+          top: 0,
+          width: 1,
+          height: 1,
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
+
       <div className="border-t border-x bg-white w-full flex-1 overflow-auto">
         <table className="w-full min-w-[2200px] table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800">
           <colgroup>
@@ -431,8 +740,30 @@ export default function SymphonyGrid(props: Props) {
               {viewColumns.map((c, idx) => (
                 <th key={c} className="border px-2 py-1 bg-gray-100 sticky top-0 z-20">
                   <div className="flex flex-col items-center gap-1">
-                    <div className="w-full text-center text-[11px] whitespace-nowrap overflow-hidden text-ellipsis">
-                      {c}
+                    <div className="w-full flex items-center justify-center gap-1">
+                      <span className="text-center text-[11px] whitespace-nowrap overflow-hidden text-ellipsis">
+                        {c}
+                      </span>
+
+                      {props.filterMode && (
+                        <button
+                          type="button"
+                          className={`text-[10px] px-1 rounded border ${
+                            filterActive ? "bg-white border-slate-300" : "bg-gray-50 border-slate-200"
+                          }`}
+                          title="필터"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFilterColumnKey(c);
+                            setFilterPopoverAnchor({ x: e.clientX, y: e.clientY });
+                            setFilterPopoverOpen(true);
+                            setContextMenu(null);
+                          }}
+                        >
+                          ▼
+                        </button>
+                      )}
                     </div>
 
                     {isColumnEditMode && (
@@ -483,7 +814,7 @@ export default function SymphonyGrid(props: Props) {
           </thead>
 
           <tbody>
-            {rows.map((row, rowIndex) => {
+            {displayRows.map((row, rowIndex) => {
               const rowSelected = isRowSelected(rowIndex);
 
               return (
@@ -501,6 +832,7 @@ export default function SymphonyGrid(props: Props) {
                       setSelectedRowRange({ start: rowIndex, end: rowIndex });
                       setSelectedCellRange(null);
                       setContextMenu(null);
+                      closeFilterPopover();
                     }}
                     onMouseEnter={() => {
                       if (!isRowDragging || rowDragAnchor == null) return;
@@ -515,6 +847,7 @@ export default function SymphonyGrid(props: Props) {
                       setSelectedCellRange(null);
                       setContextMenuMode("row");
                       setContextMenu({ x: e.clientX, y: e.clientY });
+                      closeFilterPopover();
                     }}
                   >
                     {baseIndex + rowIndex}
@@ -522,9 +855,49 @@ export default function SymphonyGrid(props: Props) {
 
                   {viewColumns.map((key, colIndex) => {
                     const cellSelected = isCellSelected(rowIndex, colIndex);
-                    const cls =
-                      "border px-2 py-[3px] " +
-                      (cellSelected ? "bg-blue-200" : rowSelected ? "bg-blue-50" : "bg-white");
+                    const styleBg = getCellBgClass(row.data, row.id, key);
+
+                    const baseBg = cellSelected
+                      ? "bg-blue-200"
+                      : rowSelected
+                      ? "bg-blue-50"
+                      : "bg-white";
+
+                    const cls = `border px-2 py-[3px] ${baseBg} ${!cellSelected ? styleBg : ""}`;
+
+                    // computed: 수리횟수는 편집 불가 + 표시만
+                    if (key === "수리횟수") {
+                      return (
+                        <td
+                          key={key}
+                          className={cls}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            setIsCellDragging(true);
+                            setCellDragAnchor({ row: rowIndex, col: colIndex });
+                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                            setSelectedRowRange(null);
+                            setContextMenu(null);
+                            closeFilterPopover();
+                          }}
+                          onMouseEnter={() => {
+                            if (!isCellDragging || !cellDragAnchor) return;
+                            setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                            setSelectedRowRange(null);
+                            setContextMenuMode("cell");
+                            setContextMenu({ x: e.clientX, y: e.clientY });
+                            closeFilterPopover();
+                          }}
+                        >
+                          <div className="w-full text-slate-900">{getDisplayValue(row, key)}</div>
+                        </td>
+                      );
+                    }
 
                     return (
                       <td
@@ -537,15 +910,11 @@ export default function SymphonyGrid(props: Props) {
                           setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
                           setSelectedRowRange(null);
                           setContextMenu(null);
+                          closeFilterPopover();
                         }}
                         onMouseEnter={() => {
                           if (!isCellDragging || !cellDragAnchor) return;
-                          setCellRangeByPoints(
-                            cellDragAnchor.row,
-                            cellDragAnchor.col,
-                            rowIndex,
-                            colIndex
-                          );
+                          setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -562,6 +931,7 @@ export default function SymphonyGrid(props: Props) {
                           setSelectedRowRange(null);
                           setContextMenuMode("cell");
                           setContextMenu({ x: e.clientX, y: e.clientY });
+                          closeFilterPopover();
                         }}
                       >
                         <input
@@ -569,7 +939,7 @@ export default function SymphonyGrid(props: Props) {
                           value={
                             activeEditCell?.rowId === row.id && activeEditCell?.key === key
                               ? activeEditValue
-                              : String(row.data?.[key] ?? "")
+                              : getDisplayValue(row, key)
                           }
                           data-row={rowIndex}
                           data-col={colIndex}
@@ -615,6 +985,7 @@ export default function SymphonyGrid(props: Props) {
         </table>
       </div>
 
+      {/* 우클릭 메뉴 */}
       {contextMenu && (
         <div
           className="fixed z-50 bg-white border shadow text-xs"
@@ -629,31 +1000,72 @@ export default function SymphonyGrid(props: Props) {
               <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handleDeleteRows}>
                 행 삭제
               </button>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handleClear}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void clearSelection()}>
                 내용 지우기
               </button>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handleCopy}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void handleCopyFromContext()}>
                 복사(클립보드)
               </button>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handlePasteFromClipboard}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void handlePasteFromContext()}>
                 붙여넣기(클립보드)
               </button>
             </>
           ) : (
             <>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handleClear}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void clearSelection()}>
                 내용 지우기
               </button>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handleCopy}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void handleCopyFromContext()}>
                 복사(클립보드)
               </button>
-              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={handlePasteFromClipboard}>
+              <button className="block w-full text-left px-3 py-1 hover:bg-gray-100" onClick={() => void handlePasteFromContext()}>
                 붙여넣기(클립보드)
               </button>
             </>
           )}
         </div>
       )}
+
+      {/* 필터 팝오버 */}
+      <div data-filter-popover="1">
+        <ColumnFilterPopover
+          open={filterPopoverOpen}
+          anchor={filterPopoverAnchor}
+          columnKey={filterColumnKey}
+          values={filterValues}
+          selected={filterSelectedSet}
+          search={filterSearch}
+          onClose={closeFilterPopover}
+          onSearchChange={(q) => {
+            if (!filterColumnKey) return;
+            setFilterSearch(filterColumnKey, q);
+          }}
+          onToggleValue={(v) => {
+            if (!filterColumnKey) return;
+            toggleFilterValue(filterColumnKey, v);
+          }}
+          onSelectAll={() => {
+            if (!filterColumnKey) return;
+            selectAllFilterValues(filterColumnKey);
+          }}
+          onClear={() => {
+            if (!filterColumnKey) return;
+            clearFilterForColumn(filterColumnKey);
+          }}
+          onSortAsc={() => {
+            if (!filterColumnKey) return;
+            props.onSortStateChange({ key: filterColumnKey, dir: "asc" });
+            closeFilterPopover();
+          }}
+          onSortDesc={() => {
+            if (!filterColumnKey) return;
+            props.onSortStateChange({ key: filterColumnKey, dir: "desc" });
+            closeFilterPopover();
+          }}
+        />
+      </div>
     </div>
   );
-}
+});
+
+export default SymphonyGrid;

@@ -39,18 +39,101 @@ function csvEscape(v: any) {
   return s;
 }
 
+function toText(v: any) {
+  return v == null ? "" : String(v);
+}
+
+function normalizeDeviceNo(v: any) {
+  return String(v ?? "").trim();
+}
+
+function calcRepairCount(data: Record<string, any>) {
+  const keys = ["수리이력1", "수리이력2", "수리이력3", "수리이력4", "수리이력5"];
+  let c = 0;
+  for (const k of keys) {
+    const v = String(data?.[k] ?? "").trim();
+    if (v) c++;
+  }
+  return c;
+}
+
+function buildRentingDeviceNoSet(unifiedRows: Array<{ data: any }>) {
+  const set = new Set<string>();
+  for (const r of unifiedRows) {
+    const deviceNo = normalizeDeviceNo(r?.data?.["기기번호"]);
+    if (!deviceNo) continue;
+
+    const returned = normalizeDeviceNo(r?.data?.["반납완료일"]);
+    if (!returned) set.add(deviceNo);
+  }
+  return set;
+}
+
+type FilterPayload = {
+  filterState?: {
+    // JSON 전송 시 Set은 깨지므로, 배열/객체 형태를 모두 허용
+    selectedByKey?: Record<string, any>;
+  };
+  sortState?: { key?: string | null; dir?: "asc" | "desc" };
+};
+
+function normalizeSelectedByKey(input: any): Record<string, Set<string>> {
+  const out: Record<string, Set<string>> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+
+  for (const [k, v] of Object.entries(input)) {
+    if (Array.isArray(v)) out[k] = new Set(v.map(String));
+    else if (v && typeof v === "object" && Array.isArray((v as any).values)) {
+      out[k] = new Set((v as any).values.map(String));
+    }
+  }
+  return out;
+}
+
+function applyFilterAndSort(rows: Array<{ id: number; data: any }>, payload: FilterPayload) {
+  const selectedByKey = normalizeSelectedByKey(payload?.filterState?.selectedByKey);
+
+  // filter
+  let out = rows.filter((r) => {
+    for (const [key, set] of Object.entries(selectedByKey)) {
+      if (!set || set.size === 0) continue;
+      const v = toText(r.data?.[key]);
+      if (!set.has(v)) return false;
+    }
+    return true;
+  });
+
+  // sort (text)
+  const sortKey = payload?.sortState?.key ?? null;
+  const dir = payload?.sortState?.dir === "desc" ? "desc" : "asc";
+
+  if (sortKey) {
+    out = [...out].sort((a, b) => {
+      const av = toText(a.data?.[sortKey]).trim();
+      const bv = toText(b.data?.[sortKey]).trim();
+      const cmp = av.localeCompare(bv, "ko-KR");
+      return dir === "asc" ? cmp : -cmp;
+    });
+  }
+
+  return out;
+}
+
 /**
  * POST /api/devices/symphony/export
- * body: { filter?: any }
- * - 1차: filter는 미사용(전체 다운로드)
+ * body: { filter?: { filterState, sortState } }
+ * - 필터 없으면 전체, 필터 있으면 필터된 것만 CSV로 다운로드
  * - 반환: text/csv (UTF-8 with BOM)
  */
 export async function POST(req: Request) {
   try {
     await ensureSymphonyTables();
-    await req.json().catch(() => ({})); // filter 확장 대비(현재는 무시)
 
-    const r = await query(
+    const body = (await req.json().catch(() => ({}))) as any;
+    const filter: FilterPayload = body?.filter ?? {};
+
+    // 심포니 데이터 전체 로드(정렬은 order 기준)
+    const symR = await query(
       `
       SELECT s.id, s.data
       FROM device_symphony s
@@ -59,17 +142,39 @@ export async function POST(req: Request) {
       `
     );
 
-    const header = [...symphonyColumns];
+    // 통합관리에서 대여중 매칭용(기기번호 + 반납완료일)
+    const uniR = await query(`SELECT data FROM unified`);
+    const rentingSet = buildRentingDeviceNoSet(uniR.rows as any[]);
 
+    // 필터/정렬 적용
+    const filtered = applyFilterAndSort(symR.rows as any[], filter);
+
+    // CSV 생성(표 컬럼 순서대로)
+    const header = [...symphonyColumns];
     const lines: string[] = [];
     lines.push(header.map(csvEscape).join(","));
 
-    for (const row of r.rows) {
+    for (const row of filtered) {
       const data = (row.data ?? {}) as Record<string, any>;
-      lines.push(header.map((k) => csvEscape(data[k])).join(","));
+      const deviceNo = normalizeDeviceNo(data?.["시스템 기기번호"]);
+
+      const line = header.map((k) => {
+        if (k === "수리횟수") return csvEscape(calcRepairCount(data));
+
+        if (k === "유축기 위치") {
+          const raw = toText(data?.[k]);
+          const renting = deviceNo && rentingSet.has(deviceNo);
+          if (!renting) return csvEscape(raw);
+          return csvEscape(raw ? `${raw} (대여중)` : "대여중");
+        }
+
+        return csvEscape(data?.[k]);
+      });
+
+      lines.push(line.join(","));
     }
 
-    const csv = "\uFEFF" + lines.join("\r\n");
+    const csv = "\uFEFF" + lines.join("\r\n"); // BOM 포함(엑셀 한글 깨짐 방지)
 
     return new NextResponse(csv, {
       headers: {
