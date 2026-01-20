@@ -17,7 +17,6 @@ type Props = {
   anchor: { x: number; y: number } | null;
   onClose: () => void;
 
-  // ✅ 변경: 모드(글자/셀)까지 함께 전달
   onApply: (color: SymphonySoftColor, mode: ColorApplyMode) => void;
 };
 
@@ -47,6 +46,13 @@ export default function ColorPopover({ open, anchor, onClose, onApply }: Props) 
 
       <div className="px-3 py-2 border-b">
         <ColorModeToggle mode={mode} onChange={setMode} />
+      </div>
+
+      {/* ✅ 정확한 위치: "모드 토글 아래" + "색상 버튼 그리드 위"
+          Tailwind 스캔 누락으로 특정 색만 안 먹는 문제 방지(safelist) */}
+      <div className="hidden">
+        <span className="bg-red-200 bg-yellow-200 bg-blue-200 bg-green-200 bg-purple-200 bg-slate-300" />
+        <span className="text-red-800 text-yellow-800 text-blue-800 text-green-800 text-purple-800 text-slate-900" />
       </div>
 
       <div className="p-2 grid grid-cols-2 gap-2">

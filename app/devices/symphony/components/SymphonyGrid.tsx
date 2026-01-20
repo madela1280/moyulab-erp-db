@@ -933,95 +933,86 @@ if (isComputedColumn(key)) {
   );
 }
 
-                    return (
-                      <td
-                        key={key}
-                        className={cls}
-                        onMouseDown={(e) => {
-                          if (e.button !== 0) return;
-                          setIsCellDragging(true);
-                          setCellDragAnchor({ row: rowIndex, col: colIndex });
-                          setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-                          setSelectedRowRange(null);
-                          setContextMenu(null);
-                          closeFilterPopover();
-                        }}
-                        onMouseEnter={() => {
-                          if (!isCellDragging || !cellDragAnchor) return;
-                          setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (
-                            !selectedCellRange ||
-                            rowIndex < selectedCellRange.startRow ||
-                            rowIndex > selectedCellRange.endRow ||
-                            colIndex < selectedCellRange.startCol ||
-                            colIndex > selectedCellRange.endCol
-                          ) {
-                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-                          }
-                          setSelectedRowRange(null);
-                          setContextMenuMode("cell");
-                          setContextMenu({ x: e.clientX, y: e.clientY });
-                          closeFilterPopover();
-                        }}
-                      >
-                        <input
-                           className={`w-full bg-transparent outline-none text-slate-900 ${getCellTextClass(
-                             row.data,
-                             row.id,
-                             key
-                        )} ${key === "에러횟수" ? "text-center" : ""}`}
-                        value={
-                          activeEditCell?.rowId === row.id && activeEditCell?.key === key
-                            ? activeEditValue
-                            : getDisplayValue(row, key)
-                        }
-                          data-row={rowIndex}
-                          data-col={colIndex}
-                          onFocus={(e) => {
-                             setSelectedRowRange(null);
-                             const initial = String(row.data?.[key] ?? "");
-                             void handleFocus(row.id, key, initial, e);
-                          }}
-                          onChange={(e) => {
-                            if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
-                              setActiveEditValue(e.target.value);
-                            }
-                            if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
-                          }}
-                          onBlur={async (e) => {
-                            const v = String(e.target.value ?? "");
+      return (
+  <td
+    key={key}
+    className={cls}
+    onMouseDown={(e) => {
+      if (e.button !== 0) return;
+      setIsCellDragging(true);
+      setCellDragAnchor({ row: rowIndex, col: colIndex });
+      setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+      setSelectedRowRange(null);
+      setContextMenu(null);
+      closeFilterPopover();
+    }}
+    onMouseEnter={() => {
+      if (!isCellDragging || !cellDragAnchor) return;
+      setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+    }}
+    onContextMenu={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (
+        !selectedCellRange ||
+        rowIndex < selectedCellRange.startRow ||
+        rowIndex > selectedCellRange.endRow ||
+        colIndex < selectedCellRange.startCol ||
+        colIndex > selectedCellRange.endCol
+      ) {
+        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+      }
+      setSelectedRowRange(null);
+      setContextMenuMode("cell");
+      setContextMenu({ x: e.clientX, y: e.clientY });
+      closeFilterPopover();
+    }}
+  >
+    <input
+      className={`w-full bg-transparent outline-none ${
+        getCellTextClass(row.data, row.id, key) || "text-slate-900"
+      } ${key === "에러횟수" ? "text-center" : ""}`}
+      value={
+        activeEditCell?.rowId === row.id && activeEditCell?.key === key
+          ? activeEditValue
+          : getDisplayValue(row, key)
+      }
+      data-row={rowIndex}
+      data-col={colIndex}
+      onFocus={(e) => {
+        setSelectedRowRange(null);
+        const initial = String(row.data?.[key] ?? "");
+        void handleFocus(row.id, key, initial, e);
+      }}
+      onChange={(e) => {
+        if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
+          setActiveEditValue(e.target.value);
+        }
+        if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
+      }}
+      onBlur={async (e) => {
+        const v = String(e.target.value ?? "");
 
-                            editingCellRef.current = null;
-                            setActiveEditCell(null);
-                            setActiveEditValue("");
+        editingCellRef.current = null;
+        setActiveEditCell(null);
+        setActiveEditValue("");
 
-                            if (!myRowLocks[row.id]) return;
+        if (!myRowLocks[row.id]) return;
 
-                            updateLocalCell(row.id, key, v);
-                            await saveCell(row.id, key, v);
-                            await releaseLock("symphony", row.id);
+        updateLocalCell(row.id, key, v);
+        await saveCell(row.id, key, v);
+        await releaseLock("symphony", row.id);
 
-                            setMyRowLocks((prev) => {
-                              const copy = { ...prev };
-                              delete copy[row.id];
-                              return copy;
-                            });
-                          }}
-                          onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+        setMyRowLocks((prev) => {
+          const copy = { ...prev };
+          delete copy[row.id];
+          return copy;
+        });
+      }}
+      onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+    />
+  </td>
+);              
 
       {/* 우클릭 메뉴 */}
       {contextMenu && (

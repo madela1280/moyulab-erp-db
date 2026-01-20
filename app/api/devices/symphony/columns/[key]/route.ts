@@ -23,33 +23,68 @@ async function ensureColumnsTable() {
   `);
 }
 
-function normalizeOrder(input: any) {
-  const base = new Set<string>([...(symphonyColumns as unknown as string[])]);
-  const arr = Array.isArray(input) ? input.map(String) : [];
-  const seen = new Set<string>();
-  const out: string[] = [];
+/**
+ * base(=symphonyColumns)는 항상 base 순서 고정.
+ * custom 컬럼만 base 사이에 최대한 유지.
+ */
+function normalizeOrderFixedBase(userOrder: any, baseOrder: string[]) {
+  const baseSet = new Set(baseOrder);
 
-  for (const k of arr) {
-    const key = String(k).trim();
+  const input = Array.isArray(userOrder) ? userOrder.map(String) : [];
+  const cleaned: string[] = [];
+  const seen = new Set<string>();
+
+  for (const k of input) {
+    const key = String(k ?? "").trim();
     if (!key) continue;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(key);
+    cleaned.push(key);
   }
 
-  // base 컬럼들은 항상 유지(삭제 금지)
-  for (const k of base) {
-    if (!seen.has(k)) out.push(k);
+  const customInUserOrder = cleaned.filter((k) => !baseSet.has(k));
+
+  const customBuckets: Record<string, string[]> = {};
+  customBuckets["__TAIL__"] = [];
+
+  let lastBase: string | "__TAIL__" = "__TAIL__";
+  for (const k of cleaned) {
+    if (baseSet.has(k)) {
+      lastBase = k;
+      if (!customBuckets[lastBase]) customBuckets[lastBase] = [];
+    } else {
+      if (!customBuckets[lastBase]) customBuckets[lastBase] = [];
+      customBuckets[lastBase].push(k);
+    }
   }
 
-  return out;
-}
+  const result: string[] = [];
+  const customSeen = new Set<string>();
 
-async function loadOrder() {
-  await ensureColumnsTable();
-  const r = await query(`SELECT data FROM device_symphony_columns WHERE id=1 LIMIT 1`);
-  const data = (r.rows[0]?.data ?? {}) as any;
-  return normalizeOrder(data?.order);
+  for (const baseKey of baseOrder) {
+    result.push(baseKey);
+
+    const bucket = customBuckets[baseKey] ?? [];
+    for (const c of bucket) {
+      if (customSeen.has(c)) continue;
+      customSeen.add(c);
+      result.push(c);
+    }
+  }
+
+  for (const c of customBuckets["__TAIL__"] ?? []) {
+    if (customSeen.has(c)) continue;
+    customSeen.add(c);
+    result.push(c);
+  }
+
+  for (const c of customInUserOrder) {
+    if (customSeen.has(c)) continue;
+    customSeen.add(c);
+    result.push(c);
+  }
+
+  return result;
 }
 
 async function saveOrder(order: string[]) {
@@ -64,6 +99,22 @@ async function saveOrder(order: string[]) {
   );
 }
 
+async function loadOrder() {
+  await ensureColumnsTable();
+
+  const baseOrder = [...(symphonyColumns as unknown as string[])];
+
+  const r = await query(`SELECT data FROM device_symphony_columns WHERE id=1 LIMIT 1`);
+  const data = (r.rows[0]?.data ?? {}) as any;
+
+  const order = normalizeOrderFixedBase(data?.order, baseOrder);
+
+  // 항상 보정 저장(위치 깨짐 방지)
+  await saveOrder(order);
+
+  return order;
+}
+
 /**
  * DELETE /api/devices/symphony/columns/:key
  * - base 컬럼(symphonyColumns)은 삭제 금지
@@ -75,15 +126,19 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: false, error: "missing_key" }, { status: 400 });
     }
 
-    const base = new Set<string>([...(symphonyColumns as unknown as string[])]);
-    if (base.has(key)) {
+    const baseSet = new Set<string>([...(symphonyColumns as unknown as string[])]);
+    if (baseSet.has(key)) {
       return NextResponse.json({ ok: false, error: "base_column_cannot_delete" }, { status: 400 });
     }
 
-    const order = await loadOrder();
-    const next = order.filter((x) => x !== key);
+    const cur = await loadOrder();
+    const next = cur.filter((x) => x !== key);
 
-    await saveOrder(normalizeOrder(next));
+    const baseOrder = [...(symphonyColumns as unknown as string[])];
+    const normalized = normalizeOrderFixedBase(next, baseOrder);
+
+    await saveOrder(normalized);
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("DELETE /api/devices/symphony/columns/[key] error:", e);
