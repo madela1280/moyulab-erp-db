@@ -1,6 +1,7 @@
 "use client";
 
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
+import type { ColorApplyMode } from "@/devices/symphony/color/ColorModeToggle";
 
 export type CellRange = {
   startRow: number;
@@ -16,17 +17,23 @@ function cellKey(rowId: number, colKey: string) {
 }
 
 /**
- * data 안에 스타일 전용 맵을 저장한다.
- * - 예: data.__cellStyle = { "123:제품명": { bg: "yellow" } }
- * - 값은 "부드러운 색상 키"만 저장하고, 실제 색은 렌더에서 매핑
+ * data.__cellStyle 구조:
+ * {
+ *   "123:제품명": { bg?: "yellow", fg?: "red" }
+ * }
+ *
+ * - mode === "cell"  -> bg 적용
+ * - mode === "text"  -> fg 적용
+ * - color === "clear" -> 해당 모드의 색만 제거(남은 색 없으면 키 삭제)
  */
 export function buildColorBulkPatch<T extends SymphonyRowLike>(args: {
   rows: T[];
   viewColumns: string[];
   range: CellRange;
   color: SymphonySoftColor; // "clear" 포함
+  mode: ColorApplyMode; // "text" | "cell"
 }) {
-  const { rows, viewColumns, range, color } = args;
+  const { rows, viewColumns, range, color, mode } = args;
 
   const updates: Array<{ id: number; patch: Record<string, any> }> = [];
 
@@ -43,11 +50,20 @@ export function buildColorBulkPatch<T extends SymphonyRowLike>(args: {
       if (!colKey) continue;
 
       const k = cellKey(row.id, colKey);
+      const prev = (styleMap[k] ?? {}) as { bg?: SymphonySoftColor; fg?: SymphonySoftColor };
 
       if (color === "clear") {
-        delete styleMap[k];
+        const next = { ...prev };
+        if (mode === "cell") delete next.bg;
+        else delete next.fg;
+
+        if (!next.bg && !next.fg) delete styleMap[k];
+        else styleMap[k] = next;
       } else {
-        styleMap[k] = { bg: color };
+        const next = { ...prev };
+        if (mode === "cell") next.bg = color;
+        else next.fg = color;
+        styleMap[k] = next;
       }
     }
 
@@ -62,9 +78,6 @@ export function buildColorBulkPatch<T extends SymphonyRowLike>(args: {
   return updates;
 }
 
-/**
- * 렌더에서 스타일을 조회할 때 사용
- */
 export function getCellBgClass(rowData: Record<string, any>, rowId: number, colKey: string) {
   const styleMap = (rowData?.__cellStyle ?? {}) as Record<string, any>;
   const info = styleMap[cellKey(rowId, colKey)];
@@ -83,6 +96,29 @@ export function getCellBgClass(rowData: Record<string, any>, rowId: number, colK
       return "bg-purple-100";
     case "black":
       return "bg-slate-200";
+    default:
+      return "";
+  }
+}
+
+export function getCellTextClass(rowData: Record<string, any>, rowId: number, colKey: string) {
+  const styleMap = (rowData?.__cellStyle ?? {}) as Record<string, any>;
+  const info = styleMap[cellKey(rowId, colKey)];
+  const fg = info?.fg as SymphonySoftColor | undefined;
+
+  switch (fg) {
+    case "red":
+      return "text-red-600";
+    case "yellow":
+      return "text-yellow-700";
+    case "blue":
+      return "text-blue-700";
+    case "green":
+      return "text-green-700";
+    case "purple":
+      return "text-purple-700";
+    case "black":
+      return "text-slate-900";
     default:
       return "";
   }

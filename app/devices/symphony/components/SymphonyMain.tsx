@@ -1,12 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
+
 import SymphonyHeader from "@/devices/symphony/components/SymphonyHeader";
 import SymphonyGrid, { SymphonyGridHandle } from "@/devices/symphony/components/SymphonyGrid";
 import { useSymphonyColumnConfig } from "@/devices/symphony/column-config/useSymphonyColumnConfig";
-import { insertSymphonyRows, exportSymphonyCsv } from "@/devices/symphony/service/serviceSymphony";
+import { exportSymphonyCsv, insertSymphonyRows } from "@/devices/symphony/service/serviceSymphony";
+
+import AddTemplateModalSymphony from "@/devices/symphony/template/AddTemplateModalSymphony";
 
 import ColorPopover, { type SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
+import type { ColorApplyMode } from "@/devices/symphony/color/ColorModeToggle";
+
 import {
   createEmptyFilterState,
   type ColumnFilterState,
@@ -18,7 +23,10 @@ export default function SymphonyMain() {
 
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
 
-  // 필터
+  // Grid 내부 선택/팝오버/드래그 등 UI 상태를 “완전 초기화”해야 할 때는 remount로 처리
+  const [gridMountKey, setGridMountKey] = useState(1);
+
+  // 필터/정렬
   const [filterMode, setFilterMode] = useState(false);
   const [filterState, setFilterState] = useState<ColumnFilterState>(() => createEmptyFilterState());
   const [sortState, setSortState] = useState<SymphonySortState>(() => defaultSortState());
@@ -26,6 +34,9 @@ export default function SymphonyMain() {
   // 칼라
   const [colorOpen, setColorOpen] = useState(false);
   const [colorAnchor, setColorAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  // 양식추가 모달
+  const [templateOpen, setTemplateOpen] = useState(false);
 
   const { columnOrder, setColumnOrder, colWidthUnitByKey, setColWidthUnitByKey } =
     useSymphonyColumnConfig();
@@ -35,10 +46,25 @@ export default function SymphonyMain() {
     await gridRef.current?.reload();
   }
 
+  function handleToggleFilterMode() {
+    // 요구사항: 필터 버튼을 “다시” 누르면
+    // - 현재 필터/검색/정렬 상태 전부 해제
+    // - 숨김/필터링 없는 원상태(기본정렬)로 복귀
+    if (filterMode) {
+      setFilterMode(false);
+      setFilterState(createEmptyFilterState());
+      setSortState(defaultSortState());
+
+      // Grid 내부(선택/팝오버 등)까지 원복이 필요하므로 remount
+      setGridMountKey((v) => v + 1);
+      return;
+    }
+
+    setFilterMode(true);
+  }
+
   async function handleDownload() {
-    const blob = await exportSymphonyCsv({
-      filter: { filterState, sortState },
-    });
+    const blob = await exportSymphonyCsv({ filter: { filterState, sortState } });
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -55,8 +81,8 @@ export default function SymphonyMain() {
     setColorOpen(true);
   }
 
-  async function applyColor(color: SymphonySoftColor) {
-    await gridRef.current?.applyColorToSelection(color);
+  async function applyColor(color: SymphonySoftColor, mode: ColorApplyMode) {
+    await gridRef.current?.applyColorToSelection(color, mode);
   }
 
   return (
@@ -67,24 +93,22 @@ export default function SymphonyMain() {
         onAdd10={handleAdd10}
         isColumnEditMode={isColumnEditMode}
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
-        onAddTemplate={() => {
-          alert("양식추가: 준비중");
-        }}
+        onAddTemplate={() => setTemplateOpen(true)}
         filterMode={filterMode}
-        onToggleFilterMode={() => setFilterMode((v) => !v)}
+        onToggleFilterMode={handleToggleFilterMode}
         onOpenColor={openColor}
         onDownload={handleDownload}
       />
 
       <div className="flex-1 min-h-0">
         <SymphonyGrid
+          key={gridMountKey}
           ref={gridRef}
           isColumnEditMode={isColumnEditMode}
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
           onColWidthUnitByKeyChange={setColWidthUnitByKey}
-          // 필터/정렬 상태(엑셀형)
           filterMode={filterMode}
           filterState={filterState}
           onFilterStateChange={setFilterState}
@@ -92,6 +116,8 @@ export default function SymphonyMain() {
           onSortStateChange={setSortState}
         />
       </div>
+
+      <AddTemplateModalSymphony open={templateOpen} onClose={() => setTemplateOpen(false)} />
 
       <ColorPopover
         open={colorOpen}

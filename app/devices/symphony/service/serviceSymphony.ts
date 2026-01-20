@@ -55,7 +55,7 @@ export async function getSymphonyRow(id: number) {
 
 /**
  * 셀 patch(merge)
- * - value === "" 이면 null 저장 규칙은 호출측에서 처리 권장(그리드 onBlur에서)
+ * - value === "" 이면 null 저장 규칙은 호출측에서 처리(그리드 onBlur)
  */
 export async function patchSymphonyRow(id: number, patch: Record<string, any>) {
   return fetchJson<SymphonyRow>(`/api/devices/symphony/${id}`, {
@@ -106,14 +106,52 @@ export async function bulkDeleteSymphony(args: BulkDeleteArgs) {
   );
 }
 
-export async function exportSymphonyCsv(body: {
-  // 1차: 필터 스펙은 추후 확장 (현재는 전체/필터된 것 구분만)
-  filter?: any;
-}) {
+// ✅ Set은 JSON으로 전송 시 깨지므로(Array로 변환) export 요청용으로 정규화
+function normalizeFilterForExport(filter: any) {
+  if (!filter || typeof filter !== "object") return {};
+
+  const filterState = filter.filterState ?? {};
+  const sortState = filter.sortState ?? {};
+
+  const selectedByKeyRaw = filterState.selectedByKey ?? {};
+  const selectedByKey: Record<string, string[]> = {};
+
+  if (selectedByKeyRaw && typeof selectedByKeyRaw === "object") {
+    for (const [k, v] of Object.entries(selectedByKeyRaw)) {
+      if (v instanceof Set) {
+        selectedByKey[k] = Array.from(v).map(String);
+      } else if (Array.isArray(v)) {
+        selectedByKey[k] = v.map(String);
+      }
+    }
+  }
+
+  const searchByKeyRaw = filterState.searchByKey ?? {};
+  const searchByKey: Record<string, string> = {};
+  if (searchByKeyRaw && typeof searchByKeyRaw === "object") {
+    for (const [k, v] of Object.entries(searchByKeyRaw)) {
+      searchByKey[k] = String(v ?? "");
+    }
+  }
+
+  return {
+    filterState: { selectedByKey, searchByKey },
+    sortState: {
+      key: sortState?.key ?? null,
+      dir: sortState?.dir === "desc" ? "desc" : "asc",
+    },
+  };
+}
+
+export async function exportSymphonyCsv(body: { filter?: any }) {
+  const payload = {
+    filter: normalizeFilterForExport(body?.filter),
+  };
+
   const r = await fetch(`/api/devices/symphony/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 
   if (!r.ok) {
@@ -122,5 +160,5 @@ export async function exportSymphonyCsv(body: {
   }
 
   const blob = await r.blob();
-  return blob; // UI에서 URL.createObjectURL(blob)로 다운로드 처리
+  return blob;
 }

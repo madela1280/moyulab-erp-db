@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import ColorModeToggle, { type ColorApplyMode } from "@/devices/symphony/color/ColorModeToggle";
+
 export type SymphonySoftColor =
   | "red"
   | "yellow"
@@ -14,7 +17,8 @@ type Props = {
   anchor: { x: number; y: number } | null;
   onClose: () => void;
 
-  onApply: (color: SymphonySoftColor) => void;
+  // ✅ 변경: 모드(글자/셀)까지 함께 전달
+  onApply: (color: SymphonySoftColor, mode: ColorApplyMode) => void;
 };
 
 const COLORS: Array<{ key: SymphonySoftColor; label: string; swatchClass: string }> = [
@@ -28,16 +32,22 @@ const COLORS: Array<{ key: SymphonySoftColor; label: string; swatchClass: string
 ];
 
 export default function ColorPopover({ open, anchor, onClose, onApply }: Props) {
+  const [mode, setMode] = useState<ColorApplyMode>("cell"); // 기본: 셀(채우기)
+
   if (!open || !anchor) return null;
 
   return (
     <div
       className="fixed z-50 bg-white border shadow text-xs rounded"
-      style={{ top: anchor.y, left: anchor.x, width: 220 }}
+      style={{ top: anchor.y, left: anchor.x, width: 240 }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-2 border-b font-semibold text-slate-700">칼라</div>
+
+      <div className="px-3 py-2 border-b">
+        <ColorModeToggle mode={mode} onChange={setMode} />
+      </div>
 
       <div className="p-2 grid grid-cols-2 gap-2">
         {COLORS.map((c) => (
@@ -45,7 +55,7 @@ export default function ColorPopover({ open, anchor, onClose, onApply }: Props) 
             key={c.key}
             className="flex items-center gap-2 px-2 py-2 border rounded hover:bg-gray-50"
             onClick={() => {
-              onApply(c.key);
+              onApply(c.key, mode);
               onClose();
             }}
             type="button"

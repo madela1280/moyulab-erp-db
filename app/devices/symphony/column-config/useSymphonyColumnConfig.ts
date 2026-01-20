@@ -17,7 +17,7 @@ function clampUnit(v: any) {
   return Math.max(1, Math.min(200, Math.floor(n)));
 }
 
-// 유저 순서를 최대한 유지하면서, 전역 컬럼 목록 기준으로 누락 컬럼을 “가까운 위치”에 끼워 넣음
+// 전역 컬럼 목록(기본+커스텀) 기준으로, 유저 순서를 최대한 유지하면서 누락 컬럼을 “삽입 위치에 맞게” 끼워 넣음
 function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
   const gSet = new Set(globalOrder);
 
@@ -33,13 +33,13 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
     result.push(k);
   }
 
+  // globalOrder를 순회하며 result에 없는 키를 “가까운 위치”에 삽입
   for (let i = 0; i < globalOrder.length; i++) {
     const k = globalOrder[i];
     if (rSet.has(k)) continue;
 
-    let inserted = false;
-
     // 1) global에서 이전 키 중 result에 존재하는 가장 가까운 prev 뒤에 삽입
+    let inserted = false;
     for (let j = i - 1; j >= 0; j--) {
       const prev = globalOrder[j];
       const idx = result.indexOf(prev);
@@ -75,10 +75,12 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
 function sanitizeWidths(input: any, globalOrder: string[]) {
   const base: Record<string, number> = {};
 
-  // 기본값 세팅
+  // 기본컬럼은 기본값(20) 세팅
   for (const k of symphonyColumns as unknown as string[]) {
     base[k] = DEFAULT_COL_WIDTH_UNIT_BY_KEY[k] ?? 20;
   }
+
+  // 전역 컬럼에 대해 기본값 확장(커스텀도 20 기본)
   for (const k of globalOrder) {
     if (!(k in base)) base[k] = 20;
   }
@@ -91,14 +93,13 @@ function sanitizeWidths(input: any, globalOrder: string[]) {
   return base;
 }
 
-/**
- * 심포니 컬럼 순서/폭 설정 훅 (DB + /api/devices/symphony/grid-settings)
- */
 export function useSymphonyColumnConfig() {
-  const globalOrder = [...(symphonyColumns as unknown as string[])];
+  const defaultGlobal = [...(symphonyColumns as unknown as string[])];
 
-  const [availableColumns, setAvailableColumns] = useState<string[]>(globalOrder);
-  const [columnOrder, _setColumnOrder] = useState<string[]>(globalOrder);
+  const [availableColumns, setAvailableColumns] = useState<string[]>(defaultGlobal);
+
+  const [columnOrder, _setColumnOrder] = useState<string[]>(defaultGlobal);
+
   const [colWidthUnitByKey, _setColWidthUnitByKey] = useState<Record<string, number>>({
     ...DEFAULT_COL_WIDTH_UNIT_BY_KEY,
   });
@@ -116,11 +117,25 @@ export function useSymphonyColumnConfig() {
     _setColWidthUnitByKey(sanitizeWidths(next, availableColumns));
   }
 
-  async function loadUserConfig() {
+  // ✅ 전역 컬럼(기본+커스텀) 목록 로드: /api/devices/symphony/columns
+  async function loadAvailableColumns() {
+    const r = await fetch("/api/devices/symphony/columns", { cache: "no-store" });
+    if (!r.ok) return availableColumns;
+
+    const j = await r.json().catch(() => ({} as any));
+    const order = Array.isArray(j?.order) ? j.order.map(String) : [];
+
+    const safe = order.length ? order : defaultGlobal;
+    setAvailableColumns(safe);
+    return safe;
+  }
+
+  // ✅ 유저별 컬럼 설정 로드: /api/devices/symphony/grid-settings
+  async function loadUserConfig(globalOrder: string[]) {
     const r = await fetch("/api/devices/symphony/grid-settings", { cache: "no-store" });
     if (!r.ok) return;
 
-    const j = (await r.json()) as Partial<ColumnConfig>;
+    const j = (await r.json().catch(() => ({}))) as Partial<ColumnConfig>;
     _setColumnOrder(mergeUserOrderWithGlobal(j.columnOrder, globalOrder));
     _setColWidthUnitByKey(sanitizeWidths(j.colWidthUnitByKey, globalOrder));
   }
@@ -133,10 +148,10 @@ export function useSymphonyColumnConfig() {
     });
   }
 
+  // 외부(양식추가/삭제 후)에서 호출할 “전체 재로딩”
   async function reloadAllColumnState() {
-    // 심포니는 전역 컬럼 목록이 고정(현재)
-    setAvailableColumns(globalOrder);
-    await loadUserConfig();
+    const globalOrder = await loadAvailableColumns();
+    await loadUserConfig(globalOrder);
 
     // 안전 보정
     _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
@@ -155,7 +170,7 @@ export function useSymphonyColumnConfig() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 변경 시 디바운스 저장
+  // 변경 시 디바운스 저장(유저별 설정)
   useEffect(() => {
     if (!hydratedRef.current) return;
 

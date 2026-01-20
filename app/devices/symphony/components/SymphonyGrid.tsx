@@ -36,12 +36,13 @@ import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRen
 import {
   buildColorBulkPatch,
   getCellBgClass,
+  getCellTextClass,
 } from "@/devices/symphony/color/applySymphonyColor";
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
 
 export type SymphonyGridHandle = {
   reload: () => Promise<void>;
-  applyColorToSelection: (color: SymphonySoftColor) => Promise<void>;
+  applyColorToSelection: (color: SymphonySoftColor, mode: "text" | "cell") => Promise<void>;
 };
 
 type Props = {
@@ -84,6 +85,14 @@ function calcRepairCount(data: Record<string, any>) {
     if (v) c++;
   }
   return c;
+}
+
+function formatWon(v: any) {
+  const raw = String(v ?? "").trim();
+  if (!raw) return "";
+  const n = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(n)) return raw; // 숫자 아니면 원본 유지
+  return n.toLocaleString("ko-KR");
 }
 
 const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
@@ -286,19 +295,23 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
 
   // ===== 유틸: 셀 표시값(파생 포함) =====
-  function getDisplayValue(row: SymphonyRow, colKey: string) {
-    if (colKey === "수리횟수") return String(calcRepairCount(row.data));
+ function getDisplayValue(row: SymphonyRow, colKey: string) {
+  if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
-    if (colKey === "유축기 위치") {
-      const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
-      const renting = deviceNo && rentingDeviceNoSet.has(deviceNo);
-      const raw = String(row.data?.[colKey] ?? "");
-      if (!renting) return raw;
-      return raw ? `${raw} (대여중)` : "대여중";
-    }
-
-    return String(row.data?.[colKey] ?? "");
+  if (colKey === "유축기 위치") {
+    const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
+    const renting = deviceNo && rentingDeviceNoSet.has(deviceNo);
+    const raw = String(row.data?.[colKey] ?? "");
+    if (!renting) return raw;
+    return raw ? `${raw} (대여중)` : "대여중";
   }
+
+  if (colKey === "원가") {
+    return formatWon(row.data?.[colKey]);
+  }
+
+  return String(row.data?.[colKey] ?? "");
+}
 
   // ===== 키보드 이동 =====
   function focusCell(rowIndex: number, colIndex: number) {
@@ -612,32 +625,33 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
 
   // ===== 칼라 적용(선택 영역 기반) =====
-  async function applyColorToSelection(color: SymphonySoftColor) {
-    if (!selectedCellRange) return;
+ async function applyColorToSelection(color: SymphonySoftColor, mode: "text" | "cell") {
+  if (!selectedCellRange) return;
 
-    const updates = buildColorBulkPatch({
-      rows: displayRows,
-      viewColumns,
-      range: selectedCellRange,
-      color,
+  const updates = buildColorBulkPatch({
+    rows: displayRows,
+    viewColumns,
+    range: selectedCellRange,
+    color,
+    mode,
+  });
+
+  if (!updates.length) return;
+
+  // 로컬 반영
+  setRows((prev) => {
+    const map = new Map<number, Record<string, any>>();
+    for (const u of updates) map.set(u.id, u.patch.__cellStyle);
+
+    return prev.map((r) => {
+      const nextStyle = map.get(r.id);
+      if (!nextStyle) return r;
+      return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
     });
+  });
 
-    if (!updates.length) return;
-
-    // 로컬 반영
-    setRows((prev) => {
-      const map = new Map<number, Record<string, any>>();
-      for (const u of updates) map.set(u.id, u.patch.__cellStyle);
-
-      return prev.map((r) => {
-        const nextStyle = map.get(r.id);
-        if (!nextStyle) return r;
-        return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
-      });
-    });
-
-    await bulkPatchSymphony({ updates });
-  }
+  await bulkPatchSymphony({ updates });
+}
 
   useImperativeHandle(
     ref,
@@ -894,7 +908,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                             closeFilterPopover();
                           }}
                         >
-                          <div className="w-full text-slate-900">{getDisplayValue(row, key)}</div>
+                            <div
+                                className={`w-full text-slate-900 text-center ${getCellTextClass(row.data, row.id, key)}`}
+                            >
+                                {getDisplayValue(row, key)}
+                            </div>
                         </td>
                       );
                     }
@@ -935,18 +953,22 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                         }}
                       >
                         <input
-                          className="w-full bg-transparent outline-none text-slate-900"
-                          value={
-                            activeEditCell?.rowId === row.id && activeEditCell?.key === key
-                              ? activeEditValue
-                              : getDisplayValue(row, key)
-                          }
+                           className={`w-full bg-transparent outline-none text-slate-900 ${getCellTextClass(
+                             row.data,
+                             row.id,
+                             key
+                        )} ${key === "에러횟수" ? "text-center" : ""}`}
+                        value={
+                          activeEditCell?.rowId === row.id && activeEditCell?.key === key
+                            ? activeEditValue
+                            : getDisplayValue(row, key)
+                        }
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
-                            setSelectedRowRange(null);
-                            const initial = String(row.data?.[key] ?? "");
-                            void handleFocus(row.id, key, initial, e);
+                             setSelectedRowRange(null);
+                             const initial = String(row.data?.[key] ?? "");
+                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
                             if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {

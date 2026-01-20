@@ -10,7 +10,7 @@ type Props = {
   isColumnEditMode: boolean;
   onToggleColumnEditMode: () => void;
 
-  // 양식추가(추후)
+  // 양식추가
   onAddTemplate: () => void;
 
   // 필터
@@ -61,15 +61,16 @@ export default function SymphonyHeader({
 
       <div className="flex items-center gap-2">
         <FilterButton active={filterMode} onClick={onToggleFilterMode} />
-        <ColorButton
-          onClick={() => {
-            // 버튼 클릭 위치 기준으로 팝오버 anchor를 만들기 위해, 마지막 마우스 위치 사용
-            // (정확한 anchor는 SymphonyMain에서 event로 받게 해도 됨)
-            const x = window.innerWidth / 2;
-            const y = 80;
-            onOpenColor({ x, y });
+
+        {/* ColorButton은 내부에서 onClick만 받으므로, wrapper에서 클릭 위치(anchor) 생성 */}
+        <div
+          onMouseDown={(e) => {
+            // 팝오버를 버튼 근처에 띄우기 위한 anchor
+            onOpenColor({ x: e.clientX, y: e.clientY });
           }}
-        />
+        >
+          <ColorButton onClick={() => {}} />
+        </div>
       </div>
 
       <div className="ml-auto flex items-center gap-2">

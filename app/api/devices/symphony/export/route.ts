@@ -57,6 +57,14 @@ function calcRepairCount(data: Record<string, any>) {
   return c;
 }
 
+function formatWon(v: any) {
+  const raw = String(v ?? "").trim();
+  if (!raw) return "";
+  const n = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(n)) return raw;
+  return n.toLocaleString("ko-KR");
+}
+
 function buildRentingDeviceNoSet(unifiedRows: Array<{ data: any }>) {
   const set = new Set<string>();
   for (const r of unifiedRows) {
@@ -69,43 +77,30 @@ function buildRentingDeviceNoSet(unifiedRows: Array<{ data: any }>) {
   return set;
 }
 
-type FilterPayload = {
+type ExportFilter = {
   filterState?: {
-    // JSON 전송 시 Set은 깨지므로, 배열/객체 형태를 모두 허용
-    selectedByKey?: Record<string, any>;
+    selectedByKey?: Record<string, string[]>;
+    searchByKey?: Record<string, string>;
   };
   sortState?: { key?: string | null; dir?: "asc" | "desc" };
 };
 
-function normalizeSelectedByKey(input: any): Record<string, Set<string>> {
-  const out: Record<string, Set<string>> = {};
-  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
-
-  for (const [k, v] of Object.entries(input)) {
-    if (Array.isArray(v)) out[k] = new Set(v.map(String));
-    else if (v && typeof v === "object" && Array.isArray((v as any).values)) {
-      out[k] = new Set((v as any).values.map(String));
-    }
-  }
-  return out;
-}
-
-function applyFilterAndSort(rows: Array<{ id: number; data: any }>, payload: FilterPayload) {
-  const selectedByKey = normalizeSelectedByKey(payload?.filterState?.selectedByKey);
+function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: ExportFilter) {
+  const selectedByKey = filter?.filterState?.selectedByKey ?? {};
 
   // filter
   let out = rows.filter((r) => {
-    for (const [key, set] of Object.entries(selectedByKey)) {
-      if (!set || set.size === 0) continue;
+    for (const [key, arr] of Object.entries(selectedByKey)) {
+      if (!arr || arr.length === 0) continue;
       const v = toText(r.data?.[key]);
-      if (!set.has(v)) return false;
+      if (!arr.includes(v)) return false;
     }
     return true;
   });
 
   // sort (text)
-  const sortKey = payload?.sortState?.key ?? null;
-  const dir = payload?.sortState?.dir === "desc" ? "desc" : "asc";
+  const sortKey = filter?.sortState?.key ?? null;
+  const dir = filter?.sortState?.dir === "desc" ? "desc" : "asc";
 
   if (sortKey) {
     out = [...out].sort((a, b) => {
@@ -130,7 +125,7 @@ export async function POST(req: Request) {
     await ensureSymphonyTables();
 
     const body = (await req.json().catch(() => ({}))) as any;
-    const filter: FilterPayload = body?.filter ?? {};
+    const filter: ExportFilter = (body?.filter ?? {}) as any;
 
     // 심포니 데이터 전체 로드(정렬은 order 기준)
     const symR = await query(
@@ -142,7 +137,7 @@ export async function POST(req: Request) {
       `
     );
 
-    // 통합관리에서 대여중 매칭용(기기번호 + 반납완료일)
+    // 통합관리에서 대여중 매칭용
     const uniR = await query(`SELECT data FROM unified`);
     const rentingSet = buildRentingDeviceNoSet(uniR.rows as any[]);
 
@@ -168,13 +163,15 @@ export async function POST(req: Request) {
           return csvEscape(raw ? `${raw} (대여중)` : "대여중");
         }
 
+        if (k === "원가") return csvEscape(formatWon(data?.[k]));
+
         return csvEscape(data?.[k]);
       });
 
       lines.push(line.join(","));
     }
 
-    const csv = "\uFEFF" + lines.join("\r\n"); // BOM 포함(엑셀 한글 깨짐 방지)
+    const csv = "\uFEFF" + lines.join("\r\n");
 
     return new NextResponse(csv, {
       headers: {
