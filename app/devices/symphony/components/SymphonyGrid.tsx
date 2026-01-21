@@ -328,23 +328,33 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 }
 
   // ===== 키보드 이동 =====
-  function focusCell(rowIndex: number, colIndex: number) {
-    const el = document.querySelector<HTMLInputElement>(
-      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
-    );
-    if (el) {
-      el.focus();
-      el.select();
-      return true;
-    }
-    return false;
+ function focusCell(rowIndex: number, colIndex: number) {
+  const input = document.querySelector<HTMLInputElement>(
+    `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+  );
+  if (input) {
+    input.focus();
+    input.select();
+    return true;
   }
 
+  // ✅ computed 컬럼(거래처/대여자명/수리횟수)은 input이 없으므로 td에 포커스
+  const td = document.querySelector<HTMLElement>(
+    `td[data-row="${rowIndex}"][data-col="${colIndex}"]`
+  );
+  if (td) {
+    td.focus();
+    return true;
+  }
+
+  return false;
+}
+
   function handleCellKeyDown(
-    e: React.KeyboardEvent<HTMLInputElement>,
-    rowIndex: number,
-    colIndex: number
-  ) {
+  e: React.KeyboardEvent<HTMLElement>,
+  rowIndex: number,
+  colIndex: number
+) {
     let r = rowIndex;
     let c = colIndex;
 
@@ -369,7 +379,14 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         return;
     }
 
-    if (focusCell(r, c)) e.preventDefault();
+   // ✅ 방향키 이동 = 선택(파란 표시)도 함께 이동
+setSelectedRowRange(null);
+setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
+setContextMenu(null);
+closeFilterPopover();
+
+focusCell(r, c);
+e.preventDefault();
   }
 
   // ===== 붙여넣기/삭제: “첫 셀 누락” 방지를 위해 paste capture 단일 경로로 처리 =====
@@ -883,26 +900,32 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
                   {viewColumns.map((key, colIndex) => {
                     const cellSelected = isCellSelected(rowIndex, colIndex);
-                    const styleBg = getCellBgClass(row.data, row.id, key);
+const styleBg = getCellBgClass(row.data, row.id, key);
 
-                   // ✅ 핵심: 선택(파란 배경) 때문에 저장된 셀 색(bg-xxx)이 가려져 “안 보이는 것처럼” 보이던 문제 해결
-                   // - 셀 색(bg)은 항상 적용
-                   // - 선택 표시는 배경이 아니라 outline로 표시(색이 유지되게)
-                   const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
-                   const selectionOutline = cellSelected
-                      ? "outline outline-2 outline-blue-500 outline-offset-[-2px]"
-                      : "";
+const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
 
-                   const cls = `border px-2 py-[3px] ${baseBg} ${styleBg} ${selectionOutline}`;
+// ✅ 컬러 칠해진 셀(styleBg가 있는 셀)은 선택 오버레이를 더 옅게 해서 색이 가려지지 않게 함
+const selectionOverlay = cellSelected
+  ? `relative before:content-[''] before:absolute before:inset-0 before:pointer-events-none ${
+      styleBg ? "before:bg-blue-200/12" : "before:bg-blue-200/35"
+    }`
+  : "";
+
+const cls = `border px-2 py-[3px] ${baseBg} ${styleBg} ${selectionOverlay}`;
 
                    // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
 if (isComputedColumn(key)) {
   return (
     <td
-      key={key}
-      className={cls}
-      onMouseDown={(e) => {
+  key={key}
+  className={cls}
+  data-row={rowIndex}
+  data-col={colIndex}
+  tabIndex={-1}
+  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+  onMouseDown={(e) => {
         if (e.button !== 0) return;
+        (e.currentTarget as HTMLElement).focus(); // ✅ computed 셀도 클릭 시 포커스 확보 → 방향키 동작
         setIsCellDragging(true);
         setCellDragAnchor({ row: rowIndex, col: colIndex });
         setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
@@ -937,9 +960,12 @@ if (isComputedColumn(key)) {
 
    return (
   <td
-    key={key}
-    className={cls}
-    onMouseDown={(e) => {
+  key={key}
+  className={cls}
+  data-row={rowIndex}
+  data-col={colIndex}
+  tabIndex={-1}
+  onMouseDown={(e) => {
       if (e.button !== 0) return;
       setIsCellDragging(true);
       setCellDragAnchor({ row: rowIndex, col: colIndex });
