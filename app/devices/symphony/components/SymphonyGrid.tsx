@@ -33,11 +33,7 @@ import { applySymphonySort, type SymphonySortState } from "@/devices/symphony/fi
 
 import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRentalStatus";
 
-import {
-  buildColorBulkPatch,
-  getCellBgClass,
-  getCellTextClass,
-} from "@/devices/symphony/color/applySymphonyColor";
+import { buildColorBulkPatch } from "@/devices/symphony/color/applySymphonyColor";
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
 
 export type SymphonyGridHandle = {
@@ -93,6 +89,30 @@ function formatWon(v: any) {
   const n = Number(raw.replace(/,/g, ""));
   if (!Number.isFinite(n)) return raw; // 숫자 아니면 원본 유지
   return n.toLocaleString("ko-KR");
+}
+
+type CellStyleInfo = { bg?: string; fg?: string };
+
+function cellStyleKey(rowId: number, colKey: string) {
+  return `${rowId}:${colKey}`;
+}
+
+// ✅ Tailwind class가 생성/적용 안 되는 환경에서도 100% 동작하도록 inline color로 렌더링
+const INLINE_PALETTE: Record<
+  string,
+  { bg: string; text: string }
+> = {
+  red: { bg: "#FECACA", text: "#991B1B" },     // red-200 / red-800
+  yellow: { bg: "#FEF08A", text: "#854D0E" },  // yellow-200 / yellow-800
+  blue: { bg: "#BFDBFE", text: "#1E40AF" },    // blue-200 / blue-800
+  green: { bg: "#BBF7D0", text: "#166534" },   // green-200 / green-800
+  purple: { bg: "#E9D5FF", text: "#6B21A8" },  // purple-200 / purple-800
+  black: { bg: "#CBD5E1", text: "#0F172A" },   // slate-300 / slate-900
+};
+
+function getCellStyleInfo(rowData: Record<string, any>, rowId: number, colKey: string): CellStyleInfo {
+  const map = (rowData?.__cellStyle ?? {}) as Record<string, CellStyleInfo>;
+  return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
 const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
@@ -899,19 +919,23 @@ e.preventDefault();
                   </td>
 
                   {viewColumns.map((key, colIndex) => {
-                    const cellSelected = isCellSelected(rowIndex, colIndex);
-const styleBg = getCellBgClass(row.data, row.id, key);
+                   const cellSelected = isCellSelected(rowIndex, colIndex);
+
+const info = getCellStyleInfo(row.data, row.id, key);
+const bgColor = info?.bg ? (INLINE_PALETTE[info.bg]?.bg ?? undefined) : undefined;
+const textColor = info?.fg ? (INLINE_PALETTE[info.fg]?.text ?? undefined) : undefined;
+
+// td 배경은 inline style로(=Tailwind 빌드/스캔 이슈 완전 제거)
+const tdStyle = bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined;
 
 const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
 
-// ✅ 컬러 칠해진 셀(styleBg가 있는 셀)은 선택 오버레이를 더 옅게 해서 색이 가려지지 않게 함
+// 선택 오버레이(원하면 나중에 조정 가능). 배경색이 있어도 살짝만 덮게 고정.
 const selectionOverlay = cellSelected
-  ? `relative before:content-[''] before:absolute before:inset-0 before:pointer-events-none ${
-      styleBg ? "before:bg-blue-200/12" : "before:bg-blue-200/35"
-    }`
+  ? "relative before:content-[''] before:absolute before:inset-0 before:bg-blue-200/20 before:pointer-events-none"
   : "";
 
-const cls = `border px-2 py-[3px] ${baseBg} ${styleBg} ${selectionOverlay}`;
+const cls = `border px-2 py-[3px] ${baseBg} ${selectionOverlay}`; 
 
                    // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
 if (isComputedColumn(key)) {
@@ -919,6 +943,7 @@ if (isComputedColumn(key)) {
     <td
   key={key}
   className={cls}
+  style={tdStyle}
   data-row={rowIndex}
   data-col={colIndex}
   tabIndex={-1}
@@ -948,12 +973,11 @@ if (isComputedColumn(key)) {
       }}
     >
       <div
-        className={`w-full ${key === "수리횟수" ? "text-center" : ""} ${
-          getCellTextClass(row.data, row.id, key) || "text-slate-900"
-        }`}
-      >
-        {getDisplayValue(row, key)}
-      </div>
+  className={`w-full ${key === "수리횟수" ? "text-center" : ""}`}
+  style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
+>
+  {getDisplayValue(row, key)}
+</div>
     </td>
   );
 }
@@ -962,6 +986,7 @@ if (isComputedColumn(key)) {
   <td
   key={key}
   className={cls}
+  style={tdStyle}
   data-row={rowIndex}
   data-col={colIndex}
   tabIndex={-1}
@@ -997,10 +1022,9 @@ if (isComputedColumn(key)) {
     }}
   >
     <input
-      className={`w-full bg-transparent outline-none ${
-        getCellTextClass(row.data, row.id, key) || "text-slate-900"
-      } ${key === "에러횟수" ? "text-center" : ""}`}
-      value={
+  className={`w-full bg-transparent outline-none ${key === "에러횟수" ? "text-center" : ""}`}
+  style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
+  value={
         activeEditCell?.rowId === row.id && activeEditCell?.key === key
           ? activeEditValue
           : getDisplayValue(row, key)
