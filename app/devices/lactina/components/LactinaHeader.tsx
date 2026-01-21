@@ -28,25 +28,21 @@ export default function LactinaHeader(props: Props) {
     filterMode,
   } = props;
 
-  // ✅ 글자 크기 약 15% 축소(text-sm -> text-[12px])
-  const leftBtnBase =
+  // ✅ 글자 크기 약 15% 축소
+  const btnBase =
     "px-3 py-1 rounded text-[12px] border border-transparent bg-gray-100 text-slate-800 hover:bg-gray-200";
-  const leftBtnActive =
+  const btnActive =
     "px-3 py-1 rounded text-[12px] border border-transparent bg-slate-900 text-white hover:bg-slate-900";
-
-  // ✅ 우측 액션 버튼은 "바탕색 없음" (필터/칼라만 배경 유지)
-  const rightBtnBase =
-    "px-2 py-1 rounded text-[12px] border border-transparent bg-transparent text-slate-700 hover:bg-gray-50";
 
   return (
     <div className="border-x border-t bg-white px-3 py-2 flex items-center justify-between gap-2">
-      {/* 좌측: 탭 형태 */}
+      {/* 좌측 */}
       <div className="flex items-center gap-2">
         <div className="font-semibold text-slate-900 select-none">락티나</div>
 
         <button
           type="button"
-          className={filterMode ? leftBtnActive : leftBtnBase}
+          className={filterMode ? btnActive : btnBase}
           onClick={onToggleFilterMode}
         >
           필터
@@ -54,32 +50,30 @@ export default function LactinaHeader(props: Props) {
 
         <button
           type="button"
-          className={leftBtnBase}
+          className={btnBase}
           onClick={(e) => onOpenColor({ x: e.clientX, y: e.clientY })}
         >
           칼라
         </button>
       </div>
 
-      {/* 우측: 액션 버튼 */}
+      {/* 우측 (✅ 4개도 회색 바탕색 적용) */}
       <div className="flex items-center gap-2">
-        <button type="button" className={rightBtnBase} onClick={onDownload}>
+        <button type="button" className={btnBase} onClick={onDownload}>
           다운로드
         </button>
 
-        <button type="button" className={rightBtnBase} onClick={onAdd10}>
+        <button type="button" className={btnBase} onClick={onAdd10}>
           행10추가
         </button>
 
-        <button type="button" className={rightBtnBase} onClick={onAddTemplate}>
+        <button type="button" className={btnBase} onClick={onAddTemplate}>
           양식추가
         </button>
 
         <button
           type="button"
-          className={`${rightBtnBase} ${
-            isColumnEditMode ? "text-slate-900 font-semibold" : ""
-          }`}
+          className={isColumnEditMode ? btnActive : btnBase}
           onClick={onToggleColumnEditMode}
         >
           열이동
