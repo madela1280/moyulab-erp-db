@@ -72,6 +72,37 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
   return result;
 }
 
+/**
+ * ✅ 강제 위치 고정(요구사항)
+ * - "거래처", "대여자명"은 항상
+ *   "유축기 위치" 바로 뒤, "폐기" 바로 앞(= 유축기 위치와 폐기 사이)에 위치해야 한다.
+ *
+ * 유저 grid-settings에 예전 순서가 저장되어 있어도, 화면/저장 시 항상 이 규칙을 우선한다.
+ */
+function enforceFixedDerivedColumns(order: string[]) {
+  const FIXED = ["거래처", "대여자명"] as const;
+  const FIXED_SET = new Set<string>(FIXED);
+
+  const presentFixed = FIXED.filter((k) => order.includes(k));
+  if (!presentFixed.length) return order;
+
+  const cleaned = order.filter((k) => !FIXED_SET.has(k));
+
+  const idxPump = cleaned.indexOf("유축기 위치");
+  if (idxPump >= 0) {
+    cleaned.splice(idxPump + 1, 0, ...presentFixed);
+    return cleaned;
+  }
+
+  const idxDispose = cleaned.indexOf("폐기");
+  if (idxDispose >= 0) {
+    cleaned.splice(idxDispose, 0, ...presentFixed);
+    return cleaned;
+  }
+
+  return [...cleaned, ...presentFixed];
+}
+
 function sanitizeWidths(input: any, globalOrder: string[]) {
   const base: Record<string, number> = {};
 
@@ -110,7 +141,8 @@ export function useSymphonyColumnConfig() {
   function setColumnOrder(next: string[]) {
     const gSet = new Set(availableColumns);
     const filtered = next.filter((k) => gSet.has(k));
-    _setColumnOrder(mergeUserOrderWithGlobal(filtered, availableColumns));
+    const merged = mergeUserOrderWithGlobal(filtered, availableColumns);
+    _setColumnOrder(enforceFixedDerivedColumns(merged));
   }
 
   function setColWidthUnitByKey(next: Record<string, number>) {
@@ -136,7 +168,8 @@ export function useSymphonyColumnConfig() {
     if (!r.ok) return;
 
     const j = (await r.json().catch(() => ({}))) as Partial<ColumnConfig>;
-    _setColumnOrder(mergeUserOrderWithGlobal(j.columnOrder, globalOrder));
+    const merged = mergeUserOrderWithGlobal(j.columnOrder, globalOrder);
+    _setColumnOrder(enforceFixedDerivedColumns(merged));
     _setColWidthUnitByKey(sanitizeWidths(j.colWidthUnitByKey, globalOrder));
   }
 
@@ -153,8 +186,8 @@ export function useSymphonyColumnConfig() {
     const globalOrder = await loadAvailableColumns();
     await loadUserConfig(globalOrder);
 
-    // 안전 보정
-    _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
+    // 안전 보정(+ 강제 위치 규칙 포함)
+    _setColumnOrder((prev) => enforceFixedDerivedColumns(mergeUserOrderWithGlobal(prev, globalOrder)));
     _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
   }
 

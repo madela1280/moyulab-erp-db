@@ -25,22 +25,74 @@ async function ensureSettingsTable() {
   `);
 }
 
+function sanitizeColumnOrder(input: any) {
+  const arr = Array.isArray(input) ? input : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const v of arr) {
+    const k = String(v ?? "").trim();
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
+}
+
+/**
+ * ✅ 강제 위치 고정(요구사항)
+ * - "거래처", "대여자명"은 항상
+ *   "유축기 위치" 바로 뒤, "폐기" 바로 앞(= 유축기 위치와 폐기 사이)에 위치해야 한다.
+ */
+function enforceFixedDerivedColumns(order: string[]) {
+  const FIXED = ["거래처", "대여자명"] as const;
+  const FIXED_SET = new Set<string>(FIXED);
+
+  const presentFixed = FIXED.filter((k) => order.includes(k));
+  if (!presentFixed.length) return order;
+
+  const cleaned = order.filter((k) => !FIXED_SET.has(k));
+
+  const idxPump = cleaned.indexOf("유축기 위치");
+  if (idxPump >= 0) {
+    cleaned.splice(idxPump + 1, 0, ...presentFixed);
+    return cleaned;
+  }
+
+  const idxDispose = cleaned.indexOf("폐기");
+  if (idxDispose >= 0) {
+    cleaned.splice(idxDispose, 0, ...presentFixed);
+    return cleaned;
+  }
+
+  return [...cleaned, ...presentFixed];
+}
+
+function sanitizeColWidthUnitByKey(input: any) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return input as Record<string, number>;
+}
+
 export async function GET() {
   try {
     await ensureSettingsTable();
 
-    const r = await query(
-      `SELECT data FROM device_symphony_grid_settings WHERE id=1 LIMIT 1`
-    );
+    const r = await query(`SELECT data FROM device_symphony_grid_settings WHERE id=1 LIMIT 1`);
 
     const data = (r.rows[0]?.data ?? {}) as any;
 
+    const columnOrderRaw = Array.isArray(data.columnOrder) ? data.columnOrder : [];
+    const columnOrder = enforceFixedDerivedColumns(sanitizeColumnOrder(columnOrderRaw));
+
+    const colWidthUnitByKey =
+      data.colWidthUnitByKey && typeof data.colWidthUnitByKey === "object"
+        ? data.colWidthUnitByKey
+        : {};
+
     return NextResponse.json({
-      columnOrder: Array.isArray(data.columnOrder) ? data.columnOrder : [],
-      colWidthUnitByKey:
-        data.colWidthUnitByKey && typeof data.colWidthUnitByKey === "object"
-          ? data.colWidthUnitByKey
-          : {},
+      columnOrder,
+      colWidthUnitByKey,
     });
   } catch (e) {
     console.error("GET /api/devices/symphony/grid-settings error:", e);
@@ -54,12 +106,12 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
+    const nextOrder = enforceFixedDerivedColumns(sanitizeColumnOrder(body?.columnOrder));
+    const nextWidths = sanitizeColWidthUnitByKey(body?.colWidthUnitByKey);
+
     const payload = {
-      columnOrder: Array.isArray(body?.columnOrder) ? body.columnOrder : [],
-      colWidthUnitByKey:
-        body?.colWidthUnitByKey && typeof body.colWidthUnitByKey === "object"
-          ? body.colWidthUnitByKey
-          : {},
+      columnOrder: nextOrder,
+      colWidthUnitByKey: nextWidths,
     };
 
     await query(

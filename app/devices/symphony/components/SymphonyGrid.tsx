@@ -885,13 +885,15 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                     const cellSelected = isCellSelected(rowIndex, colIndex);
                     const styleBg = getCellBgClass(row.data, row.id, key);
 
-                    const baseBg = cellSelected
-                      ? "bg-blue-200"
-                      : rowSelected
-                      ? "bg-blue-50"
-                      : "bg-white";
+                   // ✅ 핵심: 선택(파란 배경) 때문에 저장된 셀 색(bg-xxx)이 가려져 “안 보이는 것처럼” 보이던 문제 해결
+                   // - 셀 색(bg)은 항상 적용
+                   // - 선택 표시는 배경이 아니라 outline로 표시(색이 유지되게)
+                   const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
+                   const selectionOutline = cellSelected
+                      ? "outline outline-2 outline-blue-500 outline-offset-[-2px]"
+                      : "";
 
-                    const cls = `border px-2 py-[3px] ${baseBg} ${!cellSelected ? styleBg : ""}`;
+                   const cls = `border px-2 py-[3px] ${baseBg} ${styleBg} ${selectionOutline}`;
 
                    // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
 if (isComputedColumn(key)) {
