@@ -1,10 +1,11 @@
-'use client';
+"use client";
+
+import LactinaMain from "@/devices/lactina/components/LactinaMain";
 
 export default function LactinaView() {
   return (
-    <div className="text-gray-700 text-sm">
-      Lactina 페이지
+    <div className="w-full h-full flex flex-col">
+      <LactinaMain />
     </div>
   );
 }
-
