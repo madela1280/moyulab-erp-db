@@ -22,23 +22,25 @@ export default function LactinaHeader(props: Props) {
     isColumnEditMode,
     onToggleColumnEditMode,
     onAddTemplate,
-    filterMode,
     onToggleFilterMode,
     onOpenColor,
     onDownload,
+    filterMode,
   } = props;
 
+  // ✅ 글자 크기 약 15% 축소(text-sm -> text-[12px])
   const leftBtnBase =
-    "px-3 py-1 rounded text-sm border border-transparent bg-gray-100 text-slate-800 hover:bg-gray-200";
+    "px-3 py-1 rounded text-[12px] border border-transparent bg-gray-100 text-slate-800 hover:bg-gray-200";
   const leftBtnActive =
-    "px-3 py-1 rounded text-sm border border-transparent bg-slate-900 text-white hover:bg-slate-900";
+    "px-3 py-1 rounded text-[12px] border border-transparent bg-slate-900 text-white hover:bg-slate-900";
 
+  // ✅ 우측 액션 버튼은 "바탕색 없음" (필터/칼라만 배경 유지)
   const rightBtnBase =
-    "px-3 py-1 rounded text-sm border border-slate-200 bg-white text-slate-700 hover:bg-gray-50";
+    "px-2 py-1 rounded text-[12px] border border-transparent bg-transparent text-slate-700 hover:bg-gray-50";
 
   return (
     <div className="border-x border-t bg-white px-3 py-2 flex items-center justify-between gap-2">
-      {/* 좌측: 탭 형태(심포니와 동일한 배치) */}
+      {/* 좌측: 탭 형태 */}
       <div className="flex items-center gap-2">
         <div className="font-semibold text-slate-900 select-none">락티나</div>
 
@@ -59,7 +61,7 @@ export default function LactinaHeader(props: Props) {
         </button>
       </div>
 
-      {/* 우측: 액션 버튼(심포니와 동일한 배치/순서) */}
+      {/* 우측: 액션 버튼 */}
       <div className="flex items-center gap-2">
         <button type="button" className={rightBtnBase} onClick={onDownload}>
           다운로드
@@ -76,7 +78,7 @@ export default function LactinaHeader(props: Props) {
         <button
           type="button"
           className={`${rightBtnBase} ${
-            isColumnEditMode ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900" : ""
+            isColumnEditMode ? "text-slate-900 font-semibold" : ""
           }`}
           onClick={onToggleColumnEditMode}
         >
