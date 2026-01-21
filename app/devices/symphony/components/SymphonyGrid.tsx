@@ -37,7 +37,8 @@ import { buildColorBulkPatch } from "@/devices/symphony/color/applySymphonyColor
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
 
 export type SymphonyGridHandle = {
-  reload: () => Promise<void>;
+  // ✅ 실시간 수신 시 점멸 줄이기 위해 silent reload 옵션 지원
+  reload: (options?: { silent?: boolean }) => Promise<void>;
   applyColorToSelection: (color: SymphonySoftColor, mode: "text" | "cell") => Promise<void>;
 };
 
@@ -704,14 +705,14 @@ e.preventDefault();
   await bulkPatchSymphony({ updates });
 }
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      reload,
-      applyColorToSelection,
-    }),
-    [reload, applyColorToSelection]
-  );
+ useImperativeHandle(
+  ref,
+  () => ({
+    reload: (options) => reload(options),
+    applyColorToSelection,
+  }),
+  [reload, applyColorToSelection]
+);
 
   // ===== 필터 팝오버 핸들러 =====
   function toggleFilterValue(colKey: string, v: string) {

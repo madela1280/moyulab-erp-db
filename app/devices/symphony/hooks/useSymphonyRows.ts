@@ -23,6 +23,14 @@ function normalizeRowsResult(j: LoadResult): {
   };
 }
 
+type ReloadOptions = {
+  /**
+   * ✅ 실시간 동기화 수신 시 점멸(Loading... 화면 전환)을 없애기 위한 옵션
+   * - silent=true면 loading state를 건드리지 않고 데이터만 갱신한다.
+   */
+  silent?: boolean;
+};
+
 /**
  * 심포니 rows 로딩/리프레시 상태 훅
  * - 실제 데이터는 /api/devices/symphony 에서만
@@ -35,12 +43,23 @@ export function useSymphonyRows() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
 
-  const loadingRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const pendingRef = useRef<ReloadOptions | null>(null);
 
-  const reload = useCallback(async () => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
+  const reload = useCallback(async (options?: ReloadOptions) => {
+    // in-flight이면 1번만 더 실행되도록 예약(=이벤트 폭주/연타 시 점멸 완화 + 최신 반영)
+    if (inFlightRef.current) {
+      pendingRef.current = options ?? {};
+      return;
+    }
+
+    inFlightRef.current = true;
+
+    const silent = !!options?.silent;
+
+    if (!silent) {
+      setLoading(true);
+    }
     setError("");
 
     try {
@@ -54,8 +73,17 @@ export function useSymphonyRows() {
     } catch (e: any) {
       setError(String(e?.message ?? e ?? "FAILED"));
     } finally {
-      setLoading(false);
-      loadingRef.current = false;
+      if (!silent) {
+        setLoading(false);
+      }
+      inFlightRef.current = false;
+
+      // 예약된 reload가 있으면 1회만 추가 실행
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (pending) {
+        await reload(pending);
+      }
     }
   }, []);
 

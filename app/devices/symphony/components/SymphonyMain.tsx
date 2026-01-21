@@ -48,13 +48,14 @@ export default function SymphonyMain() {
     reloadAllColumnState, // ✅ 핵심: 양식추가/삭제 즉시 반영용
   } = useSymphonyColumnConfig();
 
-  // ✅ 다른 탭/PC의 변경을 수신하면 reload
-  useEffect(() => {
-    const off = syncListen(() => {
-      void gridRef.current?.reload();
-    });
-    return off;
-  }, []);
+  // ✅ 다른 탭/PC의 변경을 수신하면 "점멸 없이(silent)" reload
+ useEffect(() => {
+  const off = syncListen(() => {
+    // ✅ 실시간 수신 시 점멸 최소화(Loading... 전환 없이 데이터만 갱신)
+    void gridRef.current?.reload({ silent: true });
+  });
+  return off;
+}, []);
 
   async function handleAdd10() {
     await insertSymphonyRows({ count: 10, beforeId: null, afterId: null });
