@@ -1,5 +1,7 @@
 // app/devices/symphony/service/serviceSymphony.ts
 
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
+
 export type SymphonyRow = {
   id: number;
   data: Record<string, any>;
@@ -58,23 +60,33 @@ export async function getSymphonyRow(id: number) {
  * - value === "" 이면 null 저장 규칙은 호출측에서 처리(그리드 onBlur)
  */
 export async function patchSymphonyRow(id: number, patch: Record<string, any>) {
-  return fetchJson<SymphonyRow>(`/api/devices/symphony/${id}`, {
+  const res = await fetchJson<SymphonyRow>(`/api/devices/symphony/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+
+  // ✅ 다른 탭/PC에 변경 알림(코어 unified:update 재사용)
+  syncEmitUnifiedUpdate();
+
+  return res;
 }
 
 export async function createSymphonyRow(data: Record<string, any>) {
-  return fetchJson<SymphonyRow>(`/api/devices/symphony`, {
+  const res = await fetchJson<SymphonyRow>(`/api/devices/symphony`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+
+  // ✅ 다른 탭/PC에 변경 알림
+  syncEmitUnifiedUpdate();
+
+  return res;
 }
 
 export async function insertSymphonyRows(args: InsertArgs) {
-  return fetchJson<{ ok: true; insertedRows: Array<{ id: number; sort_key?: number }> }>(
+  const res = await fetchJson<{ ok: true; insertedRows: Array<{ id: number; sort_key?: number }> }>(
     `/api/devices/symphony/insert`,
     {
       method: "POST",
@@ -82,10 +94,15 @@ export async function insertSymphonyRows(args: InsertArgs) {
       body: JSON.stringify(args),
     }
   );
+
+  // ✅ 다른 탭/PC에 변경 알림
+  syncEmitUnifiedUpdate();
+
+  return res;
 }
 
 export async function bulkPatchSymphony(args: BulkPatchArgs) {
-  return fetchJson<{ ok: true; updatedCount: number; updatedIds: number[] }>(
+  const res = await fetchJson<{ ok: true; updatedCount: number; updatedIds: number[] }>(
     `/api/devices/symphony/bulk-patch`,
     {
       method: "POST",
@@ -93,10 +110,15 @@ export async function bulkPatchSymphony(args: BulkPatchArgs) {
       body: JSON.stringify(args),
     }
   );
+
+  // ✅ 다른 탭/PC에 변경 알림
+  syncEmitUnifiedUpdate();
+
+  return res;
 }
 
 export async function bulkDeleteSymphony(args: BulkDeleteArgs) {
-  return fetchJson<{ ok: true; deletedCount: number; deletedIds: number[] }>(
+  const res = await fetchJson<{ ok: true; deletedCount: number; deletedIds: number[] }>(
     `/api/devices/symphony/bulk-delete`,
     {
       method: "POST",
@@ -104,6 +126,11 @@ export async function bulkDeleteSymphony(args: BulkDeleteArgs) {
       body: JSON.stringify(args),
     }
   );
+
+  // ✅ 다른 탭/PC에 변경 알림
+  syncEmitUnifiedUpdate();
+
+  return res;
 }
 
 // ✅ Set은 JSON으로 전송 시 깨지므로(Array로 변환) export 요청용으로 정규화

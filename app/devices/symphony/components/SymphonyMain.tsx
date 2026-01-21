@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import SymphonyHeader from "@/devices/symphony/components/SymphonyHeader";
 import SymphonyGrid, { SymphonyGridHandle } from "@/devices/symphony/components/SymphonyGrid";
@@ -17,6 +17,8 @@ import {
   type ColumnFilterState,
 } from "@/devices/symphony/filter/useSymphonyFilter";
 import { defaultSortState, type SymphonySortState } from "@/devices/symphony/filter/useSymphonySort";
+
+import { syncListen } from "@/global-sync/sync-engine";
 
 export default function SymphonyMain() {
   const gridRef = useRef<SymphonyGridHandle | null>(null);
@@ -45,6 +47,14 @@ export default function SymphonyMain() {
     setColWidthUnitByKey,
     reloadAllColumnState, // ✅ 핵심: 양식추가/삭제 즉시 반영용
   } = useSymphonyColumnConfig();
+
+  // ✅ 다른 탭/PC의 변경을 수신하면 reload
+  useEffect(() => {
+    const off = syncListen(() => {
+      void gridRef.current?.reload();
+    });
+    return off;
+  }, []);
 
   async function handleAdd10() {
     await insertSymphonyRows({ count: 10, beforeId: null, afterId: null });
