@@ -29,7 +29,10 @@ import {
   isFilterActive,
   type ColumnFilterState,
 } from "@/devices/symphony/filter/useSymphonyFilter";
-import { applySymphonySort, type SymphonySortState } from "@/devices/symphony/filter/useSymphonySort";
+import {
+  applySymphonySort,
+  type SymphonySortState,
+} from "@/devices/symphony/filter/useSymphonySort";
 
 import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRentalStatus";
 
@@ -39,7 +42,10 @@ import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
 export type SymphonyGridHandle = {
   // ✅ 실시간 수신 시 점멸 줄이기 위해 silent reload 옵션 지원
   reload: (options?: { silent?: boolean }) => Promise<void>;
-  applyColorToSelection: (color: SymphonySoftColor, mode: "text" | "cell") => Promise<void>;
+  applyColorToSelection: (
+    color: SymphonySoftColor,
+    mode: "text" | "cell"
+  ) => Promise<void>;
 };
 
 type Props = {
@@ -74,6 +80,19 @@ function normalizeDeviceNo(v: any) {
   return String(v ?? "").trim();
 }
 
+function stripRentingMarker(v: any) {
+  const raw = String(v ?? "");
+  if (!raw) return "";
+
+  // "대여중" 표기(예: "대여중", " (대여중)", "(대여중)")만 제거해서 안정화
+  let s = raw;
+  s = s.replace(/\(대여중\)/g, "");
+  s = s.replace(/\s*대여중\s*/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
 function calcRepairCount(data: Record<string, any>) {
   const keys = ["수리이력1", "수리이력2", "수리이력3", "수리이력4", "수리이력5"];
   let c = 0;
@@ -99,40 +118,39 @@ function cellStyleKey(rowId: number, colKey: string) {
 }
 
 // ✅ Tailwind class가 생성/적용 안 되는 환경에서도 100% 동작하도록 inline color로 렌더링
-const INLINE_PALETTE: Record<
-  string,
-  { bg: string; text: string }
-> = {
-  red: { bg: "#FECACA", text: "#991B1B" },     // red-200 / red-800
-  yellow: { bg: "#FEF08A", text: "#854D0E" },  // yellow-200 / yellow-800
-  blue: { bg: "#BFDBFE", text: "#1E40AF" },    // blue-200 / blue-800
-  green: { bg: "#BBF7D0", text: "#166534" },   // green-200 / green-800
-  purple: { bg: "#E9D5FF", text: "#6B21A8" },  // purple-200 / purple-800
-  black: { bg: "#CBD5E1", text: "#0F172A" },   // slate-300 / slate-900
+const INLINE_PALETTE: Record<string, { bg: string; text: string }> = {
+  red: { bg: "#FECACA", text: "#991B1B" }, // red-200 / red-800
+  yellow: { bg: "#FEF08A", text: "#854D0E" }, // yellow-200 / yellow-800
+  blue: { bg: "#BFDBFE", text: "#1E40AF" }, // blue-200 / blue-800
+  green: { bg: "#BBF7D0", text: "#166534" }, // green-200 / green-800
+  purple: { bg: "#E9D5FF", text: "#6B21A8" }, // purple-200 / purple-800
+  black: { bg: "#CBD5E1", text: "#0F172A" }, // slate-300 / slate-900
 };
 
-function getCellStyleInfo(rowData: Record<string, any>, rowId: number, colKey: string): CellStyleInfo {
+function getCellStyleInfo(
+  rowData: Record<string, any>,
+  rowId: number,
+  colKey: string
+): CellStyleInfo {
   const map = (rowData?.__cellStyle ?? {}) as Record<string, CellStyleInfo>;
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
 const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
-  const {
-    rows,
-    setRows,
-    setTotalCount,
-    baseIndex,
-    loading,
-    error,
-    reload,
-  } = useSymphonyRows();
+  const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } =
+    useSymphonyRows();
 
   const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
-  const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [...symphonyColumns]);
-  const [colWidthUnitByKeyState, setColWidthUnitByKeyState] = useState<Record<string, number>>({});
+  const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [
+    ...symphonyColumns,
+  ]);
+  const [colWidthUnitByKeyState, setColWidthUnitByKeyState] = useState<Record<
+    string,
+    number
+  >>({});
 
   const columnOrder = props.columnOrder ?? columnOrderState;
   const colWidthUnitByKey = props.colWidthUnitByKey ?? colWidthUnitByKeyState;
@@ -142,9 +160,12 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     else setColumnOrderState(updater);
   }
 
-  function setColWidthUnitByKeyNext(updater: (prev: Record<string, number>) => Record<string, number>) {
-    if (props.onColWidthUnitByKeyChange) props.onColWidthUnitByKeyChange(updater(colWidthUnitByKey));
-    else setColWidthUnitByKeyState(updater);
+  function setColWidthUnitByKeyNext(
+    updater: (prev: Record<string, number>) => Record<string, number>
+  ) {
+    if (props.onColWidthUnitByKeyChange)
+      props.onColWidthUnitByKeyChange(updater(colWidthUnitByKey));
+    else setColWidthUnitByKeyState(updater(colWidthUnitByKey));
   }
 
   const viewColumns = useMemo(() => columnOrder, [columnOrder]);
@@ -170,7 +191,9 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
 
   function setWidthUnit(key: string, unit: number) {
-    const safe = Number.isFinite(unit) ? Math.max(1, Math.min(200, Math.floor(unit))) : 20;
+    const safe = Number.isFinite(unit)
+      ? Math.max(1, Math.min(200, Math.floor(unit)))
+      : 20;
     setColWidthUnitByKeyNext((prev) => ({ ...prev, [key]: safe }));
   }
 
@@ -316,66 +339,62 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
 
   // ===== 유틸: 셀 표시값(파생 포함) =====
- function getDisplayValue(row: SymphonyRow, colKey: string) {
-  const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
-  const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
-  const rentalInfo = deviceNo ? rentingInfoByDeviceNo?.[deviceNo] : undefined;
+  function getDisplayValue(row: SymphonyRow, colKey: string) {
+    const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
+    const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
+    const rentalInfo = deviceNo ? rentingInfoByDeviceNo?.[deviceNo] : undefined;
 
-  if (colKey === "수리횟수") return String(calcRepairCount(row.data));
+    if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
-  // ✅ 대여중 표시(기존 유지)
-  if (colKey === "유축기 위치") {
-    const raw = String(row.data?.[colKey] ?? "");
-    if (!renting) return raw;
-    return raw ? `${raw} (대여중)` : "대여중";
-  }
+    // ✅ 대여중 표시(안정화: 비대여중일 때 "대여중" 문구는 항상 제거)
+    if (colKey === "유축기 위치") {
+      const raw0 = String(row.data?.[colKey] ?? "");
+      const raw = stripRentingMarker(raw0);
 
-  // ✅ 거래처/대여자명 자동 반영(대여중일 때만)
-  if (colKey === "거래처") {
-    if (renting) return String(rentalInfo?.거래처분류 ?? "");
+      if (!renting) return raw;
+      return raw ? `${raw} (대여중)` : "대여중";
+    }
+
+    // ✅ 거래처/대여자명 자동 반영(대여중일 때만)
+    if (colKey === "거래처") {
+      if (renting) return String(rentalInfo?.거래처분류 ?? "");
+      return String(row.data?.[colKey] ?? "");
+    }
+
+    if (colKey === "대여자명") {
+      if (renting) return String(rentalInfo?.수취인명 ?? "");
+      return String(row.data?.[colKey] ?? "");
+    }
+
+    if (colKey === "원가") {
+      return formatWon(row.data?.[colKey]);
+    }
+
     return String(row.data?.[colKey] ?? "");
   }
-
-  if (colKey === "대여자명") {
-    if (renting) return String(rentalInfo?.수취인명 ?? "");
-    return String(row.data?.[colKey] ?? "");
-  }
-
-  if (colKey === "원가") {
-    return formatWon(row.data?.[colKey]);
-  }
-
-  return String(row.data?.[colKey] ?? "");
-}
 
   // ===== 키보드 이동 =====
- function focusCell(rowIndex: number, colIndex: number) {
-  const input = document.querySelector<HTMLInputElement>(
-    `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
-  );
-  if (input) {
-    input.focus();
-    input.select();
-    return true;
+  function focusCell(rowIndex: number, colIndex: number) {
+    const input = document.querySelector<HTMLInputElement>(
+      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
+    if (input) {
+      input.focus();
+      input.select();
+      return true;
+    }
+
+    // ✅ computed 컬럼(거래처/대여자명/수리횟수)은 input이 없으므로 td에 포커스
+    const td = document.querySelector<HTMLElement>(`td[data-row="${rowIndex}"][data-col="${colIndex}"]`);
+    if (td) {
+      td.focus();
+      return true;
+    }
+
+    return false;
   }
 
-  // ✅ computed 컬럼(거래처/대여자명/수리횟수)은 input이 없으므로 td에 포커스
-  const td = document.querySelector<HTMLElement>(
-    `td[data-row="${rowIndex}"][data-col="${colIndex}"]`
-  );
-  if (td) {
-    td.focus();
-    return true;
-  }
-
-  return false;
-}
-
-  function handleCellKeyDown(
-  e: React.KeyboardEvent<HTMLElement>,
-  rowIndex: number,
-  colIndex: number
-) {
+  function handleCellKeyDown(e: React.KeyboardEvent<HTMLElement>, rowIndex: number, colIndex: number) {
     let r = rowIndex;
     let c = colIndex;
 
@@ -400,14 +419,14 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         return;
     }
 
-   // ✅ 방향키 이동 = 선택(파란 표시)도 함께 이동
-setSelectedRowRange(null);
-setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
-setContextMenu(null);
-closeFilterPopover();
+    // ✅ 방향키 이동 = 선택(파란 표시)도 함께 이동
+    setSelectedRowRange(null);
+    setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
+    setContextMenu(null);
+    closeFilterPopover();
 
-focusCell(r, c);
-e.preventDefault();
+    focusCell(r, c);
+    e.preventDefault();
   }
 
   // ===== 붙여넣기/삭제: “첫 셀 누락” 방지를 위해 paste capture 단일 경로로 처리 =====
@@ -677,42 +696,42 @@ e.preventDefault();
   }
 
   // ===== 칼라 적용(선택 영역 기반) =====
- async function applyColorToSelection(color: SymphonySoftColor, mode: "text" | "cell") {
-  if (!selectedCellRange) return;
+  async function applyColorToSelection(color: SymphonySoftColor, mode: "text" | "cell") {
+    if (!selectedCellRange) return;
 
-  const updates = buildColorBulkPatch({
-    rows: displayRows,
-    viewColumns,
-    range: selectedCellRange,
-    color,
-    mode,
-  });
-
-  if (!updates.length) return;
-
-  // 로컬 반영
-  setRows((prev) => {
-    const map = new Map<number, Record<string, any>>();
-    for (const u of updates) map.set(u.id, u.patch.__cellStyle);
-
-    return prev.map((r) => {
-      const nextStyle = map.get(r.id);
-      if (!nextStyle) return r;
-      return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
+    const updates = buildColorBulkPatch({
+      rows: displayRows,
+      viewColumns,
+      range: selectedCellRange,
+      color,
+      mode,
     });
-  });
 
-  await bulkPatchSymphony({ updates });
-}
+    if (!updates.length) return;
 
- useImperativeHandle(
-  ref,
-  () => ({
-    reload: (options) => reload(options),
-    applyColorToSelection,
-  }),
-  [reload, applyColorToSelection]
-);
+    // 로컬 반영
+    setRows((prev) => {
+      const map = new Map<number, Record<string, any>>();
+      for (const u of updates) map.set(u.id, u.patch.__cellStyle);
+
+      return prev.map((r) => {
+        const nextStyle = map.get(r.id);
+        if (!nextStyle) return r;
+        return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
+      });
+    });
+
+    await bulkPatchSymphony({ updates });
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      reload: (options) => reload(options),
+      applyColorToSelection,
+    }),
+    [reload, applyColorToSelection]
+  );
 
   // ===== 필터 팝오버 핸들러 =====
   function toggleFilterValue(colKey: string, v: string) {
@@ -920,152 +939,152 @@ e.preventDefault();
                   </td>
 
                   {viewColumns.map((key, colIndex) => {
-                   const cellSelected = isCellSelected(rowIndex, colIndex);
+                    const cellSelected = isCellSelected(rowIndex, colIndex);
 
-const info = getCellStyleInfo(row.data, row.id, key);
-const bgColor = info?.bg ? (INLINE_PALETTE[info.bg]?.bg ?? undefined) : undefined;
-const textColor = info?.fg ? (INLINE_PALETTE[info.fg]?.text ?? undefined) : undefined;
+                    const info = getCellStyleInfo(row.data, row.id, key);
+                    const bgColor = info?.bg ? (INLINE_PALETTE[info.bg]?.bg ?? undefined) : undefined;
+                    const textColor = info?.fg ? (INLINE_PALETTE[info.fg]?.text ?? undefined) : undefined;
 
-// td 배경은 inline style로(=Tailwind 빌드/스캔 이슈 완전 제거)
-const tdStyle = bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined;
+                    // td 배경은 inline style로(=Tailwind 빌드/스캔 이슈 완전 제거)
+                    const tdStyle = bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined;
 
-const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
+                    const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
 
-// 선택 오버레이(원하면 나중에 조정 가능). 배경색이 있어도 살짝만 덮게 고정.
-const selectionOverlay = cellSelected
-  ? "relative before:content-[''] before:absolute before:inset-0 before:bg-blue-200/20 before:pointer-events-none"
-  : "";
+                    // 선택 오버레이(원하면 나중에 조정 가능). 배경색이 있어도 살짝만 덮게 고정.
+                    const selectionOverlay = cellSelected
+                      ? "relative before:content-[''] before:absolute before:inset-0 before:bg-blue-200/20 before:pointer-events-none"
+                      : "";
 
-const cls = `border px-2 py-[3px] ${baseBg} ${selectionOverlay}`; 
+                    const cls = `border px-2 py-[3px] ${baseBg} ${selectionOverlay}`;
 
-                   // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
-if (isComputedColumn(key)) {
-  return (
-    <td
-  key={key}
-  className={cls}
-  style={tdStyle}
-  data-row={rowIndex}
-  data-col={colIndex}
-  tabIndex={-1}
-  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-  onMouseDown={(e) => {
-        if (e.button !== 0) return;
-        (e.currentTarget as HTMLElement).focus(); // ✅ computed 셀도 클릭 시 포커스 확보 → 방향키 동작
-        setIsCellDragging(true);
-        setCellDragAnchor({ row: rowIndex, col: colIndex });
-        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-        setSelectedRowRange(null);
-        setContextMenu(null);
-        closeFilterPopover();
-      }}
-      onMouseEnter={() => {
-        if (!isCellDragging || !cellDragAnchor) return;
-        setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-        setSelectedRowRange(null);
-        setContextMenuMode("cell");
-        setContextMenu({ x: e.clientX, y: e.clientY });
-        closeFilterPopover();
-      }}
-    >
-      <div
-  className={`w-full ${key === "수리횟수" ? "text-center" : ""}`}
-  style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
->
-  {getDisplayValue(row, key)}
-</div>
-    </td>
-  );
-}
+                    // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
+                    if (isComputedColumn(key)) {
+                      return (
+                        <td
+                          key={key}
+                          className={cls}
+                          style={tdStyle}
+                          data-row={rowIndex}
+                          data-col={colIndex}
+                          tabIndex={-1}
+                          onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            (e.currentTarget as HTMLElement).focus(); // ✅ computed 셀도 클릭 시 포커스 확보 → 방향키 동작
+                            setIsCellDragging(true);
+                            setCellDragAnchor({ row: rowIndex, col: colIndex });
+                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                            setSelectedRowRange(null);
+                            setContextMenu(null);
+                            closeFilterPopover();
+                          }}
+                          onMouseEnter={() => {
+                            if (!isCellDragging || !cellDragAnchor) return;
+                            setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                            setSelectedRowRange(null);
+                            setContextMenuMode("cell");
+                            setContextMenu({ x: e.clientX, y: e.clientY });
+                            closeFilterPopover();
+                          }}
+                        >
+                          <div
+                            className={`w-full ${key === "수리횟수" ? "text-center" : ""}`}
+                            style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
+                          >
+                            {getDisplayValue(row, key)}
+                          </div>
+                        </td>
+                      );
+                    }
 
-   return (
-  <td
-  key={key}
-  className={cls}
-  style={tdStyle}
-  data-row={rowIndex}
-  data-col={colIndex}
-  tabIndex={-1}
-  onMouseDown={(e) => {
-      if (e.button !== 0) return;
-      setIsCellDragging(true);
-      setCellDragAnchor({ row: rowIndex, col: colIndex });
-      setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-      setSelectedRowRange(null);
-      setContextMenu(null);
-      closeFilterPopover();
-    }}
-    onMouseEnter={() => {
-      if (!isCellDragging || !cellDragAnchor) return;
-      setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
-    }}
-    onContextMenu={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (
-        !selectedCellRange ||
-        rowIndex < selectedCellRange.startRow ||
-        rowIndex > selectedCellRange.endRow ||
-        colIndex < selectedCellRange.startCol ||
-        colIndex > selectedCellRange.endCol
-      ) {
-        setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
-      }
-      setSelectedRowRange(null);
-      setContextMenuMode("cell");
-      setContextMenu({ x: e.clientX, y: e.clientY });
-      closeFilterPopover();
-    }}
-  >
-    <input
-  className={`w-full bg-transparent outline-none ${key === "에러횟수" ? "text-center" : ""}`}
-  style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-  value={
-        activeEditCell?.rowId === row.id && activeEditCell?.key === key
-          ? activeEditValue
-          : getDisplayValue(row, key)
-      }
-      data-row={rowIndex}
-      data-col={colIndex}
-      onFocus={(e) => {
-        setSelectedRowRange(null);
-        const initial = String(row.data?.[key] ?? "");
-        void handleFocus(row.id, key, initial, e);
-      }}
-      onChange={(e) => {
-        if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
-          setActiveEditValue(e.target.value);
-        }
-        if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
-      }}
-      onBlur={async (e) => {
-        const v = String(e.target.value ?? "");
+                    return (
+                      <td
+                        key={key}
+                        className={cls}
+                        style={tdStyle}
+                        data-row={rowIndex}
+                        data-col={colIndex}
+                        tabIndex={-1}
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          setIsCellDragging(true);
+                          setCellDragAnchor({ row: rowIndex, col: colIndex });
+                          setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                          setSelectedRowRange(null);
+                          setContextMenu(null);
+                          closeFilterPopover();
+                        }}
+                        onMouseEnter={() => {
+                          if (!isCellDragging || !cellDragAnchor) return;
+                          setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (
+                            !selectedCellRange ||
+                            rowIndex < selectedCellRange.startRow ||
+                            rowIndex > selectedCellRange.endRow ||
+                            colIndex < selectedCellRange.startCol ||
+                            colIndex > selectedCellRange.endCol
+                          ) {
+                            setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+                          }
+                          setSelectedRowRange(null);
+                          setContextMenuMode("cell");
+                          setContextMenu({ x: e.clientX, y: e.clientY });
+                          closeFilterPopover();
+                        }}
+                      >
+                        <input
+                          className={`w-full bg-transparent outline-none ${key === "에러횟수" ? "text-center" : ""}`}
+                          style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
+                          value={
+                            activeEditCell?.rowId === row.id && activeEditCell?.key === key
+                              ? activeEditValue
+                              : getDisplayValue(row, key)
+                          }
+                          data-row={rowIndex}
+                          data-col={colIndex}
+                          onFocus={(e) => {
+                            setSelectedRowRange(null);
+                            const initial = String(row.data?.[key] ?? "");
+                            void handleFocus(row.id, key, initial, e);
+                          }}
+                          onChange={(e) => {
+                            if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
+                              setActiveEditValue(e.target.value);
+                            }
+                            if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
+                          }}
+                          onBlur={async (e) => {
+                            const v = String(e.target.value ?? "");
 
-        editingCellRef.current = null;
-        setActiveEditCell(null);
-        setActiveEditValue("");
+                            editingCellRef.current = null;
+                            setActiveEditCell(null);
+                            setActiveEditValue("");
 
-        if (!myRowLocks[row.id]) return;
+                            if (!myRowLocks[row.id]) return;
 
-        updateLocalCell(row.id, key, v);
-        await saveCell(row.id, key, v);
-        await releaseLock("symphony", row.id);
+                            updateLocalCell(row.id, key, v);
+                            await saveCell(row.id, key, v);
+                            await releaseLock("symphony", row.id);
 
-        setMyRowLocks((prev) => {
-          const copy = { ...prev };
-          delete copy[row.id];
-          return copy;
-        });
-      }}
-      onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-    />
-  </td>
-);
+                            setMyRowLocks((prev) => {
+                              const copy = { ...prev };
+                              delete copy[row.id];
+                              return copy;
+                            });
+                          }}
+                          onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+                        />
+                      </td>
+                    );
                   })}
                 </tr>
               );
@@ -1157,4 +1176,4 @@ if (isComputedColumn(key)) {
   );
 });
 
-export default SymphonyGrid; 
+export default SymphonyGrid;

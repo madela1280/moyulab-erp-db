@@ -73,6 +73,18 @@ function normalizeDeviceNo(v: any) {
   return String(v ?? "").trim();
 }
 
+function stripRentingMarker(v: any) {
+  const raw = String(v ?? "");
+  if (!raw) return "";
+
+  let s = raw;
+  s = s.replace(/\(대여중\)/g, "");
+  s = s.replace(/\s*대여중\s*/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
 function calcRepairCount(data: Record<string, any>) {
   const keys = ["수리이력1", "수리이력2", "수리이력3", "수리이력4", "수리이력5"];
   let c = 0;
@@ -316,7 +328,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
     if (colKey === "유축기 위치") {
-      const raw = String(row.data?.[colKey] ?? "");
+      const raw0 = String(row.data?.[colKey] ?? "");
+      const raw = stripRentingMarker(raw0);
+
       if (!renting) return raw;
       return raw ? `${raw} (대여중)` : "대여중";
     }
