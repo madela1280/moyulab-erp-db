@@ -1,6 +1,8 @@
+// app/devices/symphony/derived/useUnifiedRentalStatus.ts
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { syncListen } from "@/global-sync/sync-engine";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -20,17 +22,31 @@ export function useUnifiedRentalStatus() {
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  async function fetchUnified(options?: { silent?: boolean }) {
+    const silent = !!options?.silent;
+
+    if (!silent) setLoading(true);
+    try {
+      const r = await fetch("/api/unified", { cache: "no-store" });
+      const j = (await r.json()) as UnifiedRow[];
+      setRows(Array.isArray(j) ? j : []);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
-      setLoading(true);
-      try {
-        const r = await fetch("/api/unified", { cache: "no-store" });
-        const j = (await r.json()) as UnifiedRow[];
-        setRows(Array.isArray(j) ? j : []);
-      } finally {
-        setLoading(false);
-      }
+      await fetchUnified({ silent: false });
     })();
+  }, []);
+
+  // ✅ 통합관리 변경(unified:update) 수신 시 파생데이터도 즉시 재조회하여 갱신
+  useEffect(() => {
+    const off = syncListen(() => {
+      void fetchUnified({ silent: true });
+    });
+    return off;
   }, []);
 
   const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useMemo(() => {
