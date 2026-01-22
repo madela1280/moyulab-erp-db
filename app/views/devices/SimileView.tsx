@@ -1,10 +1,11 @@
-'use client';
+"use client";
+
+import SimileMain from "@/devices/simile/components/SimileMain";
 
 export default function SimileView() {
   return (
-    <div className="text-gray-700 text-sm">
-      Simile 페이지
+    <div className="w-full h-full flex flex-col">
+      <SimileMain />
     </div>
   );
 }
-
