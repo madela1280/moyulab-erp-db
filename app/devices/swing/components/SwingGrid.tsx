@@ -38,7 +38,10 @@ import type { SwingSoftColor } from "@/devices/swing/color/ColorPopover";
 
 export type SwingGridHandle = {
   reload: (options?: { silent?: boolean }) => Promise<void>;
-  applyColorToSelection: (color: SwingSoftColor, mode: "text" | "cell") => Promise<void>;
+  applyColorToSelection: (
+    color: SwingSoftColor,
+    mode: "text" | "cell"
+  ) => Promise<void>;
 };
 
 type Props = {
@@ -71,6 +74,17 @@ function isComputedColumn(key: string) {
 
 function normalizeDeviceNo(v: any) {
   return String(v ?? "").trim();
+}
+
+function getDeviceNoFromRowData(rowData: Record<string, any>) {
+  // ✅ 스윙에서 입력/컬럼명이 미세하게 다를 때도 매칭되도록 보수적으로 처리
+  // (통합관리: "기기번호", 기기관리: 기본 "시스템 기기번호")
+  return normalizeDeviceNo(
+    rowData?.["시스템 기기번호"] ??
+      rowData?.["시스템기기번호"] ??
+      rowData?.["기기번호"] ??
+      rowData?.["기기 번호"]
+  );
 }
 
 function stripRentingMarker(v: any) {
@@ -119,20 +133,30 @@ const INLINE_PALETTE: Record<string, { bg: string; text: string }> = {
   black: { bg: "#CBD5E1", text: "#0F172A" },
 };
 
-function getCellStyleInfo(rowData: Record<string, any>, rowId: number, colKey: string): CellStyleInfo {
+function getCellStyleInfo(
+  rowData: Record<string, any>,
+  rowId: number,
+  colKey: string
+): CellStyleInfo {
   const map = (rowData?.__cellStyle ?? {}) as Record<string, CellStyleInfo>;
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
 const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, ref) {
-  const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } = useSwingRows();
+  const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } =
+    useSwingRows();
 
   const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
-  const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [...swingColumns]);
-  const [colWidthUnitByKeyState, setColWidthUnitByKeyState] = useState<Record<string, number>>({});
+  const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [
+    ...swingColumns,
+  ]);
+  const [colWidthUnitByKeyState, setColWidthUnitByKeyState] = useState<Record<
+    string,
+    number
+  >>({});
 
   const columnOrder = props.columnOrder ?? columnOrderState;
   const colWidthUnitByKey = props.colWidthUnitByKey ?? colWidthUnitByKeyState;
@@ -142,8 +166,11 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     else setColumnOrderState(updater);
   }
 
-  function setColWidthUnitByKeyNext(updater: (prev: Record<string, number>) => Record<string, number>) {
-    if (props.onColWidthUnitByKeyChange) props.onColWidthUnitByKeyChange(updater(colWidthUnitByKey));
+  function setColWidthUnitByKeyNext(
+    updater: (prev: Record<string, number>) => Record<string, number>
+  ) {
+    if (props.onColWidthUnitByKeyChange)
+      props.onColWidthUnitByKeyChange(updater(colWidthUnitByKey));
     else setColWidthUnitByKeyState(updater(colWidthUnitByKey));
   }
 
@@ -170,7 +197,9 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   }
 
   function setWidthUnit(key: string, unit: number) {
-    const safe = Number.isFinite(unit) ? Math.max(1, Math.min(200, Math.floor(unit))) : 20;
+    const safe = Number.isFinite(unit)
+      ? Math.max(1, Math.min(200, Math.floor(unit)))
+      : 20;
     setColWidthUnitByKeyNext((prev) => ({ ...prev, [key]: safe }));
   }
 
@@ -191,7 +220,10 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   }, [rows, props.filterState, props.sortState]);
 
   // ===== 선택(행/셀) =====
-  const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(null);
+  const [selectedRowRange, setSelectedRowRange] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
   const [selectedCellRange, setSelectedCellRange] = useState<{
     startRow: number;
     endRow: number;
@@ -203,7 +235,9 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
 
   const [isCellDragging, setIsCellDragging] = useState(false);
-  const [cellDragAnchor, setCellDragAnchor] = useState<{ row: number; col: number } | null>(null);
+  const [cellDragAnchor, setCellDragAnchor] = useState<{ row: number; col: number } | null>(
+    null
+  );
 
   function isRowSelected(rowIndex: number) {
     if (!selectedRowRange) return false;
@@ -221,7 +255,12 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   function isCellSelected(rowIndex: number, colIndex: number) {
     if (!selectedCellRange) return false;
     const { startRow, endRow, startCol, endCol } = selectedCellRange;
-    return rowIndex >= startRow && rowIndex <= endRow && colIndex >= startCol && colIndex <= endCol;
+    return (
+      rowIndex >= startRow &&
+      rowIndex <= endRow &&
+      colIndex >= startCol &&
+      colIndex <= endCol
+    );
   }
 
   function getSelectedRowSlice() {
@@ -232,12 +271,16 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   }
 
   // ===== 컨텍스트 메뉴 =====
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">("row");
 
   // ===== 필터 팝오버 =====
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
-  const [filterPopoverAnchor, setFilterPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [filterPopoverAnchor, setFilterPopoverAnchor] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
 
   const filterValues = useMemo(() => {
@@ -265,7 +308,9 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
-  const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
+  const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(
+    null
+  );
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
@@ -280,7 +325,8 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
 
     const result = await acquireLock("swing", rowId);
 
-    const stillActive = editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
+    const stillActive =
+      editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
 
     if (!stillActive) {
       if (result.ok) await releaseLock("swing", rowId);
@@ -300,7 +346,9 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   }
 
   function updateLocalCell(rowId: number, key: string, value: string) {
-    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r)));
+    setRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
+    );
   }
 
   async function saveCell(rowId: number, key: string, value: string) {
@@ -310,7 +358,7 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
 
   // ===== 유틸: 셀 표시값(파생 포함) =====
   function getDisplayValue(row: SwingRow, colKey: string) {
-    const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
+    const deviceNo = getDeviceNoFromRowData(row.data ?? {});
     const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
     const rentalInfo = deviceNo ? (rentingInfoByDeviceNo as any)?.[deviceNo] : undefined;
 
@@ -343,14 +391,18 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
 
   // ===== 키보드 이동 =====
   function focusCell(rowIndex: number, colIndex: number) {
-    const input = document.querySelector<HTMLInputElement>(`input[data-row="${rowIndex}"][data-col="${colIndex}"]`);
+    const input = document.querySelector<HTMLInputElement>(
+      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
     if (input) {
       input.focus();
       input.select();
       return true;
     }
 
-    const td = document.querySelector<HTMLElement>(`td[data-row="${rowIndex}"][data-col="${colIndex}"]`);
+    const td = document.querySelector<HTMLElement>(
+      `td[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
     if (td) {
       td.focus();
       return true;
@@ -359,7 +411,11 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     return false;
   }
 
-  function handleCellKeyDown(e: React.KeyboardEvent<HTMLElement>, rowIndex: number, colIndex: number) {
+  function handleCellKeyDown(
+    e: React.KeyboardEvent<HTMLElement>,
+    rowIndex: number,
+    colIndex: number
+  ) {
     let r = rowIndex;
     let c = colIndex;
 
@@ -461,7 +517,9 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
   }
 
   async function pasteTextToSelection(text: string) {
-    const baseRow = selectedCellRange ? selectedCellRange.startRow : Math.max(0, selectedRowRange?.start ?? 0);
+    const baseRow = selectedCellRange
+      ? selectedCellRange.startRow
+      : Math.max(0, selectedRowRange?.start ?? 0);
     const baseCol = selectedCellRange ? selectedCellRange.startCol : 0;
 
     const lines = text
