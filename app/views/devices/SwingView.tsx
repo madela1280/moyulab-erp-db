@@ -1,9 +1,11 @@
-'use client';
+"use client";
+
+import SwingMain from "@/devices/swing/components/SwingMain";
 
 export default function SwingView() {
   return (
-    <div className="text-gray-700 text-sm">
-      Swing 페이지
+    <div className="w-full h-full flex flex-col">
+      <SwingMain />
     </div>
   );
 }
