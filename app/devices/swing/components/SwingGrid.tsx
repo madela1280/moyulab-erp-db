@@ -36,6 +36,8 @@ import { useUnifiedRentalStatus } from "@/devices/swing/derived/useUnifiedRental
 import { buildColorBulkPatch } from "@/devices/swing/color/applySwingColor";
 import type { SwingSoftColor } from "@/devices/swing/color/ColorPopover";
 
+import { mapGetDeviceNoCI, setHasDeviceNoCI } from "@/lib/deviceNo";
+
 export type SwingGridHandle = {
   reload: (options?: { silent?: boolean }) => Promise<void>;
   applyColorToSelection: (
@@ -77,8 +79,6 @@ function normalizeDeviceNo(v: any) {
 }
 
 function getDeviceNoFromRowData(rowData: Record<string, any>) {
-  // ✅ 스윙에서 입력/컬럼명이 미세하게 다를 때도 매칭되도록 보수적으로 처리
-  // (통합관리: "기기번호", 기기관리: 기본 "시스템 기기번호")
   return normalizeDeviceNo(
     rowData?.["시스템 기기번호"] ??
       rowData?.["시스템기기번호"] ??
@@ -212,14 +212,12 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     return Math.max(MIN, Math.min(MAX, px));
   }
 
-  // ===== 필터/정렬 적용된 표시 rows =====
   const displayRows = useMemo(() => {
     const filtered = applySwingFilter(rows as any, props.filterState);
     const sorted = applySwingSort(filtered as any, props.sortState);
     return sorted as SwingRow[];
   }, [rows, props.filterState, props.sortState]);
 
-  // ===== 선택(행/셀) =====
   const [selectedRowRange, setSelectedRowRange] = useState<{
     start: number;
     end: number;
@@ -270,13 +268,11 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     return { start, end, slice: displayRows.slice(start, end + 1) };
   }
 
-  // ===== 컨텍스트 메뉴 =====
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(
     null
   );
   const [contextMenuMode, setContextMenuMode] = useState<"row" | "cell">("row");
 
-  // ===== 필터 팝오버 =====
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const [filterPopoverAnchor, setFilterPopoverAnchor] = useState<{ x: number; y: number } | null>(
     null
@@ -304,7 +300,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     setFilterColumnKey(null);
   }
 
-  // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
@@ -356,11 +351,10 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     await patchSwingRow(rowId, { [key]: v });
   }
 
-  // ===== 유틸: 셀 표시값(파생 포함) =====
   function getDisplayValue(row: SwingRow, colKey: string) {
     const deviceNo = getDeviceNoFromRowData(row.data ?? {});
-    const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
-    const rentalInfo = deviceNo ? (rentingInfoByDeviceNo as any)?.[deviceNo] : undefined;
+    const renting = !!deviceNo && setHasDeviceNoCI(rentingDeviceNoSet, deviceNo);
+    const rentalInfo = deviceNo ? mapGetDeviceNoCI(rentingInfoByDeviceNo as any, deviceNo) : undefined;
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
@@ -373,12 +367,12 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     }
 
     if (colKey === "거래처") {
-      if (renting) return String(rentalInfo?.거래처분류 ?? "");
+      if (renting) return String((rentalInfo as any)?.거래처분류 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
     if (colKey === "대여자명") {
-      if (renting) return String(rentalInfo?.수취인명 ?? "");
+      if (renting) return String((rentalInfo as any)?.수취인명 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
@@ -389,7 +383,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     return String(row.data?.[colKey] ?? "");
   }
 
-  // ===== 키보드 이동 =====
   function focusCell(rowIndex: number, colIndex: number) {
     const input = document.querySelector<HTMLInputElement>(
       `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
@@ -449,7 +442,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     e.preventDefault();
   }
 
-  // ===== 붙여넣기/삭제: paste capture 단일 경로 =====
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
   async function clearSelection() {
@@ -662,7 +654,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     return () => window.removeEventListener("click", onClick);
   }, []);
 
-  // ===== 행 삽입/삭제 =====
   async function handleInsertRows() {
     const anchor = selectedRowRange?.start ?? 0;
     const beforeId = anchor > 0 ? displayRows[anchor - 1]?.id ?? null : null;
@@ -703,7 +694,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     setContextMenu(null);
   }
 
-  // ===== 칼라 적용(선택 영역 기반) =====
   async function applyColorToSelection(color: SwingSoftColor, mode: "text" | "cell") {
     if (!selectedCellRange) return;
 
@@ -740,7 +730,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     [reload, applyColorToSelection]
   );
 
-  // ===== 필터 팝오버 핸들러 =====
   function toggleFilterValue(colKey: string, v: string) {
     const prev = props.filterState.selectedByKey[colKey] ?? new Set<string>();
     const nextSet = new Set(prev);
@@ -778,7 +767,6 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     });
   }
 
-  // ===== UI =====
   if (loading) return <div className="text-center text-gray-500 py-10">Loading...</div>;
   if (error) return <div className="text-center text-red-600 py-10">{error}</div>;
 
