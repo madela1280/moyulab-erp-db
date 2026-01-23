@@ -148,7 +148,9 @@ export default function SignupView() {
     const nextSelectedKeys = Array.isArray(j?.selectedKeys) ? j.selectedKeys.map(String) : DEFAULT_SETTINGS.selectedKeys;
     const nextColWidthSteps =
       isPlainObject(j?.colWidthSteps) ? (j.colWidthSteps as Record<string, number>) : DEFAULT_SETTINGS.colWidthSteps;
-    const nextRowCount = Number.isFinite(Number(j?.rowCount)) ? Math.max(1, Math.floor(Number(j?.rowCount))) : DEFAULT_SETTINGS.rowCount;
+    const nextRowCount = Number.isFinite(Number(j?.rowCount))
+      ? Math.max(1, Math.floor(Number(j?.rowCount)))
+      : DEFAULT_SETTINGS.rowCount;
     const nextPartnerOptions = Array.isArray(j?.partnerOptions) ? j.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions;
 
     return {
@@ -242,9 +244,15 @@ export default function SignupView() {
       const pending = pendingPatchRef.current || {};
       const merged: SignupSettings = {
         selectedKeys:
-          "selectedKeys" in pending ? (Array.isArray(pending.selectedKeys) ? pending.selectedKeys.map(String) : []) : server.selectedKeys,
+          "selectedKeys" in pending
+            ? Array.isArray(pending.selectedKeys)
+              ? pending.selectedKeys.map(String)
+              : []
+            : server.selectedKeys,
         colWidthSteps:
-          "colWidthSteps" in pending && isPlainObject(pending.colWidthSteps) ? (pending.colWidthSteps as Record<string, number>) : server.colWidthSteps,
+          "colWidthSteps" in pending && isPlainObject(pending.colWidthSteps)
+            ? (pending.colWidthSteps as Record<string, number>)
+            : server.colWidthSteps,
         rowCount: "rowCount" in pending ? Math.max(1, Math.floor(Number(pending.rowCount))) : server.rowCount,
         partnerOptions:
           "partnerOptions" in pending ? (Array.isArray(pending.partnerOptions) ? pending.partnerOptions.map(String) : []) : server.partnerOptions,
@@ -319,13 +327,10 @@ export default function SignupView() {
       const { selectedKeys: _drop, ...rest } = body as any;
       // eslint-disable-next-line no-param-reassign
       (body as any).selectedKeys = undefined;
-      // body에서 selectedKeys 제거 (undefined가 들어가면 merge로 덮을 위험)
       // @ts-ignore
       body.selectedKeys = undefined;
-      // 실제 전송 객체에서 제거
       // @ts-ignore
       delete body.selectedKeys;
-      // rest를 다시 할당
       // @ts-ignore
       Object.assign(body, rest);
     }
@@ -339,21 +344,56 @@ export default function SignupView() {
       });
   }
 
-  function scheduleReloadFromSync() {
-    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
-    reloadTimerRef.current = window.setTimeout(() => {
-      (async () => {
-        await draft.reload();
-        setRowsReloadToken((v) => v + 1);
-      })().catch(() => {});
-      reloadTimerRef.current = null;
-    }, 350);
+  // ---------------------------------------------------------------------------
+  // ✅ (핵심) 내 탭에서 편집 직후에는 syncListen의 reload가 rows를 덮어쓰지 못하게 차단
+  // ---------------------------------------------------------------------------
+  const LOCAL_EDIT_GRACE_MS = 2000;
+  const lastLocalEditAtRef = useRef<number>(0);
+  const pendingSyncReloadRef = useRef(false);
 
+  function markLocalEdit() {
+    lastLocalEditAtRef.current = Date.now();
+  }
+
+  function ensureSettingsReloadScheduled() {
     if (settingsReloadTimerRef.current) return;
     settingsReloadTimerRef.current = window.setTimeout(() => {
       void loadSettings();
       settingsReloadTimerRef.current = null;
     }, 1200);
+  }
+
+  function scheduleReloadFromSync() {
+    pendingSyncReloadRef.current = true;
+
+    // settings는 별도로(기존대로) 스로틀 reload
+    ensureSettingsReloadScheduled();
+
+    // 로컬 편집 직후면, 편집이 끝날 때까지 reload를 늦춘다(덮어쓰기/점멸 방지)
+    const now = Date.now();
+    const elapsed = now - lastLocalEditAtRef.current;
+    if (elapsed < LOCAL_EDIT_GRACE_MS) {
+      const wait = Math.max(50, LOCAL_EDIT_GRACE_MS - elapsed + 120);
+      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = window.setTimeout(() => {
+        reloadTimerRef.current = null;
+        scheduleReloadFromSync();
+      }, wait);
+      return;
+    }
+
+    // 짧은 디바운스(여러 sync 이벤트가 연속으로 들어오는 경우 1회만 reload)
+    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => {
+      (async () => {
+        if (!pendingSyncReloadRef.current) return;
+        pendingSyncReloadRef.current = false;
+
+        await draft.reload();
+        setRowsReloadToken((v) => v + 1);
+      })().catch(() => {});
+      reloadTimerRef.current = null;
+    }, 350);
   }
 
   useEffect(() => {
@@ -406,7 +446,7 @@ export default function SignupView() {
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-    <SignupGrid
+      <SignupGrid
         allColumns={allColumns}
         selectedKeys={filteredSelectedKeys}
         loadingColumns={loadingColumns}
@@ -422,6 +462,8 @@ export default function SignupView() {
         initialRows={draft.rows}
         rowsReloadToken={rowsReloadToken}
         onRowsChange={(nextRows) => {
+          // ✅ 로컬 편집 시각 갱신: sync reload가 즉시 덮어쓰지 못하게
+          markLocalEdit();
           draft.setRows(nextRows);
         }}
         onSubmitSuccess={async () => {
@@ -448,7 +490,7 @@ export default function SignupView() {
         }}
       />
 
-    <SignupTransferErrorModal
+      <SignupTransferErrorModal
         open={transferModalOpen}
         message={transferErrorMessage}
         onClose={() => setTransferModalOpen(false)}
@@ -457,7 +499,7 @@ export default function SignupView() {
           setForceSubmitToken((v) => v + 1);
         }}
       />
-  
+
       <UnifiedColumnPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}

@@ -28,6 +28,43 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
   const inflightRef = useRef(false);
   const queuedRef = useRef<RowValues[] | null>(null);
 
+  // ✅ inflight 종료를 외부(reload 등)에서 기다릴 수 있게(리로드가 저장중 rows를 덮는 문제 방지)
+  const inflightPromiseRef = useRef<Promise<void> | null>(null);
+  const inflightResolveRef = useRef<(() => void) | null>(null);
+
+  function beginInflight() {
+    inflightRef.current = true;
+    if (!inflightPromiseRef.current) {
+      inflightPromiseRef.current = new Promise<void>((resolve) => {
+        inflightResolveRef.current = resolve;
+      });
+    }
+  }
+
+  function endInflight() {
+    inflightRef.current = false;
+    const resolve = inflightResolveRef.current;
+    inflightResolveRef.current = null;
+    inflightPromiseRef.current = null;
+    resolve?.();
+  }
+
+  async function waitForIdle() {
+    // inflight + queued 저장이 모두 끝날 때까지 대기
+    // (queued는 inflight 종료 직후 곧바로 2번째 저장이 시작될 수 있어 루프로 처리)
+    for (let i = 0; i < 20; i++) {
+      if (!inflightRef.current) return;
+      const p = inflightPromiseRef.current;
+      if (p) await p;
+      // 다음 tick에서 상태 재확인
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    // 너무 오래 걸리면(네트워크/서버 이슈) 무한대기 방지
+    // 그래도 최대한 안전하게: inflight가 계속이면 여기서 그냥 종료하고 reload는 진행하지 않게 한다.
+    if (inflightRef.current) throw new Error("DRAFT_SAVE_INFLIGHT");
+  }
+
   // 최신 rows 스냅샷(언마운트/이탈 flush 저장용)
   const latestRowsRef = useRef<RowValues[]>([]);
   useEffect(() => {
@@ -109,7 +146,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       return;
     }
 
-    inflightRef.current = true;
+    beginInflight();
     try {
       const resp = (await apiPatchSignupDraft(snapshot)) as PatchResponse;
 
@@ -126,14 +163,15 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
     } catch (e: any) {
       if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
     } finally {
-      inflightRef.current = false;
+      endInflight();
 
       // 저장 중 추가 변경이 쌓였으면 1회 더 저장
       if (queuedRef.current) {
         const next = queuedRef.current;
         queuedRef.current = null;
 
-        inflightRef.current = true;
+        // 두 번째 저장도 inflight로 처리
+        beginInflight();
         try {
           const resp2 = (await apiPatchSignupDraft(next)) as PatchResponse;
 
@@ -148,7 +186,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         } catch (e: any) {
           if (reason !== "beforeunload") onError?.(e?.message || "임시저장에 실패했습니다.");
         } finally {
-          inflightRef.current = false;
+          endInflight();
         }
       }
     }
@@ -198,6 +236,11 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
   async function clear() {
     try {
+      // 저장 중이면 먼저 안정화(레이스 방지)
+      if (inflightRef.current) {
+        await waitForIdle();
+      }
+
       await apiDeleteSignupDraft();
       setRowsState([]);
       latestRowsRef.current = [];
@@ -212,6 +255,11 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
   async function reload() {
     try {
+      // ✅ 저장 중에 reload가 들어오면, 저장 완료 후에만 reload 수행(덮어쓰기/점멸 방지)
+      if (inflightRef.current) {
+        await waitForIdle();
+      }
+
       const j = await apiGetSignupDraft();
       const restored = Array.isArray(j?.rows) ? j.rows : [];
 
@@ -220,7 +268,10 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       latestRowsRef.current = restored;
       touchedRef.current = false;
     } catch (e: any) {
-      onError?.(e?.message || "임시저장 불러오기에 실패했습니다.");
+      // waitForIdle 타임아웃 같은 내부 에러는 사용자에게 과도 노출하지 않음
+      if (String(e?.message || "") !== "DRAFT_SAVE_INFLIGHT") {
+        onError?.(e?.message || "임시저장 불러오기에 실패했습니다.");
+      }
     }
   }
 

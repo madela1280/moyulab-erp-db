@@ -702,7 +702,7 @@ export default function SignupGrid({
     });
   }
 
-  function pasteMatrixAt(start: CellPos, matrix: string[][]) {
+    function pasteMatrixAt(start: CellPos, matrix: string[][]) {
     const cols = selectedColumnsRef.current;
     if (cols.length === 0) return;
     if (matrix.length === 0) return;
@@ -710,10 +710,20 @@ export default function SignupGrid({
     rowsTouchedRef.current = true;
 
     const needRows = start.r + matrix.length;
-    ensureRowsCount(needRows);
 
+    // ✅ 붙여넣기는 "단 1번의 setRows"로 끝낸다(점멸/사라짐/저장폭주 방지)
     setRows((prev) => {
-      const next = prev.slice();
+      let next = prev.slice();
+
+      // 필요한 만큼 행을 늘림
+      if (next.length < needRows) {
+        const add = needRows - next.length;
+        next = [...next, ...Array.from({ length: add }, () => ({}))];
+
+        // 기존 updateRows가 하던 rowCount 저장 트리거를 동일하게 유지
+        onRowCountChange?.(next.length);
+      }
+
       for (let rr = 0; rr < matrix.length; rr++) {
         const rIndex = start.r + rr;
         const base = { ...(next[rIndex] || {}) };
@@ -727,6 +737,7 @@ export default function SignupGrid({
 
         next[rIndex] = base;
       }
+
       return next;
     });
 
@@ -734,7 +745,6 @@ export default function SignupGrid({
     const endR = start.r + matrix.length - 1;
     const endC = start.c + (matrix[0]?.length ? matrix[0].length - 1 : 0);
 
-    // ensureRowsCount로 늘어날 row 길이를 미리 반영해서 clamp
     const expectedRowLen = Math.max(rowsRef.current.length, needRows);
 
     const safeEndR = clamp(endR, 0, Math.max(0, expectedRowLen - 1));
