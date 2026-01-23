@@ -54,8 +54,22 @@ export default function CellEditor({
 
   // 외부 value 변경은 "포커스 아닐 때만" 로컬 값에 반영 (입력 중 튕김 방지)
   useEffect(() => {
-    if (focusedRef.current) return;
     const next = String(value ?? "");
+
+    // ✅ 핵심: 선택 지우기/붙여넣기 등 외부 동작으로 값이 ""로 바뀌면,
+    // 포커스 중이어도 로컬값을 강제로 ""로 맞춰서 "지웠는데 다시 나타남" 방지
+    if (focusedRef.current) {
+      if (next === "" && pendingRef.current !== "") {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+        pendingRef.current = "";
+        setLocalValue("");
+      }
+      return;
+    }
+
     setLocalValue(next);
     pendingRef.current = next;
   }, [value]);
