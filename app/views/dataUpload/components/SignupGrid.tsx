@@ -150,6 +150,10 @@ export default function SignupGrid({
 
   const draggingRef = useRef(false);
 
+ // ✅ 셀 드래그가 셀 밖에서 끝나도 pointer capture를 확실히 정리(선택 불안정/우클릭 시 깨짐 방지)
+  const cellCaptureElRef = useRef<HTMLElement | null>(null);
+  const cellCapturePointerIdRef = useRef<number | null>(null);
+
   // ✅ 행 선택(왼쪽 번호 컬럼) 전용
   const [rowRange, setRowRange] = useState<RowRange | null>(null);
   const rowDraggingRef = useRef(false);
@@ -363,8 +367,22 @@ export default function SignupGrid({
     };
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     const onPointerUp = () => {
+      // ✅ 셀 드래그가 셀 밖에서 끝나도 capture를 확실히 release
+      if (draggingRef.current) {
+        const el = cellCaptureElRef.current;
+        const pid = cellCapturePointerIdRef.current;
+        if (el && pid != null) {
+          try {
+            el.releasePointerCapture(pid);
+          } catch {
+            // ignore
+          }
+        }
+        cellCaptureElRef.current = null;
+        cellCapturePointerIdRef.current = null;
+      }
       draggingRef.current = false;
 
       // ✅ 행 드래그도 강제 종료(포인터가 header 밖에서 up 되는 케이스)
@@ -874,7 +892,10 @@ export default function SignupGrid({
 
     if (!isInteractive) e.preventDefault();
 
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+       const el = e.currentTarget as HTMLElement;
+    cellCaptureElRef.current = el;
+    cellCapturePointerIdRef.current = e.pointerId;
+    el.setPointerCapture(e.pointerId); 
   }
 
   function handleCellPointerMove(e: React.PointerEvent) {
@@ -884,12 +905,15 @@ export default function SignupGrid({
     selectFromAnchor(p);
   }
 
-  function handleCellPointerUp(e: React.PointerEvent) {
+   function handleCellPointerUp(e: React.PointerEvent) {
     draggingRef.current = false;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
       // ignore
+    } finally {
+      cellCaptureElRef.current = null;
+      cellCapturePointerIdRef.current = null;
     }
   }
 
@@ -897,6 +921,7 @@ export default function SignupGrid({
     if (!showToolbar) return;
 
     e.preventDefault();
+    e.stopPropagation();
     gridActiveRef.current = true;
 
     suppressFocusSelectionRef.current = true;
@@ -927,9 +952,13 @@ export default function SignupGrid({
     // gridActive만 켜두면 ctrl+c/v 처리가 됨
     gridActiveRef.current = true;
 
+       const cr = rangeRef.current;
+    const inside =
+      !!cr && r >= cr.r1 && r <= cr.r2 && c >= cr.c1 && c <= cr.c2;
+
     if (suppressFocusSelectionRef.current) {
       suppressFocusSelectionRef.current = false;
-      if (range && isSelectedCell(r, c)) {
+      if (inside) {
         const p = { r, c };
         activeRef.current = p;
         setActive(p);
@@ -937,7 +966,7 @@ export default function SignupGrid({
       }
     }
 
-    if (range && isSelectedCell(r, c)) {
+    if (inside) {
       const p = { r, c };
       activeRef.current = p;
       setActive(p);
@@ -1047,9 +1076,20 @@ export default function SignupGrid({
       }
     }
 
-    function onPaste(e: ClipboardEvent) {
-      if (!gridActiveRef.current) return;
+      function onPaste(e: ClipboardEvent) {
       if (!showToolbar) return;
+
+      // ✅ keydown과 동일하게: gridActiveRef가 간헐적으로 false여도 "그리드 내부 이벤트"면 처리
+      const root = rootRef.current;
+      const targetNode = (e.target as unknown as Node) || null;
+      const activeEl = (typeof document !== "undefined" ? (document.activeElement as unknown as Node) : null) || null;
+
+      const insideByTarget = !!root && !!targetNode && root.contains(targetNode);
+      const insideByFocus = !!root && !!activeEl && root.contains(activeEl);
+
+      if (!gridActiveRef.current && !insideByTarget && !insideByFocus) return;
+
+      gridActiveRef.current = true;
 
       const start = getSelectionTopLeft();
       if (!start) return;
