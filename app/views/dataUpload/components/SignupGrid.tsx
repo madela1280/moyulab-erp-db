@@ -148,7 +148,12 @@ export default function SignupGrid({
   const anchorRef = useRef<CellPos | null>(null);
   const activeRef = useRef<CellPos | null>(null);
 
-  const draggingRef = useRef(false);
+    const draggingRef = useRef(false);
+
+  // ✅ 셀 내부 input이 포커스/텍스트선택을 먼저 가져가면서 드래그가 깨지는 문제 방지:
+  // "드래그였는지/단순 클릭이었는지"를 구분해서, 클릭일 때만 포커스 주기
+  const dragStartCellRef = useRef<CellPos | null>(null);
+  const didDragRef = useRef(false);
 
  // ✅ 셀 드래그가 셀 밖에서 끝나도 pointer capture를 확실히 정리(선택 불안정/우클릭 시 깨짐 방지)
   const cellCaptureElRef = useRef<HTMLElement | null>(null);
@@ -158,6 +163,10 @@ export default function SignupGrid({
   const [rowRange, setRowRange] = useState<RowRange | null>(null);
   const rowDraggingRef = useRef(false);
   const rowAnchorRef = useRef<number | null>(null);
+
+  // ✅ 행 드래그도 셀과 동일하게 capture 잔존 방지(두번중 한번 안됨 방지)
+  const rowCaptureElRef = useRef<HTMLElement | null>(null);
+  const rowCapturePointerIdRef = useRef<number | null>(null);
 
   const [hoverRow, setHoverRow] = useState<number | null>(null);
 
@@ -367,7 +376,7 @@ export default function SignupGrid({
     };
   }, []);
 
-    useEffect(() => {
+     useEffect(() => {
     const onPointerUp = () => {
       // ✅ 셀 드래그가 셀 밖에서 끝나도 capture를 확실히 release
       if (draggingRef.current) {
@@ -385,12 +394,39 @@ export default function SignupGrid({
       }
       draggingRef.current = false;
 
+      // ✅ 행 드래그도 셀과 동일하게 capture 잔존 방지
+      {
+        const el = rowCaptureElRef.current;
+        const pid = rowCapturePointerIdRef.current;
+        if (el && pid != null) {
+          try {
+            el.releasePointerCapture(pid);
+          } catch {
+            // ignore
+          }
+        }
+        rowCaptureElRef.current = null;
+        rowCapturePointerIdRef.current = null;
+      }
+
       // ✅ 행 드래그도 강제 종료(포인터가 header 밖에서 up 되는 케이스)
       rowDraggingRef.current = false;
       rowAnchorRef.current = null;
     };
+
+    // ✅ 드래그 중 브라우저가 pointercancel(스크롤/포커스/텍스트선택 개입 등)을 발생시키는 케이스에서도
+    // 드래그가 “깨진 상태”로 남지 않게 동일 종료 처리
+    const onPointerCancel = () => {
+      onPointerUp();
+    };
+
     window.addEventListener("pointerup", onPointerUp);
-    return () => window.removeEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+
+    return () => {
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+    };
   }, []);
 
     useEffect(() => {
@@ -480,7 +516,7 @@ export default function SignupGrid({
     draggingRef.current = false;
     anchorRef.current = null;
     activeRef.current = null;
-    setRange(null);
+    setRangeSync(null);
     setAnchor(null);
     setActive(null);
 
@@ -504,7 +540,7 @@ export default function SignupGrid({
     draggingRef.current = false;
     anchorRef.current = null;
     activeRef.current = null;
-    setRange(null);
+    setRangeSync(null);
     setAnchor(null);
     setActive(null);
 
@@ -885,28 +921,36 @@ export default function SignupGrid({
     setActive(p);
     setRangeSync(normalizeRange(p, p));
 
-    const t = e.target as HTMLElement | null;
-    const tag = t?.tagName?.toUpperCase?.() ?? "";
-    const isInteractive =
-      tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t as any)?.isContentEditable;
+        // ✅ 드래그 시작 기록
+    dragStartCellRef.current = { r, c };
+    didDragRef.current = false;
 
-    if (!isInteractive) e.preventDefault();
+    // ✅ 셀 내부 input이 텍스트 선택/포커스를 먼저 가져가면 드래그가 끊기거나 selection이 축소될 수 있어
+    // 드래그 시작 시점에는 기본 동작을 막는다.
+    e.preventDefault();
 
-       const el = e.currentTarget as HTMLElement;
+    const el = e.currentTarget as HTMLElement;
     cellCaptureElRef.current = el;
     cellCapturePointerIdRef.current = e.pointerId;
-    el.setPointerCapture(e.pointerId); 
+    el.setPointerCapture(e.pointerId);
   }
 
-  function handleCellPointerMove(e: React.PointerEvent) {
+    function handleCellPointerMove(e: React.PointerEvent) {
     if (!draggingRef.current) return;
     const p = findCellFromPoint(e.clientX, e.clientY);
     if (!p) return;
+
+    const prev = activeRef.current;
+    if (!prev || prev.r !== p.r || prev.c !== p.c) {
+      didDragRef.current = true;
+    }
+
     selectFromAnchor(p);
   }
 
-   function handleCellPointerUp(e: React.PointerEvent) {
+    function handleCellPointerUp(e: React.PointerEvent) {
     draggingRef.current = false;
+
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
@@ -914,6 +958,16 @@ export default function SignupGrid({
     } finally {
       cellCaptureElRef.current = null;
       cellCapturePointerIdRef.current = null;
+    }
+
+    // ✅ 단순 클릭이면 포커스, 드래그였다면 포커스 주지 않음(우클릭/복사/붙여넣기용 selection 유지)
+    if (!didDragRef.current) {
+      const el = e.currentTarget as HTMLElement;
+      const rr = Number(el.dataset.r);
+      const cc = Number(el.dataset.c);
+      if (Number.isFinite(rr) && Number.isFinite(cc)) {
+        focusCellEditor(rr, cc);
+      }
     }
   }
 
@@ -1344,7 +1398,10 @@ export default function SignupGrid({
                                       rowAnchorRef.current = r;
                                      setRowRangeSync(normalizeRowRange(r, r));
 
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                                const el = e.currentTarget as HTMLElement;
+                        rowCaptureElRef.current = el;
+                        rowCapturePointerIdRef.current = e.pointerId;
+                        el.setPointerCapture(e.pointerId);
                         e.preventDefault();
                       }}
                       onPointerMoveCapture={(e) => {
@@ -1356,11 +1413,14 @@ export default function SignupGrid({
                         selectRowsFromAnchor(rr);
                       }}
                       onPointerUpCapture={(e) => {
-                        rowDraggingRef.current = false;
+                                               rowDraggingRef.current = false;
                         try {
                           (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                         } catch {
                           // ignore
+                        } finally {
+                          rowCaptureElRef.current = null;
+                          rowCapturePointerIdRef.current = null;
                         }
                       }}
                       
@@ -1415,9 +1475,14 @@ export default function SignupGrid({
                             cellActive ? "ring-2 ring-blue-400 ring-inset" : "",
                           ].join(" ")}
                           style={{ width: widthPx, minWidth: MIN_WIDTH_PX }}
-                          onPointerDownCapture={(e) => handleCellPointerDown(e, r, c)}
+                                                    onPointerDownCapture={(e) => handleCellPointerDown(e, r, c)}
                           onPointerMoveCapture={handleCellPointerMove}
                           onPointerUpCapture={handleCellPointerUp}
+                          onMouseDownCapture={(e) => {
+                            // ✅ contextmenu 이벤트(handleCellContextMenu)보다 먼저 들어오는 focus 때문에
+                            // 선택영역이 깨지는 케이스 방지
+                            if (e.button === 2) suppressFocusSelectionRef.current = true;
+                          }}
                           onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                         >
                           <CellEditor
