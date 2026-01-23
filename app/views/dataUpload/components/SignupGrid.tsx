@@ -177,6 +177,10 @@ export default function SignupGrid({
   // ✅ 붙여넣기/키보드 입력 안정화를 위해 실제 포커스 대상은 textarea(하지만 강제 focus는 최소화)
   const gridFocusRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ✅ Ctrl+V 시 브라우저별로 paste 이벤트가 안 잡히는 경우 대비: fallback 타이머
+  const lastPasteHandledAtRef = useRef(0);
+  const pasteFallbackTimerRef = useRef<number | null>(null);
+
   // rows hydrate/저장 덮어쓰기 방지용
   const rowsHydratedRef = useRef(false);
   const rowsTouchedRef = useRef(false);
@@ -219,9 +223,20 @@ export default function SignupGrid({
     rangeRef.current = range;
   }, [range]);
 
-  useEffect(() => {
+    useEffect(() => {
     rowRangeRef.current = rowRange;
   }, [rowRange]);
+
+    // ✅ setState 직후에도 ref가 즉시 최신값을 보게(우클릭/단축키/삭제/행삭제의 간헐 실패 방지)
+  function setRangeSync(next: typeof range) {
+    rangeRef.current = next;
+    setRange(next);
+  }
+
+  function setRowRangeSync(next: RowRange | null) {
+    rowRangeRef.current = next;
+    setRowRange(next);
+  }
 
   // colWidthSteps hydrate: settings가 늦게 들어와도 사용자 조작 전이면 재적용
   useEffect(() => {
@@ -272,10 +287,10 @@ export default function SignupGrid({
       rowAnchorRef.current = null;
       anchorRef.current = null;
       activeRef.current = null;
-      setRange(null);
+      setRangeSync(null);
       setAnchor(null);
       setActive(null);
-      setRowRange(null);
+      setRowRangeSync(null);
 
       return;
     }
@@ -360,10 +375,18 @@ export default function SignupGrid({
     return () => window.removeEventListener("pointerup", onPointerUp);
   }, []);
 
-  useEffect(() => {
-    const onWindowDown = () => {
-      if (menu.open) setMenu((m) => ({ ...m, open: false, baseRow: null }));
+    useEffect(() => {
+    const onWindowDown = (e: MouseEvent) => {
+      if (!menu.open) return;
+
+      const t = e.target as HTMLElement | null;
+
+      // ✅ 메뉴 내부 클릭이면 닫지 않음(메뉴 아이템 클릭이 "되다가 안되다가" 하던 원인 제거)
+      if (t?.closest?.('[data-sg-context-menu="1"]')) return;
+
+      setMenu((m) => ({ ...m, open: false, baseRow: null }));
     };
+
     window.addEventListener("mousedown", onWindowDown);
     return () => window.removeEventListener("mousedown", onWindowDown);
   }, [menu.open]);
@@ -410,7 +433,14 @@ export default function SignupGrid({
     updateRows((prev) => [...prev, ...Array.from({ length: 10 }, () => ({}))]);
   }
 
-  function delete1RowFromBottom() {
+    function delete1RowFromBottom() {
+    // ✅ 행 선택(좌측 번호 드래그) 상태면: 선택된 행 삭제가 우선
+    if (rowRangeRef.current) {
+      deleteSelectedRows();
+      return;
+    }
+
+    // 선택이 없으면 기존 동작 유지(맨 아래 1행 삭제)
     updateRows((prev) => {
       if (prev.length <= 1) return [{}];
       return prev.slice(0, prev.length - 1);
@@ -438,7 +468,7 @@ export default function SignupGrid({
 
     rowDraggingRef.current = false;
     rowAnchorRef.current = at;
-    setRowRange(normalizeRowRange(at, at + n - 1));
+    setRowRangeSync(normalizeRowRange(at, at + n - 1));
   }
 
   function deleteSelectedRows() {
@@ -462,7 +492,7 @@ export default function SignupGrid({
 
     rowDraggingRef.current = false;
     rowAnchorRef.current = null;
-    setRowRange(null);
+    setRowRangeSync(null);
   }
 
   function setCell(rowIndex: number, key: string, value: string) {
@@ -485,32 +515,32 @@ export default function SignupGrid({
     });
   }
 
-  function clearRowSelection() {
+    function clearRowSelection() {
     rowDraggingRef.current = false;
     rowAnchorRef.current = null;
-    setRowRange(null);
+    setRowRangeSync(null);
   }
 
-  function clearCellSelection() {
+   function clearCellSelection() {
     draggingRef.current = false;
     anchorRef.current = null;
     activeRef.current = null;
-    setRange(null);
+    setRangeSync(null);
     setAnchor(null);
     setActive(null);
   }
 
-  function selectSingle(r: number, c: number) {
+    function selectSingle(r: number, c: number) {
     const p = { r, c };
     activeRef.current = p;
     anchorRef.current = p;
 
     setActive(p);
     setAnchor(p);
-    setRange(normalizeRange(p, p));
+    setRangeSync(normalizeRange(p, p));
   }
 
-  function selectFromAnchor(to: CellPos) {
+    function selectFromAnchor(to: CellPos) {
     const a = anchorRef.current;
 
     if (!a) {
@@ -518,13 +548,13 @@ export default function SignupGrid({
       activeRef.current = to;
       setAnchor(to);
       setActive(to);
-      setRange(normalizeRange(to, to));
+      setRangeSync(normalizeRange(to, to));
       return;
     }
 
     activeRef.current = to;
     setActive(to);
-    setRange(normalizeRange(a, to));
+    setRangeSync(normalizeRange(a, to));
   }
 
   function isRowSelected(r: number) {
@@ -533,22 +563,22 @@ export default function SignupGrid({
     return r >= rr.r1 && r <= rr.r2;
   }
 
-  function selectRowSingle(r: number) {
+    function selectRowSingle(r: number) {
     rowAnchorRef.current = r;
-    setRowRange(normalizeRowRange(r, r));
+    setRowRangeSync(normalizeRowRange(r, r));
 
     // row 선택 시에는 cell 선택은 해제(엑셀 느낌)
     clearCellSelection();
   }
 
-  function selectRowsFromAnchor(toRow: number) {
+   function selectRowsFromAnchor(toRow: number) {
     const a = rowAnchorRef.current;
     if (a == null) {
       rowAnchorRef.current = toRow;
-      setRowRange(normalizeRowRange(toRow, toRow));
+      setRowRangeSync(normalizeRowRange(toRow, toRow));
       return;
     }
-    setRowRange(normalizeRowRange(a, toRow));
+    setRowRangeSync(normalizeRowRange(a, toRow));
   }
 
   function isSelectedCell(r: number, c: number) {
@@ -757,17 +787,22 @@ export default function SignupGrid({
 
     setAnchor(a);
     setActive(b);
-    setRange(normalizeRange(a, b));
+    setRangeSync(normalizeRange(a, b));
   }
 
-  async function pasteFromClipboard() {
+    async function pasteFromClipboard() {
     const start = getSelectionTopLeft();
     if (!start) return;
 
-    const text = (await safeReadClipboardText()) || lastCopiedRef.current || "";
-    if (!text) return;
+    const text = (await safeReadClipboardText().catch(() => "")) || lastCopiedRef.current || "";
 
-    const matrix = parseTSV(text);
+    // ✅ 권한/브라우저 정책으로 readText가 막히는 경우 prompt fallback
+    const finalText =
+      text || window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") || "";
+
+    if (!finalText) return;
+
+    const matrix = parseTSV(finalText);
     pasteMatrixAt(start, matrix);
   }
 
@@ -830,7 +865,7 @@ export default function SignupGrid({
 
     setAnchor(p);
     setActive(p);
-    setRange(normalizeRange(p, p));
+    setRangeSync(normalizeRange(p, p));
 
     const t = e.target as HTMLElement | null;
     const tag = t?.tagName?.toUpperCase?.() ?? "";
@@ -915,16 +950,28 @@ export default function SignupGrid({
 
   // ✅ 전역 키/붙여넣기(엑셀 느낌) — 포커스가 input/select에 있어도 동작하게
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (!gridActiveRef.current) return;
+        function onKeyDown(e: KeyboardEvent) {
       if (!showToolbar) return;
 
       const cols = selectedColumnsRef.current;
       if (!cols.length) return;
 
+      // ✅ gridActiveRef가 간헐적으로 false가 되는 케이스(포커스 이동/편집기/우클릭 등)에서도
+      // "현재 키 입력이 그리드 내부에서 발생"하면 동작하도록 보강
+      const root = rootRef.current;
+      const targetNode = (e.target as unknown as Node) || null;
+      const activeEl = (typeof document !== "undefined" ? (document.activeElement as unknown as Node) : null) || null;
+
+      const insideByTarget = !!root && !!targetNode && root.contains(targetNode);
+      const insideByFocus = !!root && !!activeEl && root.contains(activeEl);
+
+      if (!gridActiveRef.current && !insideByTarget && !insideByFocus) return;
+
+      // 내부에서 키가 들어온 게 확실하면 active로 간주
+      gridActiveRef.current = true;
+
       const key = (e.key || "").toLowerCase();
       const isMod = e.ctrlKey || e.metaKey;
-
       // Delete
       if (key === "delete") {
         const rr = rowRangeRef.current;
@@ -947,12 +994,36 @@ export default function SignupGrid({
         return;
       }
 
-      // Ctrl/Cmd+V (paste 이벤트 유도)
+            // Ctrl/Cmd+V
       if (isMod && key === "v") {
         const start = getSelectionTopLeft();
         if (!start) return;
-        // paste 이벤트를 textarea로 유도(브라우저 정책/셀렉트 포커스 케이스 대응)
+
+        // ✅ 기본 입력 컴포넌트로 이벤트가 흘러가서 "한 셀에 몰림"이 생기는 케이스 차단
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 1) 우선 textarea로 포커스 이동 → paste 이벤트를 최대한 안정적으로 받는다
         focusGridForPaste();
+
+        // 2) 일부 브라우저/상황에서 paste 이벤트가 안 잡히는 경우가 있어 fallback 1회
+        const requestedAt = Date.now();
+        if (pasteFallbackTimerRef.current) window.clearTimeout(pasteFallbackTimerRef.current);
+
+        pasteFallbackTimerRef.current = window.setTimeout(async () => {
+          // paste 이벤트가 이미 처리되었으면 fallback 취소
+          if (lastPasteHandledAtRef.current >= requestedAt) return;
+
+          const text = (await safeReadClipboardText().catch(() => "")) || lastCopiedRef.current || "";
+          const finalText =
+            text || window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") || "";
+
+          if (!finalText) return;
+
+          const matrix = parseTSV(finalText);
+          pasteMatrixAt(start, matrix);
+        }, 80);
+
         return;
       }
 
@@ -986,6 +1057,9 @@ export default function SignupGrid({
       const text = e.clipboardData?.getData("text/plain") ?? e.clipboardData?.getData("text") ?? "";
       if (!text) return;
 
+      // ✅ Ctrl+V fallback 타이머가 중복 실행되지 않게 "paste 처리됨" 기록
+      lastPasteHandledAtRef.current = Date.now();
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -996,9 +1070,10 @@ export default function SignupGrid({
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("paste", onPaste, true);
 
-    return () => {
+        return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("paste", onPaste, true);
+      if (pasteFallbackTimerRef.current) window.clearTimeout(pasteFallbackTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showToolbar]);
@@ -1226,8 +1301,8 @@ export default function SignupGrid({
                         clearCellSelection();
 
                         rowDraggingRef.current = true;
-                        rowAnchorRef.current = r;
-                        setRowRange(normalizeRowRange(r, r));
+                                      rowAnchorRef.current = r;
+                                     setRowRangeSync(normalizeRowRange(r, r));
 
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                         e.preventDefault();
@@ -1350,7 +1425,7 @@ export default function SignupGrid({
                       if (!rr) {
                         const base = menu.baseRow ?? 0;
                         selectRowSingle(base);
-                        setRowRange(normalizeRowRange(base, base));
+                        setRowRangeSync(normalizeRowRange(base, base));
                       }
 
                       deleteSelectedRows();
