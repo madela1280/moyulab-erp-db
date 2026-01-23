@@ -319,20 +319,33 @@ export default function SignupGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
-  // ✅ 그리드 활성화 상태 관리(전역 키/붙여넣기 이벤트 처리용)
+    // ✅ 그리드 활성화 상태 관리(전역 키/붙여넣기 이벤트 처리용)
   useEffect(() => {
-    function onDownCapture(e: MouseEvent) {
+    function setActiveByEventTarget(t: EventTarget | null) {
       const root = rootRef.current;
       if (!root) return;
 
-      const t = e.target as Node | null;
-      const inside = !!t && root.contains(t);
-
+      const node = t as Node | null;
+      const inside = !!node && root.contains(node);
       gridActiveRef.current = inside;
     }
 
+    function onDownCapture(e: MouseEvent) {
+      setActiveByEventTarget(e.target);
+    }
+
+    function onFocusInCapture(e: FocusEvent) {
+      // input/select 등 포커스가 이동해도 gridActive 유지
+      setActiveByEventTarget(e.target);
+    }
+
     window.addEventListener("mousedown", onDownCapture, true);
-    return () => window.removeEventListener("mousedown", onDownCapture, true);
+    window.addEventListener("focusin", onFocusInCapture, true);
+
+    return () => {
+      window.removeEventListener("mousedown", onDownCapture, true);
+      window.removeEventListener("focusin", onFocusInCapture, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -721,9 +734,11 @@ export default function SignupGrid({
     const endR = start.r + matrix.length - 1;
     const endC = start.c + (matrix[0]?.length ? matrix[0].length - 1 : 0);
 
-    const safeEndR = clamp(endR, 0, rowsRef.current.length - 1);
-    const safeEndC = clamp(endC, 0, cols.length - 1);
+    // ensureRowsCount로 늘어날 row 길이를 미리 반영해서 clamp
+    const expectedRowLen = Math.max(rowsRef.current.length, needRows);
 
+    const safeEndR = clamp(endR, 0, Math.max(0, expectedRowLen - 1));
+    const safeEndC = clamp(endC, 0, cols.length - 1);
     const a = { r: start.r, c: start.c };
     const b = { r: safeEndR, c: safeEndC };
 
@@ -1346,10 +1361,29 @@ export default function SignupGrid({
                       setMenu((m) => ({ ...m, open: false, baseRow: null }));
                     },
                   },
-                  {
+                                    {
                     label: "붙여넣기",
                     onClick: async () => {
-                      await pasteFromClipboard();
+                      // 1) 일반 붙여넣기 시도
+                      const start = getSelectionTopLeft();
+                      if (!start) {
+                        setMenu((m) => ({ ...m, open: false, baseRow: null }));
+                        return;
+                      }
+
+                      const text = (await safeReadClipboardText()) || lastCopiedRef.current || "";
+
+                      // 2) 브라우저 정책으로 readText가 실패하면 prompt fallback
+                      const finalText =
+                        text ||
+                        window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") ||
+                        "";
+
+                      if (finalText) {
+                        const matrix = parseTSV(finalText);
+                        pasteMatrixAt(start, matrix);
+                      }
+
                       setMenu((m) => ({ ...m, open: false, baseRow: null }));
                     },
                   },
