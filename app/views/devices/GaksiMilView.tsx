@@ -1,10 +1,11 @@
-'use client';
+"use client";
+
+import GaksiMilMain from "@/devices/gaksiMil/components/GaksiMilMain";
 
 export default function GaksiMilView() {
   return (
-    <div className="text-gray-700 text-sm">
-      GaksiMil 페이지
+    <div className="w-full h-full flex flex-col">
+      <GaksiMilMain />
     </div>
   );
 }
-
