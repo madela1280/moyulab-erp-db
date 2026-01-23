@@ -833,7 +833,7 @@ export default function SignupGrid({
     }
   }
 
-  function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
+   function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
     if (!showToolbar) return;
 
     e.preventDefault();
@@ -844,7 +844,12 @@ export default function SignupGrid({
     // ✅ 셀 우클릭이면 행 선택 해제
     clearRowSelection();
 
-    if (!isSelectedCell(r, c)) {
+    // ✅ "현재 선택" 판정은 range state가 아니라 ref 기준(우클릭 순간 선택이 사라지는 현상 방지)
+    const cr = rangeRef.current;
+    const inside =
+      !!cr && r >= cr.r1 && r <= cr.r2 && c >= cr.c1 && c <= cr.c2;
+
+    if (!inside) {
       selectSingle(r, c);
     } else {
       const p = { r, c };
@@ -853,7 +858,7 @@ export default function SignupGrid({
     }
 
     setMenu({ open: true, x: e.clientX, y: e.clientY, mode: "cell", baseRow: r });
-  }
+  } 
 
   function handleEditorFocus(r: number, c: number) {
     // ✅ 드래그 중에는 focus 이벤트로 선택을 건드리지 않음(간헐 선택 깨짐 방지)
@@ -1160,16 +1165,17 @@ export default function SignupGrid({
             </div>
 
             <div>
-              {rows.map((row, r) => {
+                            {rows.map((row, r) => {
                 const rowSelected = isRowSelected(r);
                 const rowHovered = hoverRow === r;
 
                 return (
                   <div
                     key={r}
-                    className="flex border-b last:border-b-0"
-                    onMouseEnter={() => setHoverRow(r)}
-                    onMouseLeave={() => setHoverRow((cur) => (cur === r ? null : cur))}
+                    className={[
+                      "flex border-b last:border-b-0",
+                      rowSelected ? "bg-blue-50" : rowHovered ? "bg-slate-50" : "",
+                    ].join(" ")}
                   >
                     {/* ✅ 행 번호 + 행 선택/드래그/우클릭 */}
                     <div
@@ -1217,11 +1223,10 @@ export default function SignupGrid({
                           // ignore
                         }
                       }}
-                      onMouseDown={() => {
-                        // hover만으로는 rowRange를 만들지 않고, 클릭 시 단일 행 선택
-                        // (드래그 선택 흐름 보호)
-                        if (!rowDraggingRef.current) selectRowSingle(r);
-                      }}
+                      
+                       onMouseEnter={() => setHoverRow(r)}
+                                    onMouseLeave={() => setHoverRow((cur) => (cur === r ? null : cur))}
+
                       onContextMenu={(e) => {
                         if (!showToolbar) return;
                         e.preventDefault();
