@@ -27,6 +27,10 @@ export default function ContextMenu({
 
   if (!open) return null;
 
+  // 화면 밖으로 나가지 않게 간단 클램프
+  const left = Math.max(6, Math.min(x, window.innerWidth - 180));
+  const top = Math.max(6, Math.min(y, window.innerHeight - 200));
+
   return (
     <div
       className="fixed inset-0 z-[80]"
@@ -34,11 +38,17 @@ export default function ContextMenu({
         e.preventDefault();
         onClose();
       }}
+      onContextMenu={(e) => {
+        // 메뉴 위에서 다시 우클릭해도 브라우저 메뉴 안 뜨게
+        e.preventDefault();
+        onClose();
+      }}
     >
       <div
-        className="fixed z-[81] min-w-[140px] bg-white border rounded shadow-md py-1"
-        style={{ left: x, top: y }}
+        className="fixed z-[81] min-w-[160px] bg-white border rounded shadow-md py-1"
+        style={{ left, top }}
         onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {items.map((it) => (
           <button

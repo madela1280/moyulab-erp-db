@@ -37,6 +37,9 @@ export async function safeWriteClipboardText(text: string): Promise<boolean> {
 }
 
 export async function safeReadClipboardText(): Promise<string> {
+  // ✅ 권한/포커스 이슈로 readText가 자주 실패하므로
+  // - 실패하면 빈 문자열 반환
+  // - 실제 붙여넣기는 onPasteCapture(ClipboardEvent)로도 처리됨
   try {
     return await navigator.clipboard.readText();
   } catch {

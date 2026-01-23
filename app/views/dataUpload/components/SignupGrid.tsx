@@ -66,6 +66,16 @@ function normalizeRange(a: CellPos, b: CellPos) {
   return { r1, r2, c1, c2 };
 }
 
+type RowRange = { r1: number; r2: number };
+
+function normalizeRowRange(a: number, b: number): RowRange {
+  const r1 = Math.min(a, b);
+  const r2 = Math.max(a, b);
+  return { r1, r2 };
+}
+
+const ROW_HEADER_W = 46;
+
 export default function SignupGrid({
   allColumns,
   selectedKeys,
@@ -132,9 +142,24 @@ export default function SignupGrid({
   const [active, setActive] = useState<CellPos | null>(null);
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [range, setRange] = useState<{ r1: number; r2: number; c1: number; c2: number } | null>(null);
+
+  // ✅ pointer 이벤트에서 setState 직후에도 즉시 기준점이 필요(간헐 선택 깨짐 방지)
+  const anchorRef = useRef<CellPos | null>(null);
+  const activeRef = useRef<CellPos | null>(null);
+
   const draggingRef = useRef(false);
 
-  const [menu, setMenu] = useState<{ open: boolean; x: number; y: number }>(() => ({ open: false, x: 0, y: 0 }));
+  // ✅ 행 선택(왼쪽 번호 컬럼) 전용
+  const [rowRange, setRowRange] = useState<RowRange | null>(null);
+  const rowDraggingRef = useRef(false);
+  const rowAnchorRef = useRef<number | null>(null);
+
+    const [menu, setMenu] = useState<{ open: boolean; x: number; y: number; mode: "cell" | "row" }>(() => ({
+    open: false,
+    x: 0,
+    y: 0,
+    mode: "cell",
+  }));
 
   const lastCopiedRef = useRef<string>("");
   const suppressFocusSelectionRef = useRef(false);
@@ -307,11 +332,41 @@ export default function SignupGrid({
     updateRows((prev) => [...prev, ...Array.from({ length: 10 }, () => ({}))]);
   }
 
-  function delete1RowFromBottom() {
+    function delete1RowFromBottom() {
     updateRows((prev) => {
       if (prev.length <= 1) return [{}];
       return prev.slice(0, prev.length - 1);
     });
+  }
+
+  function insertRowsAt(index: number, count: number) {
+    const at = Math.max(0, Math.min(rows.length, Math.floor(index)));
+    const n = Math.max(1, Math.min(5000, Math.floor(count)));
+
+    updateRows((prev) => {
+      const next = prev.slice();
+      next.splice(at, 0, ...Array.from({ length: n }, () => ({})));
+      return next;
+    });
+
+    // 삽입 후 선택 유지(삽입된 행 선택)
+    clearCellSelection();
+    selectRowSingle(at);
+    setRowRange(normalizeRowRange(at, at + n - 1));
+  }
+
+  function deleteSelectedRows() {
+    if (!rowRange) return;
+
+    updateRows((prev) => {
+      const next = prev.slice();
+      next.splice(rowRange.r1, rowRange.r2 - rowRange.r1 + 1);
+      if (next.length === 0) return [{}];
+      return next;
+    });
+
+    clearCellSelection();
+    clearRowSelection();
   }
 
   function setCell(rowIndex: number, key: string, value: string) {
@@ -334,22 +389,66 @@ export default function SignupGrid({
     });
   }
 
+    function clearRowSelection() {
+    rowDraggingRef.current = false;
+    rowAnchorRef.current = null;
+    setRowRange(null);
+  }
+
+  function clearCellSelection() {
+    draggingRef.current = false;
+    anchorRef.current = null;
+    activeRef.current = null;
+    setRange(null);
+    setAnchor(null);
+    setActive(null);
+  }
+
   function selectSingle(r: number, c: number) {
     const p = { r, c };
+    activeRef.current = p;
+    anchorRef.current = p;
+
     setActive(p);
     setAnchor(p);
     setRange(normalizeRange(p, p));
   }
 
   function selectFromAnchor(to: CellPos) {
-    if (!anchor) {
+    const a = anchorRef.current;
+
+    if (!a) {
+      anchorRef.current = to;
+      activeRef.current = to;
       setAnchor(to);
       setActive(to);
       setRange(normalizeRange(to, to));
       return;
     }
+
+    activeRef.current = to;
     setActive(to);
-    setRange(normalizeRange(anchor, to));
+    setRange(normalizeRange(a, to));
+  }
+
+  function isRowSelected(r: number) {
+    if (!rowRange) return false;
+    return r >= rowRange.r1 && r <= rowRange.r2;
+  }
+
+  function selectRowSingle(r: number) {
+    rowAnchorRef.current = r;
+    setRowRange(normalizeRowRange(r, r));
+  }
+
+  function selectRowsFromAnchor(toRow: number) {
+    const a = rowAnchorRef.current;
+    if (a == null) {
+      rowAnchorRef.current = toRow;
+      setRowRange(normalizeRowRange(toRow, toRow));
+      return;
+    }
+    setRowRange(normalizeRowRange(a, toRow));
   }
 
   function isSelectedCell(r: number, c: number) {
@@ -357,7 +456,10 @@ export default function SignupGrid({
     return r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2;
   }
 
-  function getSelectionTopLeft(): CellPos | null {
+   function getSelectionTopLeft(): CellPos | null {
+    // ✅ 행 선택이 우선이면, 붙여넣기 시작점은 (첫 선택행, 첫 컬럼)
+    if (rowRange) return { r: rowRange.r1, c: 0 };
+
     if (range) return { r: range.r1, c: range.c1 };
     if (active) return active;
     return null;
@@ -415,8 +517,25 @@ export default function SignupGrid({
     focusCellEditor(nextR, nextC);
   }
 
-  async function copySelection() {
-    if (!range || selectedColumns.length === 0) return;
+   async function copySelection() {
+    if (selectedColumns.length === 0) return;
+
+    // ✅ 행 선택 복사: 선택된 행들 *전체 컬럼*을 TSV로
+    if (rowRange) {
+      const matrix: string[][] = [];
+      for (let r = rowRange.r1; r <= rowRange.r2; r++) {
+        const row = rows[r] || {};
+        const line = selectedColumns.map((k) => String(row?.[k] ?? ""));
+        matrix.push(line);
+      }
+      const text = toTSV(matrix);
+      lastCopiedRef.current = text;
+      await safeWriteClipboardText(text);
+      return;
+    }
+
+    // ✅ 셀 선택 복사
+    if (!range) return;
 
     const matrix: string[][] = [];
     for (let r = range.r1; r <= range.r2; r++) {
@@ -434,8 +553,26 @@ export default function SignupGrid({
     await safeWriteClipboardText(text);
   }
 
-  function clearSelectionValues() {
-    if (!range || selectedColumns.length === 0) return;
+    function clearSelectionValues() {
+    if (selectedColumns.length === 0) return;
+
+    // ✅ 행 선택: 선택 행의 모든 컬럼 지우기
+    if (rowRange) {
+      rowsTouchedRef.current = true;
+      setRows((prev) => {
+        const next = prev.slice();
+        for (let r = rowRange.r1; r <= rowRange.r2; r++) {
+          const base = { ...(next[r] || {}) };
+          for (const key of selectedColumns) base[key] = "";
+          next[r] = base;
+        }
+        return next;
+      });
+      return;
+    }
+
+    // ✅ 셀 선택
+    if (!range) return;
 
     rowsTouchedRef.current = true;
     setRows((prev) => {
@@ -510,8 +647,8 @@ export default function SignupGrid({
 
     const lower = k.toLowerCase();
 
-    if (lower === "delete") {
-      if (range) {
+       if (lower === "delete") {
+      if (range || rowRange) {
         e.preventDefault();
         clearSelectionValues();
       }
@@ -550,14 +687,21 @@ export default function SignupGrid({
     return { r, c };
   }
 
-  function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
+    function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     if (e.button !== 0) return;
     if (!showToolbar) return;
 
     focusGrid();
 
+    // ✅ 셀 선택을 시작하면 행 선택은 해제
+    clearRowSelection();
+
     draggingRef.current = true;
+
     const p = { r, c };
+    anchorRef.current = p;
+    activeRef.current = p;
+
     setAnchor(p);
     setActive(p);
     setRange(normalizeRange(p, p));
@@ -585,7 +729,7 @@ export default function SignupGrid({
     } catch {}
   }
 
-  function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
+    function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
     if (!showToolbar) return;
 
     e.preventDefault();
@@ -593,28 +737,43 @@ export default function SignupGrid({
 
     suppressFocusSelectionRef.current = true;
 
+    // ✅ 셀 우클릭이면 행 선택 해제
+    clearRowSelection();
+
     if (!isSelectedCell(r, c)) {
       selectSingle(r, c);
     } else {
-      setActive({ r, c });
+      const p = { r, c };
+      activeRef.current = p;
+      setActive(p);
     }
 
-    setMenu({ open: true, x: e.clientX, y: e.clientY });
+    setMenu({ open: true, x: e.clientX, y: e.clientY, mode: "cell" });
   }
 
-  function handleEditorFocus(r: number, c: number) {
+    function handleEditorFocus(r: number, c: number) {
+    // ✅ 드래그 중에는 focus 이벤트로 선택을 건드리지 않음(간헐 선택 깨짐 방지)
+    if (draggingRef.current || rowDraggingRef.current) return;
+
     if (suppressFocusSelectionRef.current) {
       suppressFocusSelectionRef.current = false;
       if (range && isSelectedCell(r, c)) {
-        setActive({ r, c });
+        const p = { r, c };
+        activeRef.current = p;
+        setActive(p);
         return;
       }
     }
 
     if (range && isSelectedCell(r, c)) {
-      setActive({ r, c });
+      const p = { r, c };
+      activeRef.current = p;
+      setActive(p);
       return;
     }
+
+    // focus로 들어오면 행 선택 해제 + 셀 단일 선택
+    clearRowSelection();
     selectSingle(r, c);
   }
 
@@ -749,7 +908,14 @@ export default function SignupGrid({
           <div className="p-3 text-xs text-slate-500">양식에서 컬럼을 선택하면 표가 생성됩니다.</div>
         ) : (
           <div className="min-w-max">
-            <div className="flex border-b bg-slate-100 sticky top-0 z-10">
+                        <div className="flex border-b bg-slate-100 sticky top-0 z-10">
+              {/* ✅ 행 번호(좌측) */}
+              <div
+                className="px-1 py-1.5 text-[12px] font-semibold text-slate-600 border-r select-none text-center sticky left-0 z-20 bg-slate-100"
+                style={{ width: ROW_HEADER_W, minWidth: ROW_HEADER_W }}
+                title="행"
+              />
+
               {selectedColumns.map((k) => {
                 const step = getStep(k);
                 const widthPx = widthPxFromStep(step);
@@ -788,8 +954,61 @@ export default function SignupGrid({
             </div>
 
             <div>
-              {rows.map((row, r) => (
+                            {rows.map((row, r) => (
                 <div key={r} className="flex border-b last:border-b-0">
+                  {/* ✅ 행 번호 + 행 선택/드래그/우클릭 */}
+                  <div
+                    className={[
+                      "px-1 h-[26px] flex items-center justify-center text-[11px] select-none border-r",
+                      isRowSelected(r) ? "bg-blue-200 text-slate-800" : "bg-slate-100 text-slate-500",
+                      "sticky left-0 z-10",
+                    ].join(" ")}
+                    style={{ width: ROW_HEADER_W, minWidth: ROW_HEADER_W }}
+                    onPointerDownCapture={(e) => {
+                      if (e.button !== 0) return;
+                      if (!showToolbar) return;
+
+                      focusGrid();
+
+                      // 행 선택 시작 → 셀 선택 해제
+                      clearCellSelection();
+
+                      rowDraggingRef.current = true;
+                      rowAnchorRef.current = r;
+                      setRowRange(normalizeRowRange(r, r));
+
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      e.preventDefault();
+                    }}
+                    onPointerMoveCapture={(e) => {
+                      if (!rowDraggingRef.current) return;
+                      // 현재 마우스 위치의 셀을 찾아 row index만 사용
+                      const p = findCellFromPoint(e.clientX, e.clientY);
+                      if (!p) return;
+                      selectRowsFromAnchor(p.r);
+                    }}
+                    onPointerUpCapture={(e) => {
+                      rowDraggingRef.current = false;
+                      try {
+                        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                      } catch {}
+                    }}
+                    onContextMenu={(e) => {
+                      if (!showToolbar) return;
+                      e.preventDefault();
+                      focusGrid();
+
+                      // 우클릭 행이 선택 밖이면 단일 행 선택으로 맞춤
+                      if (!isRowSelected(r)) {
+                        clearCellSelection();
+                        selectRowSingle(r);
+                      }
+
+                      setMenu({ open: true, x: e.clientX, y: e.clientY, mode: "row" });
+                    }}
+                  >
+                    {r + 1}
+                  </div>
                   {selectedColumns.map((key, c) => {
                     const step = getStep(key);
                     const widthPx = widthPxFromStep(step);
@@ -832,35 +1051,77 @@ export default function SignupGrid({
           </div>
         )}
 
-        <ContextMenu
+               <ContextMenu
           open={menu.open}
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu((m) => ({ ...m, open: false }))}
-          items={[
-            {
-              label: "지우기",
-              onClick: () => {
-                clearSelectionValues();
-                setMenu((m) => ({ ...m, open: false }));
-              },
-            },
-            {
-              label: "복사",
-              onClick: async () => {
-                await copySelection();
-                setMenu((m) => ({ ...m, open: false }));
-              },
-            },
-            {
-              label: "붙여넣기",
-              onClick: async () => {
-                await pasteFromClipboard();
-                setMenu((m) => ({ ...m, open: false }));
-              },
-            },
-          ]}
-        />
+          items={
+            menu.mode === "row"
+              ? [
+                  {
+                    label: "행 삽입",
+                    onClick: () => {
+                      const start = rowRange ? rowRange.r1 : 0;
+                      const count = rowRange ? rowRange.r2 - rowRange.r1 + 1 : 1;
+                      insertRowsAt(start, count);
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "행 삭제",
+                    onClick: () => {
+                      deleteSelectedRows();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "내용 지우기",
+                    onClick: () => {
+                      clearSelectionValues();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "복사",
+                    onClick: async () => {
+                      await copySelection();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "붙여넣기",
+                    onClick: async () => {
+                      await pasteFromClipboard();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                ]
+              : [
+                  {
+                    label: "지우기",
+                    onClick: () => {
+                      clearSelectionValues();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "복사",
+                    onClick: async () => {
+                      await copySelection();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                  {
+                    label: "붙여넣기",
+                    onClick: async () => {
+                      await pasteFromClipboard();
+                      setMenu((m) => ({ ...m, open: false }));
+                    },
+                  },
+                ]
+          }
+        /> 
       </div>
     </div>
   );

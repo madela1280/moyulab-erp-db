@@ -1,13 +1,18 @@
 export function parseTSV(text: string): string[][] {
   const t = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = t.split("\n");
 
-  // 끝에 공백 라인이 따라오는 경우가 많아서 제거하되, 중간 빈 줄은 유지하지 않음(엑셀 기본 동작에 맞춤)
-  const trimmed = lines.filter((l) => l.length > 0);
+  // Excel/구글시트는 끝에 개행이 붙는 경우가 많아서 "마지막 1개"만 제거
+  // (중간의 빈 줄은 유지해야 엑셀처럼 행 매핑이 안 깨짐)
+  const rawLines = t.split("\n");
+  const lines =
+    rawLines.length > 1 && rawLines[rawLines.length - 1] === ""
+      ? rawLines.slice(0, rawLines.length - 1)
+      : rawLines;
 
-  if (trimmed.length === 0) return [[""]];
+  if (lines.length === 0) return [[""]];
 
-  return trimmed.map((line) => line.split("\t").map((v) => String(v ?? "")));
+  // 빈 줄("")도 [""]로 유지(엑셀 동작에 맞춰 행 유지)
+  return lines.map((line) => String(line ?? "").split("\t").map((v) => String(v ?? "")));
 }
 
 export function toTSV(matrix: string[][]): string {

@@ -93,8 +93,8 @@ export default function CellEditor({
       }}
       onChange={(e) => {
         const next = e.target.value;
-        setLocalValue(next);       // UI는 즉시 반영(안 튕김)
-        scheduleToParent(next);    // 부모 반영은 1프레임 1회
+        setLocalValue(next); // UI는 즉시 반영(안 튕김)
+        scheduleToParent(next); // 부모 반영은 1프레임 1회
       }}
       onBlur={() => {
         focusedRef.current = false;
