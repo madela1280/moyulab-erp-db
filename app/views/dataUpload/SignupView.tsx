@@ -504,8 +504,8 @@ export default function SignupView() {
           // 전송 성공 → draft(데이터)만 삭제, 양식은 유지
           await draft.clear();
 
-          // 전송 후에도 항상 15행 유지(빈 데이터)
-          const KEEP_ROWS = 15;
+          // 전송 후에도 항상 40행 유지(빈 데이터)
+          const KEEP_ROWS = 40;
 
           // ✅ UI 즉시 반영 + flush 레이스 방지(ref 즉시 동기화)
           setRowCount(KEEP_ROWS);
