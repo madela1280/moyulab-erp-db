@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
 
 function normalizeName(v: any) {
@@ -23,9 +24,6 @@ export default function PartnerSelectCell({
   onChange,
   onFocus,
   options,
-
-  // ✅ CellEditor에서 내려주는 prop(빌드 에러 방지용으로 다시 받음)
-  //    실제 저장/반영은 이 컴포넌트가 DB에 즉시 PATCH로 보장한다.
   onAddPartnerOption,
 }: {
   value: string;
@@ -35,6 +33,7 @@ export default function PartnerSelectCell({
   // 상위에서 내려주면 fallback으로만 사용(최신은 DB에서 읽음)
   options: string[];
 
+  // CellEditor에서 내려주는 prop(타입 호환 유지)
   onAddPartnerOption?: (name: string) => void | Promise<void>;
 }) {
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
@@ -73,8 +72,11 @@ export default function PartnerSelectCell({
       throw new Error(t || `FAILED(${r.status})`);
     }
 
-    // ✅ 저장 성공 후 서버 기준으로 즉시 재조회(리스트 즉시 반영)
+    // ✅ 서버 기준 즉시 재조회(리스트 즉시 반영)
     await loadOptionsNoStore();
+
+    // ✅ 다른 화면/탭도 즉시 반영되게 emit
+    syncEmitUnifiedUpdate();
   }
 
   useEffect(() => {
@@ -139,7 +141,7 @@ export default function PartnerSelectCell({
         options={mergedOptions}
         value={String(value ?? "")}
         onSelect={(name) => {
-          // ✅ 선택은 셀에만 반영(리스트 변경 없음)
+          // 선택은 셀 값만 변경
           onChange(normalizeName(name));
         }}
         onClose={() => setOpen(false)}
@@ -155,7 +157,7 @@ export default function PartnerSelectCell({
           const next = Array.from(new Set([...(curList || []), n]));
           await patchOptionsNoStore(next);
 
-          // 3) 상위도 best-effort로 맞춰줌(있으면)
+          // 3) 상위도 best-effort로 맞춤(있으면)
           try {
             await onAddPartnerOption?.(n);
           } catch {

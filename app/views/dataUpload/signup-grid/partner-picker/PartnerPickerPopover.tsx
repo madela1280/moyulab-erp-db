@@ -42,15 +42,57 @@ export default function PartnerPickerPopover({
   // ✅ 삭제 모드: 켜면 리스트 항목 옆에 삭제 버튼 표시
   const [deleteMode, setDeleteMode] = useState(false);
 
+  // ✅ 드래그 이동용 position state
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const draggingRef = useRef<{
+    active: boolean;
+    offsetX: number;
+    offsetY: number;
+  }>({ active: false, offsetX: 0, offsetY: 0 });
+
   useEffect(() => setMounted(true), []);
 
-  // 열릴 때 초기화 + 검색 입력 포커스
+  const normalizedOptions = useMemo(() => {
+    const base = Array.isArray(options) ? options.map(normalizeName).filter(Boolean) : [];
+    const cur = normalizeName(value);
+    const merged = cur ? Array.from(new Set([cur, ...base])) : Array.from(new Set(base));
+    merged.sort(sortKorean);
+    return merged;
+  }, [options, value]);
+
+  const filtered = useMemo(() => {
+    const q = normalizeName(query).toLowerCase();
+    if (!q) return normalizedOptions;
+    return normalizedOptions.filter((o) => o.toLowerCase().includes(q));
+  }, [normalizedOptions, query]);
+
+  function computeInitialPos(clientX: number, clientY: number) {
+    const PAD = 8;
+    const W = 240; // 삭제 버튼 공간 고려
+    const H = 330;
+
+    const vw = (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
+    const vh = (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
+
+    let left = clientX;
+    let top = clientY;
+
+    if (vw > 0 && left + W + PAD > vw) left = Math.max(PAD, vw - W - PAD);
+    if (vh > 0 && top + H + PAD > vh) top = Math.max(PAD, vh - H - PAD);
+
+    return { left, top };
+  }
+
+  // 열릴 때 초기화 + 위치 세팅 + 검색 입력 포커스
   useEffect(() => {
     if (!open) return;
 
     setQuery("");
     setBusy(false);
     setDeleteMode(false);
+
+    const p = computeInitialPos(x, y);
+    setPos(p);
 
     const t = window.setTimeout(() => {
       try {
@@ -61,7 +103,8 @@ export default function PartnerPickerPopover({
     }, 0);
 
     return () => window.clearTimeout(t);
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, x, y]);
 
   // 바깥 클릭/ESC 닫기 + Enter로 첫 결과 선택
   useEffect(() => {
@@ -98,42 +141,43 @@ export default function PartnerPickerPopover({
       window.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("keydown", onKey, true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, onClose, deleteMode, query]);
+  }, [open, onClose, deleteMode, filtered, onSelect]);
 
-  const normalizedOptions = useMemo(() => {
-    const base = Array.isArray(options) ? options.map(normalizeName).filter(Boolean) : [];
-    const cur = normalizeName(value);
-    const merged = cur ? Array.from(new Set([cur, ...base])) : Array.from(new Set(base));
-    merged.sort(sortKorean);
-    return merged;
-  }, [options, value]);
+  // ✅ 드래그 이동: window mousemove/mouseup
+  useEffect(() => {
+    if (!open) return;
 
-  const filtered = useMemo(() => {
-    const q = normalizeName(query).toLowerCase();
-    if (!q) return normalizedOptions;
-    return normalizedOptions.filter((o) => o.toLowerCase().includes(q));
-  }, [normalizedOptions, query]);
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current.active) return;
 
-  // 뷰포트 밖으로 나가면 보정
-  const pos = useMemo(() => {
-    if (typeof window === "undefined") return { left: x, top: y };
+      const PAD = 8;
+      const W = 240;
+      const H = 330;
 
-    const PAD = 8;
-    const W = 240; // 삭제 버튼 공간 고려로 조금 넓힘
-    const H = 330;
+      const vw = window.innerWidth || 0;
+      const vh = window.innerHeight || 0;
 
-    const vw = window.innerWidth || 0;
-    const vh = window.innerHeight || 0;
+      let left = e.clientX - draggingRef.current.offsetX;
+      let top = e.clientY - draggingRef.current.offsetY;
 
-    let left = x;
-    let top = y;
+      if (vw > 0) left = Math.max(PAD, Math.min(left, vw - W - PAD));
+      if (vh > 0) top = Math.max(PAD, Math.min(top, vh - H - PAD));
 
-    if (left + W + PAD > vw) left = Math.max(PAD, vw - W - PAD);
-    if (top + H + PAD > vh) top = Math.max(PAD, vh - H - PAD);
+      setPos({ left, top });
+    };
 
-    return { left, top };
-  }, [x, y]);
+    const onUp = () => {
+      draggingRef.current.active = false;
+    };
+
+    window.addEventListener("mousemove", onMove, true);
+    window.addEventListener("mouseup", onUp, true);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove, true);
+      window.removeEventListener("mouseup", onUp, true);
+    };
+  }, [open]);
 
   async function handleAddPrompt() {
     if (!onAdd) return;
@@ -145,7 +189,7 @@ export default function PartnerPickerPopover({
     setBusy(true);
     try {
       await onAdd(n);
-      onClose();
+      // onAdd 쪽에서 DB 저장 + 재조회 + emit을 수행하도록 설계되어 있음
     } finally {
       setBusy(false);
     }
@@ -163,7 +207,7 @@ export default function PartnerPickerPopover({
     setBusy(true);
     try {
       await onDelete(n);
-      // 삭제 후에도 계속 삭제 모드를 유지(여러 개 연속 삭제 가능)
+      // 삭제 모드 유지(연속 삭제 가능)
     } finally {
       setBusy(false);
     }
@@ -185,16 +229,35 @@ export default function PartnerPickerPopover({
         e.stopPropagation();
       }}
     >
-      {/* 검색 */}
-      <div className="p-2 border-b bg-slate-50">
+      {/* 검색/헤더(드래그 핸들) */}
+      <div
+        className="p-2 border-b bg-slate-50 cursor-move"
+        title="드래그해서 이동"
+        onMouseDown={(e) => {
+          // 검색 input 클릭으로 드래그가 시작되지 않게
+          const t = e.target as HTMLElement | null;
+          if (t?.closest?.("input,button")) return;
+
+          draggingRef.current.active = true;
+          draggingRef.current.offsetX = e.clientX - pos.left;
+          draggingRef.current.offsetY = e.clientY - pos.top;
+
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
         <div className="flex gap-2">
           <input
             ref={searchRef}
-            className="flex-1 h-8 px-2 text-xs border rounded outline-none"
+            className="flex-1 h-8 px-2 text-xs border rounded outline-none cursor-text"
             placeholder="여기에 입력"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={busy}
+            onMouseDown={(e) => {
+              // input 클릭은 드래그가 아니라 입력
+              e.stopPropagation();
+            }}
           />
           <button
             type="button"
@@ -207,6 +270,7 @@ export default function PartnerPickerPopover({
               }
             }}
             disabled={busy || deleteMode || filtered.length === 0}
+            title={deleteMode ? "삭제 모드에서는 선택할 수 없습니다" : "첫 번째 결과 선택"}
           >
             확인
           </button>

@@ -5,7 +5,7 @@ import GridHeader from "@/unified/components/GridHeader";
 import UnifiedGrid, { UnifiedGridHandle } from "@/unified/components/UnifiedGrid";
 import { useUnifiedColumnConfig } from "@/unified/column-config/useUnifiedColumnConfig";
 import AddTemplateModal from "@/unified/components/AddTemplateModal";
-import { syncEmitUnifiedUpdate, syncPatch } from "@/global-sync/sync-engine";
+import { syncEmitUnifiedUpdate, syncListen, syncPatch } from "@/global-sync/sync-engine";
 
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
 
@@ -73,7 +73,7 @@ export default function UnifiedMainView() {
   }
 
   // ---------------------------------------------------------------------------
-  // 거래처분류 팝오버(통합관리)
+  // 거래처분류 팝오버(통합관리) + 실시간 옵션 갱신
   // ---------------------------------------------------------------------------
   const [partnerOptions, setPartnerOptions] = useState<string[]>([]);
   const partnerOptionsRef = useRef<string[]>([]);
@@ -122,10 +122,10 @@ export default function UnifiedMainView() {
       throw new Error(t || `FAILED(${r.status})`);
     }
 
-    // ✅ 서버 기준으로 즉시 재조회
+    // ✅ 서버 기준 즉시 재조회
     await loadPartnerOptionsNoStore();
 
-    // 다른 탭에도 반영
+    // ✅ 다른 탭/화면도 즉시 반영되게 emit
     syncEmitUnifiedUpdate();
   }
 
@@ -133,7 +133,25 @@ export default function UnifiedMainView() {
     void loadPartnerOptionsNoStore();
   }, []);
 
-  // 클릭/드래그 구분
+  // ✅ 다른 화면/탭에서 partnerOptions가 바뀌면(=unified:update emit) 여기서 즉시 재조회
+  const partnerReloadTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    const off = syncListen(() => {
+      if (partnerReloadTimerRef.current) window.clearTimeout(partnerReloadTimerRef.current);
+      partnerReloadTimerRef.current = window.setTimeout(() => {
+        partnerReloadTimerRef.current = null;
+        void loadPartnerOptionsNoStore();
+      }, 200);
+    });
+
+    return () => {
+      off?.();
+      if (partnerReloadTimerRef.current) window.clearTimeout(partnerReloadTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 클릭/드래그 구분 (거래처분류 셀 클릭 시만 오픈)
   const partnerDownRef = useRef<{
     pending: boolean;
     startX: number;
@@ -164,8 +182,8 @@ export default function UnifiedMainView() {
       | HTMLSelectElement
       | HTMLTextAreaElement
       | null;
-    const currentValue = normalizeName(input?.value ?? td.textContent ?? "");
 
+    const currentValue = normalizeName(input?.value ?? td.textContent ?? "");
     return { unifiedId: id, currentValue };
   }
 
@@ -177,6 +195,7 @@ export default function UnifiedMainView() {
     const info = findPartnerCellInfoFromTarget(t);
     if (!info) return;
 
+    // ✅ 거래처분류 셀은 클릭 팝오버가 목적이므로 input 포커스/락 흐름 진입 방지
     e.preventDefault();
 
     partnerDownRef.current = {
@@ -196,6 +215,7 @@ export default function UnifiedMainView() {
     const dy = Math.abs(e.clientY - st.startY);
 
     if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) {
+      // 드래그로 판단 → 팝오버 오픈 취소(그리드 드래그 흐름 유지)
       partnerDownRef.current = null;
     }
   }
@@ -239,7 +259,7 @@ export default function UnifiedMainView() {
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
-          onColWidthUnitByKeyChange={setColWidthUnitByKey}
+          onColWidthUnitByKeyChange={setColWidthUnitByKeyChange}
         />
       </div>
 
