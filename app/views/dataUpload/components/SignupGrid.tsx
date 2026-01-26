@@ -331,6 +331,33 @@ export default function SignupGrid({
       return;
     }
 
+       // ✅ settings(rowCount)가 늦게 도착하는 경우 보강:
+    // - 최초 진입 시 initialRowCount=1로 먼저 그려졌다가
+    //   나중에 rowCount=15가 로드되어도 rowsHydratedRef 때문에 그리드가 1행에 고정되는 문제 해결
+    if (rowsHydratedRef.current && !hasDraftRows && rowsInitSourceRef.current === "blank" && !rowsTouchedRef.current) {
+      const rawCount = Number(initialRowCount);
+      if (Number.isFinite(rawCount) && rawCount >= 1) {
+        const count = Math.min(500, Math.max(1, Math.floor(rawCount)));
+        if (rows.length !== count) {
+          suppressOnRowsChangeRef.current = true;
+          setRows(Array.from({ length: count }, () => ({})));
+          // 외부 설정 반영이므로 "사용자 수정"으로 취급하지 않음
+          rowsTouchedRef.current = false;
+
+          // 선택은 최소 정리(오동작 방지)
+          draggingRef.current = false;
+          rowDraggingRef.current = false;
+          rowAnchorRef.current = null;
+          anchorRef.current = null;
+          activeRef.current = null;
+          setRangeSync(null);
+          setAnchor(null);
+          setActive(null);
+          setRowRangeSync(null);
+        }
+      }
+    }
+
     if (!rowsHydratedRef.current && !hasDraftRows) {
       const rawCount = Number(initialRowCount);
       if (Number.isFinite(rawCount) && rawCount >= 1) {
