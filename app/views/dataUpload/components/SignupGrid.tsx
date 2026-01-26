@@ -158,6 +158,18 @@ export default function SignupGrid({
   const dragStartCellRef = useRef<CellPos | null>(null);
   const didDragRef = useRef(false);
 
+ // ✅ 클릭은 살리고, "움직였을 때만" 드래그로 전환하기 위한 후보 상태
+  const pendingCellDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    r: number;
+    c: number;
+    el: HTMLElement | null;
+  } | null>(null);
+
+  const CELL_DRAG_THRESHOLD_PX = 4;
+
  // ✅ 셀 드래그가 셀 밖에서 끝나도 pointer capture를 확실히 정리(선택 불안정/우클릭 시 깨짐 방지)
   const cellCaptureElRef = useRef<HTMLElement | null>(null);
   const cellCapturePointerIdRef = useRef<number | null>(null);
@@ -397,6 +409,7 @@ export default function SignupGrid({
       }
       draggingRef.current = false;
       setDragLock(false);
+      pendingCellDragRef.current = null;
 
       // ✅ 행 드래그도 셀과 동일하게 capture 잔존 방지
       {
@@ -913,7 +926,7 @@ export default function SignupGrid({
     return r;
   }
 
-    function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
+ function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     if (e.button !== 0) return;
     if (!showToolbar) return;
 
@@ -922,56 +935,69 @@ export default function SignupGrid({
     // 셀 클릭 시 row 선택 해제
     clearRowSelection();
 
-    // ✅ 편집기(input/select/textarea 등) 위에서 시작한 클릭은 기본동작을 막으면 안 됨
-    // (거래처분류 select 열림 / 날짜 달력 열림이 여기서 죽었음)
-    const t = e.target as HTMLElement | null;
-    const isEditorTarget = !!t?.closest?.("input,select,textarea,button,[contenteditable='true']");
-    if (isEditorTarget) {
-      // 선택만 갱신하고, preventDefault/pointerCapture/dragLock은 걸지 않는다.
-      selectSingle(r, c);
-      dragStartCellRef.current = { r, c };
-      didDragRef.current = false;
-      return;
-    }
+    // ✅ pointerdown에서는 "클릭 기본동작"을 막지 않는다.
+    //    (select 열림/날짜 달력 트리거 등 유지)
+    //    드래그로 판단되는 순간(조금 움직였을 때)만 drag 모드로 전환한다.
+    pendingCellDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      r,
+      c,
+      el: e.currentTarget as HTMLElement,
+    };
 
-    draggingRef.current = true;
-    setDragLock(true);
+    // 일단 선택만 즉시 반영(엑셀처럼 클릭하면 해당 셀 선택)
+    selectSingle(r, c);
 
-    const p = { r, c };
-    anchorRef.current = p;
-    activeRef.current = p;
-
-    setAnchor(p);
-    setActive(p);
-    setRangeSync(normalizeRange(p, p));
-
-    // ✅ 드래그 시작 기록
+    // 드래그 시작 기록(클릭/드래그 구분)
     dragStartCellRef.current = { r, c };
     didDragRef.current = false;
 
-    // ✅ 드래그 시작 시점에는 기본 동작을 막는다(텍스트 선택/포커스 개입 방지)
-    e.preventDefault();
-
-    const el = e.currentTarget as HTMLElement;
-    cellCaptureElRef.current = el;
-    cellCapturePointerIdRef.current = e.pointerId;
-    el.setPointerCapture(e.pointerId);
+    // 아직 드래그 모드 아님
+    draggingRef.current = false;
+    setDragLock(false);
   }
 
-    function handleCellPointerMove(e: React.PointerEvent) {
-    if (!draggingRef.current) return;
+     function handleCellPointerMove(e: React.PointerEvent) {
+    // ✅ 아직 드래그 시작 전이면 "움직임 임계치"를 보고 드래그 시작 여부를 결정
+    if (!draggingRef.current) {
+      const pending = pendingCellDragRef.current;
+      if (!pending) return;
+      if (pending.pointerId !== e.pointerId) return;
+
+      const dx = Math.abs(e.clientX - pending.startX);
+      const dy = Math.abs(e.clientY - pending.startY);
+      if (dx < CELL_DRAG_THRESHOLD_PX && dy < CELL_DRAG_THRESHOLD_PX) return;
+
+      // ✅ 여기서부터 드래그로 전환 (이때부터 기본동작 차단/캡처/락)
+      draggingRef.current = true;
+      setDragLock(true);
+      didDragRef.current = true;
+
+      try {
+        pending.el?.setPointerCapture?.(e.pointerId);
+        cellCaptureElRef.current = pending.el;
+        cellCapturePointerIdRef.current = e.pointerId;
+      } catch {
+        // ignore
+      }
+
+      // 드래그로 전환된 순간부터는 텍스트선택 등 기본동작을 막는다
+      e.preventDefault();
+    }
+
     const p = findCellFromPoint(e.clientX, e.clientY);
     if (!p) return;
 
-    const prev = activeRef.current;
-    if (!prev || prev.r !== p.r || prev.c !== p.c) {
-      didDragRef.current = true;
-    }
-
     selectFromAnchor(p);
-  }
+  } 
 
      function handleCellPointerUp(e: React.PointerEvent) {
+    // pending 정리
+    pendingCellDragRef.current = null;
+
+    // drag 종료
     draggingRef.current = false;
     setDragLock(false);
 
@@ -993,7 +1019,7 @@ export default function SignupGrid({
         focusCellEditor(rr, cc);
       }
     }
-  }
+  }  
  
    function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
     if (!showToolbar) return;
