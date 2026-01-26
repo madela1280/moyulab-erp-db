@@ -39,6 +39,9 @@ export default function PartnerPickerPopover({
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // ✅ 삭제 모드: 켜면 리스트 항목 옆에 삭제 버튼 표시
+  const [deleteMode, setDeleteMode] = useState(false);
+
   useEffect(() => setMounted(true), []);
 
   // 열릴 때 초기화 + 검색 입력 포커스
@@ -47,6 +50,7 @@ export default function PartnerPickerPopover({
 
     setQuery("");
     setBusy(false);
+    setDeleteMode(false);
 
     const t = window.setTimeout(() => {
       try {
@@ -74,8 +78,10 @@ export default function PartnerPickerPopover({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
 
+      // deleteMode일 때 Enter로 선택은 혼동될 수 있어 막는다.
+      if (deleteMode) return;
+
       if (e.key === "Enter") {
-        // 검색창 Enter → 첫 결과 선택(엑셀 필터 느낌)
         const first = filtered[0];
         if (first) {
           e.preventDefault();
@@ -93,7 +99,7 @@ export default function PartnerPickerPopover({
       window.removeEventListener("keydown", onKey, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, onClose, query]);
+  }, [open, onClose, deleteMode, query]);
 
   const normalizedOptions = useMemo(() => {
     const base = Array.isArray(options) ? options.map(normalizeName).filter(Boolean) : [];
@@ -114,7 +120,7 @@ export default function PartnerPickerPopover({
     if (typeof window === "undefined") return { left: x, top: y };
 
     const PAD = 8;
-    const W = 220;
+    const W = 240; // 삭제 버튼 공간 고려로 조금 넓힘
     const H = 330;
 
     const vw = window.innerWidth || 0;
@@ -145,10 +151,9 @@ export default function PartnerPickerPopover({
     }
   }
 
-  async function handleDeletePrompt() {
+  async function handleDeleteByName(name: string) {
     if (!onDelete) return;
 
-    const name = window.prompt("삭제할 거래처명을 입력해 주세요.");
     const n = normalizeName(name);
     if (!n) return;
 
@@ -158,7 +163,7 @@ export default function PartnerPickerPopover({
     setBusy(true);
     try {
       await onDelete(n);
-      onClose();
+      // 삭제 후에도 계속 삭제 모드를 유지(여러 개 연속 삭제 가능)
     } finally {
       setBusy(false);
     }
@@ -170,10 +175,9 @@ export default function PartnerPickerPopover({
   const ui = (
     <div
       ref={popRef}
-      className="fixed z-[9999] w-[220px] rounded border bg-white shadow-lg overflow-hidden"
+      className="fixed z-[9999] w-[240px] rounded border bg-white shadow-lg overflow-hidden"
       style={{ left: pos.left, top: pos.top }}
       onMouseDown={(e) => {
-        // 바깥 클릭 닫기 로직과 충돌 방지
         e.stopPropagation();
       }}
       onContextMenu={(e) => {
@@ -196,12 +200,13 @@ export default function PartnerPickerPopover({
             type="button"
             className="h-8 px-2 text-xs border rounded bg-white hover:bg-slate-50 disabled:opacity-60"
             onClick={() => {
+              if (deleteMode) return;
               if (filtered[0]) {
                 onSelect(filtered[0]);
                 onClose();
               }
             }}
-            disabled={busy || filtered.length === 0}
+            disabled={busy || deleteMode || filtered.length === 0}
           >
             확인
           </button>
@@ -215,28 +220,55 @@ export default function PartnerPickerPopover({
         ) : (
           filtered.map((name) => {
             const isSelected = normalizeName(value) === name;
+
             return (
-              <button
+              <div
                 key={name}
-                type="button"
                 className={[
-                  "w-full text-left px-3 py-2 text-xs border-b last:border-b-0",
-                  isSelected ? "bg-blue-50 text-slate-800" : "bg-white text-slate-700 hover:bg-slate-100",
+                  "w-full border-b last:border-b-0",
+                  isSelected ? "bg-blue-50" : "bg-white",
                 ].join(" ")}
-                onClick={() => {
-                  onSelect(name);
-                  onClose();
-                }}
-                disabled={busy}
               >
-                {name}
-              </button>
+                <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                  <button
+                    type="button"
+                    className={[
+                      "flex-1 text-left text-xs",
+                      isSelected ? "text-slate-800" : "text-slate-700",
+                      "hover:bg-slate-100 rounded px-1 py-1",
+                    ].join(" ")}
+                    onClick={() => {
+                      if (deleteMode) return;
+                      onSelect(name);
+                      onClose();
+                    }}
+                    disabled={busy || deleteMode}
+                    title={name}
+                  >
+                    <span className="block truncate">{name}</span>
+                  </button>
+
+                  {deleteMode && (
+                    <button
+                      type="button"
+                      className="shrink-0 h-7 px-2 text-[11px] border rounded bg-white hover:bg-red-50 text-red-600 disabled:opacity-60"
+                      onClick={() => {
+                        void handleDeleteByName(name);
+                      }}
+                      disabled={busy || !onDelete}
+                      title="삭제"
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })
         )}
       </div>
 
-      {/* 하단 버튼(요구사항: prompt 입력 방식) */}
+      {/* 하단 버튼 */}
       <div className="p-2 border-t bg-white">
         <div className="flex flex-col gap-2">
           <button
@@ -250,8 +282,14 @@ export default function PartnerPickerPopover({
 
           <button
             type="button"
-            className="w-full h-8 text-xs border rounded bg-white hover:bg-slate-50 disabled:opacity-60"
-            onClick={handleDeletePrompt}
+            className={[
+              "w-full h-8 text-xs border rounded disabled:opacity-60",
+              deleteMode ? "bg-red-50 border-red-200 text-red-700" : "bg-white hover:bg-slate-50",
+            ].join(" ")}
+            onClick={() => {
+              if (!onDelete) return;
+              setDeleteMode((v) => !v);
+            }}
             disabled={busy || !onDelete}
           >
             기존거래처 삭제

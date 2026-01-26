@@ -73,10 +73,7 @@ export default function UnifiedMainView() {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ 거래처분류 팝오버(통합관리에서도 동일 동작)
-  // - 옵션은 DB(/api/signup-settings)에서만 로드/저장
-  // - 선택 시 syncPatch(id, "거래처분류", 값)
-  // - UnifiedGrid 코어는 수정하지 않고, View에서 이벤트 위임만 추가
+  // 거래처분류 팝오버(통합관리)
   // ---------------------------------------------------------------------------
   const [partnerOptions, setPartnerOptions] = useState<string[]>([]);
   const partnerOptionsRef = useRef<string[]>([]);
@@ -98,23 +95,19 @@ export default function UnifiedMainView() {
     currentValue: "",
   });
 
-  async function loadPartnerOptions() {
-    try {
-      const r = await fetch("/api/signup-settings", { cache: "no-store" });
-      if (!r.ok) return;
+  async function loadPartnerOptionsNoStore() {
+    const r = await fetch("/api/signup-settings", { cache: "no-store" });
+    if (!r.ok) return;
 
-      const j = (await r.json()) as Partial<SignupSettings> | null;
-      const list = Array.isArray(j?.partnerOptions) ? j!.partnerOptions.map(String) : [];
+    const j = (await r.json()) as Partial<SignupSettings> | null;
+    const list = Array.isArray(j?.partnerOptions) ? j!.partnerOptions.map(String) : [];
 
-      const merged = Array.from(new Set(list.map(normalizeName).filter(Boolean)));
-      merged.sort(sortKorean);
-      setPartnerOptions(merged);
-    } catch {
-      // ignore
-    }
+    const merged = Array.from(new Set(list.map(normalizeName).filter(Boolean)));
+    merged.sort(sortKorean);
+    setPartnerOptions(merged);
   }
 
-  async function savePartnerOptions(next: string[]) {
+  async function patchPartnerOptionsNoStore(next: string[]) {
     const merged = Array.from(new Set((next || []).map(normalizeName).filter(Boolean)));
     merged.sort(sortKorean);
 
@@ -129,15 +122,18 @@ export default function UnifiedMainView() {
       throw new Error(t || `FAILED(${r.status})`);
     }
 
-    setPartnerOptions(merged);
+    // ✅ 서버 기준으로 즉시 재조회
+    await loadPartnerOptionsNoStore();
+
+    // 다른 탭에도 반영
     syncEmitUnifiedUpdate();
   }
 
   useEffect(() => {
-    void loadPartnerOptions();
+    void loadPartnerOptionsNoStore();
   }, []);
 
-  // 드래그/클릭 구분(임계치) — 드래그를 방해하지 않고 "클릭일 때만" 팝오버 오픈
+  // 클릭/드래그 구분
   const partnerDownRef = useRef<{
     pending: boolean;
     startX: number;
@@ -163,7 +159,6 @@ export default function UnifiedMainView() {
     const id = Number((tr as any).dataset?.unifiedId ?? 0);
     if (!Number.isFinite(id) || id <= 0) return null;
 
-    // 현재 입력값은 input value 우선(없으면 td 텍스트)
     const input = td.querySelector("input,select,textarea") as
       | HTMLInputElement
       | HTMLSelectElement
@@ -182,8 +177,6 @@ export default function UnifiedMainView() {
     const info = findPartnerCellInfoFromTarget(t);
     if (!info) return;
 
-    // ✅ 거래처분류 셀은 "클릭 팝오버"가 목적이므로,
-    // input 포커스로 들어가서 락획득/blur 저장이 발생하지 않게 막는다.
     e.preventDefault();
 
     partnerDownRef.current = {
@@ -202,7 +195,6 @@ export default function UnifiedMainView() {
     const dx = Math.abs(e.clientX - st.startX);
     const dy = Math.abs(e.clientY - st.startY);
 
-    // 드래그면 팝오버 취소(그리드 선택/드래그 흐름 유지)
     if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) {
       partnerDownRef.current = null;
     }
@@ -235,7 +227,6 @@ export default function UnifiedMainView() {
         onAddTemplate={() => setIsAddTemplateOpen(true)}
       />
 
-      {/* ✅ UnifiedGrid는 동결: wrapper에서 이벤트 위임만 추가 */}
       <div
         className="flex-1 min-h-0"
         onMouseDownCapture={onGridMouseDownCapture}
@@ -260,7 +251,6 @@ export default function UnifiedMainView() {
         onDelete={deleteTemplate}
       />
 
-      {/* ✅ 거래처분류 팝오버 */}
       <PartnerPickerPopover
         open={partnerPopover.open}
         x={partnerPopover.x}
@@ -282,28 +272,24 @@ export default function UnifiedMainView() {
           if (!n) return;
 
           const nextOptions = Array.from(new Set([...(partnerOptionsRef.current || []), n])).filter(Boolean);
-          await savePartnerOptions(nextOptions);
+          await patchPartnerOptionsNoStore(nextOptions);
 
           const unifiedId = partnerPopover.unifiedId;
           if (unifiedId) {
             await syncPatch(unifiedId, "거래처분류", n);
           }
-
-          setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }));
         }}
         onDelete={async (raw) => {
           const n = normalizeName(raw);
           if (!n) return;
 
           const nextOptions = (partnerOptionsRef.current || []).filter((x) => normalizeName(x) !== n);
-          await savePartnerOptions(nextOptions);
+          await patchPartnerOptionsNoStore(nextOptions);
 
           const unifiedId = partnerPopover.unifiedId;
           if (unifiedId && normalizeName(partnerPopover.currentValue) === n) {
             await syncPatch(unifiedId, "거래처분류", "");
           }
-
-          setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }));
         }}
       />
     </div>
