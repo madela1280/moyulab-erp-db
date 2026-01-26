@@ -24,12 +24,6 @@ const DEVICE_TABLES = [
   "device_gaksimil",
 ] as const;
 
-async function tableExists(tableName: string): Promise<boolean> {
-  // 테이블이 없는 환경(마이그레이션/운영 차이)에서도 안전하게 동작
-  const r = await query(`SELECT to_regclass($1) AS reg`, [`public.${tableName}`]);
-  return !!r.rows?.[0]?.reg;
-}
-
 type DeviceInfo = {
   제품명: string | null;
   기종: string | null;
@@ -37,43 +31,75 @@ type DeviceInfo = {
   에러횟수: string | null;
 };
 
+// ✅ 존재하는 테이블만 1회에 확인(6번 왕복 방지) + 프로세스 캐시
+async function getExistingDeviceTables(): Promise<string[]> {
+  const cached = (globalThis as any).__existingDeviceTables;
+  if (Array.isArray(cached) && cached.length >= 0) return cached;
+
+  const names = Array.from(DEVICE_TABLES);
+  const r = await query(
+    `
+    SELECT
+      t.name,
+      to_regclass('public.' || t.name) AS reg
+    FROM unnest($1::text[]) AS t(name)
+    `,
+    [names]
+  );
+
+  const exists = (r.rows || [])
+    .filter((x: any) => !!x?.reg)
+    .map((x: any) => String(x.name))
+    .filter(Boolean);
+
+  (globalThis as any).__existingDeviceTables = exists;
+  return exists;
+}
+
+// ✅ 6개 테이블 순차 조회 대신: UNION ALL 1번 조회(왕복/지연 감소)
 async function findDeviceInfoBySystemNo(deviceNo: string): Promise<DeviceInfo | null> {
   const needle = normalizeLower(deviceNo);
   if (!needle) return null;
 
-  for (const table of DEVICE_TABLES) {
-    const exists = await tableExists(table);
-    if (!exists) continue;
+  const tables = await getExistingDeviceTables();
+  if (!tables.length) return null;
 
-    // JSONB data에서 시스템 기기번호 매칭(대소문자 무시)
-    const sql = `
-      SELECT data
-      FROM ${table}
+  // 우선순위는 DEVICE_TABLES(=tables 배열 순서) 그대로 유지
+  const parts: string[] = [];
+  for (let i = 0; i < tables.length; i++) {
+    const t = tables[i];
+    parts.push(`
+      SELECT data, ${i + 1} AS pri
+      FROM ${t}
       WHERE lower(COALESCE(data->>'시스템 기기번호','')) = $1::text
-      LIMIT 1
-    `;
-    const r = await query(sql, [needle]);
-    if (!r.rows?.length) continue;
-
-    const data = (r.rows[0]?.data && typeof r.rows[0].data === "object") ? r.rows[0].data : {};
-
-    const 제품명 = normalizeString((data as any)["제품명"]) || "";
-    const 기종 = normalizeString((data as any)["기종"]) || "";
-    const 구매렌탈 = normalizeString((data as any)["구매/렌탈"]) || "";
-
-    // 심포니만 에러횟수 컬럼이 존재(다른 기기는 없을 수 있음)
-    const 에러횟수Raw = (data as any)["에러횟수"];
-    const 에러횟수 = normalizeString(에러횟수Raw);
-
-    return {
-      제품명: 제품명 ? 제품명 : null,
-      기종: 기종 ? 기종 : null,
-      구매렌탈: 구매렌탈 ? 구매렌탈 : null,
-      에러횟수: 에러횟수 ? 에러횟수 : null,
-    };
+    `);
   }
 
-  return null;
+  const sql = `
+    SELECT data
+    FROM (
+      ${parts.join(" UNION ALL ")}
+    ) x
+    ORDER BY x.pri ASC
+    LIMIT 1
+  `;
+
+  const r = await query(sql, [needle]);
+  if (!r.rows?.length) return null;
+
+  const data = r.rows[0]?.data && typeof r.rows[0].data === "object" ? r.rows[0].data : {};
+
+  const 제품명 = normalizeString((data as any)["제품명"]) || "";
+  const 기종 = normalizeString((data as any)["기종"]) || "";
+  const 구매렌탈 = normalizeString((data as any)["구매/렌탈"]) || "";
+  const 에러횟수 = normalizeString((data as any)["에러횟수"]);
+
+  return {
+    제품명: 제품명 ? 제품명 : null,
+    기종: 기종 ? 기종 : null,
+    구매렌탈: 구매렌탈 ? 구매렌탈 : null,
+    에러횟수: 에러횟수 ? 에러횟수 : null,
+  };
 }
 
 export async function GET(req: Request) {
