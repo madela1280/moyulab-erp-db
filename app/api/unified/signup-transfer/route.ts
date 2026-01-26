@@ -209,9 +209,9 @@ async function checkRecipientPhoneDuplicates(
 }
 
 // -----------------------------------------------------------------------------
-// ✅ 신규가입 기기번호 검증: 기기관리 6개 테이블의 "시스템 기기번호"에 존재해야 함
-// - force=true이면 검증 스킵(강제전송은 기존대로)
-// - 대소문자 무시 매칭: lower(...)로 비교
+// ✅ 기기관리 6개 테이블(소카테고리) 기준: data->>'시스템 기기번호'로 매칭
+// - 대소문자 무시(lower) 매칭
+// - 매칭되면 통합관리 컬럼에 맞게: 제품(=제품명), 기종, 구매/렌탈, 에러횟수 채움
 // -----------------------------------------------------------------------------
 const DEVICE_TABLES = [
   "device_symphony",
@@ -227,30 +227,55 @@ async function tableExists(client: any, tableName: string): Promise<boolean> {
   return !!r.rows?.[0]?.reg;
 }
 
-async function checkRegisteredDeviceNosLower(client: any, devicesLower: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
-  if (!devicesLower.length) return found;
+type DeviceInfo = {
+  제품명: string | null;
+  기종: string | null;
+  구매렌탈: string | null;
+  에러횟수: string | null;
+};
 
-  // 테이블이 없으면 skip (운영 환경/마이그레이션 차이 방어)
+async function buildDeviceInfoMap(client: any, devicesLower: string[]): Promise<Map<string, DeviceInfo>> {
+  const map = new Map<string, DeviceInfo>();
+  if (!devicesLower.length) return map;
+
   for (const table of DEVICE_TABLES) {
     const exists = await tableExists(client, table);
     if (!exists) continue;
 
-    // data JSONB 구조 가정: data->>'시스템 기기번호'
-    // 대소문자 무시: lower(...)
     const q = `
-      SELECT DISTINCT lower(COALESCE(data->>'시스템 기기번호','')) AS device
+      SELECT
+        lower(COALESCE(data->>'시스템 기기번호','')) AS device,
+        COALESCE(data->>'제품명','') AS product_name,
+        COALESCE(data->>'기종','') AS model,
+        COALESCE(data->>'구매/렌탈','') AS buy_rent,
+        COALESCE(data->>'에러횟수','') AS error_count
       FROM ${table}
       WHERE lower(COALESCE(data->>'시스템 기기번호','')) = ANY($1::text[])
     `;
     const r = await client.query(q, [devicesLower]);
+
     for (const row of r.rows || []) {
       const d = normalizeLower(row?.device);
-      if (d) found.add(d);
+      if (!d) continue;
+
+      // 우선순위: DEVICE_TABLES 배열 순서대로, 먼저 찾은 것을 유지
+      if (map.has(d)) continue;
+
+      const 제품명 = normalizeString(row?.product_name);
+      const 기종 = normalizeString(row?.model);
+      const 구매렌탈 = normalizeString(row?.buy_rent);
+      const 에러횟수 = normalizeString(row?.error_count);
+
+      map.set(d, {
+        제품명: 제품명 ? 제품명 : null,
+        기종: 기종 ? 기종 : null,
+        구매렌탈: 구매렌탈 ? 구매렌탈 : null,
+        에러횟수: 에러횟수 ? 에러횟수 : null,
+      });
     }
   }
 
-  return found;
+  return map;
 }
 
 export async function POST(req: Request) {
@@ -306,23 +331,26 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2.5) ✅ 기기번호가 기기관리(6개) "시스템 기기번호"에 존재하는지 검증 (force면 스킵)
+    // 2.5) ✅ 기기번호 존재 검증(등록된 기기번호가 아닙니다) - force면 스킵
+    // (기기관리 테이블들에서 시스템 기기번호 매칭)
+    const devicesLower = Array.from(
+      new Set(
+        candidates
+          .map((c) => normalizeLower(c.data["기기번호"]))
+          .filter(Boolean)
+      )
+    );
+
+    const deviceInfoMap = await buildDeviceInfoMap(client, devicesLower);
+
     if (!force) {
-      const devicesLower = Array.from(
-        new Set(
-          candidates
-            .map((c) => normalizeLower(c.data["기기번호"]))
-            .filter(Boolean)
-        )
-      );
-
-      const registered = await checkRegisteredDeviceNosLower(client, devicesLower);
-
       let anyNotRegistered = false;
+
       for (const c of candidates) {
         const dLower = normalizeLower(c.data["기기번호"]);
         if (!dLower) continue;
-        if (!registered.has(dLower)) {
+
+        if (!deviceInfoMap.has(dLower)) {
           anyNotRegistered = true;
           results.push({
             rowIndex: c.rowIndex,
@@ -436,9 +464,29 @@ export async function POST(req: Request) {
         target = created;
       }
 
+      // ✅ 기기번호 매칭 파생값을 통합관리 컬럼에 맞춰 merge
+      const deviceLower = normalizeLower(c.data["기기번호"]);
+      const info = deviceLower ? deviceInfoMap.get(deviceLower) : null;
+
+      const derived: Record<string, any> = {};
+      if (info) {
+        derived["기종"] = info.기종;
+        derived["구매/렌탈"] = info.구매렌탈;
+        derived["에러횟수"] = info.에러횟수;
+        derived["제품"] = info.제품명;
+      } else {
+        // force로 통과했는데 매칭이 없을 수도 있으니 잔상 방지용 null
+        derived["기종"] = null;
+        derived["구매/렌탈"] = null;
+        derived["에러횟수"] = null;
+        derived["제품"] = null;
+      }
+
+      const patchData = { ...c.data, ...derived };
+
       // merge 저장(JSONB)
       const upd = await client.query(`UPDATE unified SET data = data || $1::jsonb WHERE id = $2 RETURNING id`, [
-        JSON.stringify(c.data),
+        JSON.stringify(patchData),
         target.id,
       ]);
 
