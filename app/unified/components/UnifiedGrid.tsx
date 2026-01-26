@@ -1684,7 +1684,7 @@ async function refreshCountAndMaybeReload() {
                           : " bg-gray-100 text-gray-500");
 
                       return (
-                        <tr key={row.id}>
+                          <tr key={row.id} data-unified-id={row.id}>
                           <td
                             className={headerCellBase}
                             data-row-header="1"
@@ -1708,14 +1708,15 @@ async function refreshCountAndMaybeReload() {
 
                             return (
                               <td
-                                key={key}
-                                className={dataCellBase}
-                                data-row-index={rowIndex}
-                                data-col-index={colIndex}
-                                onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
-                                onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
-                                onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
-                              >
+                                 key={key}
+                                 className={dataCellBase}
+                                 data-row-index={rowIndex}
+                                 data-col-index={colIndex}
+                                 data-col-key={key}
+                                 onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
+                                 onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
+                                 onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
+                               >
                                 <input
                                   className={`w-full bg-transparent outline-none text-slate-900 ${
                                     key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
