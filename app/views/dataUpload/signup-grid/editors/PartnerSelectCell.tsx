@@ -1,6 +1,9 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
+import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
+import { usePartnerPicker } from "@/views/dataUpload/signup-grid/partner-picker/usePartnerPicker";
 import {
   addPartnerOptionViaApi,
   fetchPartnerOptionsFromApi,
@@ -27,16 +30,18 @@ export default function PartnerSelectCell({
   onAddPartnerOption?: (name: string) => void | Promise<void>;
 }) {
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // ✅ 항상 DB의 최신 옵션을 한 번 불러와서(remoteOptions) "삭제/추가" 동작이
+  // 상위 상태(옵션 prop)가 늦게 반영되어도 UI/저장에 꼬이지 않게 한다.
   useEffect(() => {
-    if (Array.isArray(options) && options.length > 0) return;
-
     let mounted = true;
     (async () => {
       try {
         const list = await fetchPartnerOptionsFromApi();
         if (!mounted) return;
-        setRemoteOptions(list);
+        setRemoteOptions(Array.isArray(list) ? list : []);
       } catch {
         // ignore
       }
@@ -45,91 +50,123 @@ export default function PartnerSelectCell({
     return () => {
       mounted = false;
     };
-  }, [options]);
+  }, []);
 
-  const baseOptions = options.length > 0 ? options : remoteOptions;
+  // ✅ UI 표시는 remoteOptions(=DB 최신) 우선, 없으면 상위 options 사용
+  const baseOptions = remoteOptions.length > 0 ? remoteOptions : options;
 
   const mergedOptions = useMemo(() => {
     return mergePartnerOptionsWithValue(baseOptions, value);
   }, [baseOptions, value]);
 
-  async function handleAdd() {
-    const name = window.prompt("신규 거래처를 입력해 주세요.");
-    const n = normalizePartnerName(name);
-    if (!n) return;
+  // hook은 상태 정리 용도로만 사용(필수는 아니지만 구조 분리 목적)
+  const picker = usePartnerPicker({
+    options: mergedOptions,
+    value: String(value ?? ""),
+    onSelect: (name) => {
+      onChange(String(name ?? ""));
+    },
+    onAdd: async (name) => {
+      const n = normalizePartnerName(name);
+      if (!n) return;
 
-    try {
+      // 1) 상위에서 맡기면 상위 로직 사용(=settings 저장 포함)
       if (onAddPartnerOption) {
         await onAddPartnerOption(n);
-        setRemoteOptions((prev) => Array.from(new Set([...prev, n])));
-      } else {
-        const saved = await addPartnerOptionViaApi(n);
-        setRemoteOptions(saved);
+        setRemoteOptions((prev) => Array.from(new Set([...(prev || []), n])));
+        // 다른 탭/같은 탭 settings reload 유도
+        syncEmitUnifiedUpdate();
+        return;
       }
-      onChange(n);
-    } catch {
-      // ignore
-    }
-  }
 
-  async function handleDelete() {
-    const name = window.prompt("삭제할 거래처명을 입력해 주세요.");
-    const n = normalizePartnerName(name);
-    if (!n) return;
+      // 2) 없으면 내부에서 API로 저장
+      const saved = await addPartnerOptionViaApi(n);
+      setRemoteOptions(Array.isArray(saved) ? saved : []);
+      syncEmitUnifiedUpdate();
+    },
+    onDelete: async (name) => {
+      const n = normalizePartnerName(name);
+      if (!n) return;
 
-    const ok = window.confirm(`거래처 "${n}" 를 삭제할까요?`);
-    if (!ok) return;
-
-    try {
       const saved = await removePartnerOptionViaApi(n);
-      setRemoteOptions(saved);
+      setRemoteOptions(Array.isArray(saved) ? saved : []);
 
+      // 현재 값이 삭제된 값이면 비우기
       if (normalizePartnerName(value) === n) {
         onChange("");
       } else {
-        // 값 유지
         onChange(String(value ?? ""));
       }
-    } catch {
-      // ignore
-    }
+
+      // 다른 탭/같은 탭 settings reload 유도
+      syncEmitUnifiedUpdate();
+    },
+  });
+
+  function openPopoverAt(e: React.MouseEvent) {
+    // grid selection 유지
+    onFocus();
+
+    // 기본 동작을 막을 필요는 없음(드래그는 SignupGrid에서 임계치로 처리)
+    setPos({ x: e.clientX, y: e.clientY });
+    setOpen(true);
   }
 
   return (
-    <select
-      className={[
-        "w-full h-[26px] px-2 py-0.5 outline-none bg-transparent text-[12px] font-normal text-slate-500 text-center",
-        "appearance-none",
-      ].join(" ")}
-      style={{ backgroundImage: "none" }}
-      value={String(value ?? "")}
-      onFocus={onFocus}
-      onChange={async (e) => {
-        const v = e.target.value;
+    <>
+      {/* 셀 표시 영역(클릭 시 팝오버 오픈) */}
+      <div
+        className={[
+          "w-full h-[26px] px-2 py-0.5 text-[12px] font-normal text-slate-500",
+          "flex items-center justify-center",
+          "bg-transparent",
+          "cursor-pointer select-none",
+        ].join(" ")}
+        tabIndex={0}
+        onMouseDown={(e) => {
+          // 포커스/선택 먼저 확보
+          // (우클릭 등은 상위에서 처리)
+          if (e.button !== 0) return;
+          onFocus();
+        }}
+        onClick={(e) => {
+          openPopoverAt(e);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            // 키보드 오픈은 현재 요소 기준으로 위치 계산
+            const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+            setPos({ x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.bottom) });
+            setOpen(true);
+          }
+        }}
+        title={String(value ?? "")}
+      >
+        <span className="truncate w-full text-center">{String(value ?? "")}</span>
+      </div>
 
-        if (v === "__ADD__") {
-          await handleAdd();
-          return;
-        }
-
-        if (v === "__DELETE__") {
-          await handleDelete();
-          return;
-        }
-
-        onChange(v);
-      }}
-    >
-      <option value=""></option>
-
-      {mergedOptions.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-
-      <option value="__ADD__">+ 신규거래처 추가...</option>
-      <option value="__DELETE__">- 기존거래처 삭제...</option>
-    </select>
+      <PartnerPickerPopover
+        open={open}
+        x={pos.x}
+        y={pos.y}
+        options={picker.options}
+        value={picker.value}
+        onSelect={(name) => picker.select(name)}
+        onClose={() => {
+          setOpen(false);
+          picker.close();
+        }}
+        onAdd={async (name) => {
+          await picker.add(name);
+          // 추가 후 현재 셀 값도 그 값으로 설정(요구 UX)
+          const n = normalizePartnerName(name);
+          if (n) onChange(n);
+        }}
+        onDelete={async (name) => {
+          await picker.remove(name);
+        }}
+      />
+    </>
   );
 }
