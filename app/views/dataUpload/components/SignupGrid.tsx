@@ -913,7 +913,7 @@ export default function SignupGrid({
     return r;
   }
 
-  function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
+    function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     if (e.button !== 0) return;
     if (!showToolbar) return;
 
@@ -922,8 +922,21 @@ export default function SignupGrid({
     // 셀 클릭 시 row 선택 해제
     clearRowSelection();
 
+    // ✅ 편집기(input/select/textarea 등) 위에서 시작한 클릭은 기본동작을 막으면 안 됨
+    // (거래처분류 select 열림 / 날짜 달력 열림이 여기서 죽었음)
+    const t = e.target as HTMLElement | null;
+    const isEditorTarget = !!t?.closest?.("input,select,textarea,button,[contenteditable='true']");
+    if (isEditorTarget) {
+      // 선택만 갱신하고, preventDefault/pointerCapture/dragLock은 걸지 않는다.
+      selectSingle(r, c);
+      dragStartCellRef.current = { r, c };
+      didDragRef.current = false;
+      return;
+    }
+
     draggingRef.current = true;
     setDragLock(true);
+
     const p = { r, c };
     anchorRef.current = p;
     activeRef.current = p;
@@ -932,12 +945,11 @@ export default function SignupGrid({
     setActive(p);
     setRangeSync(normalizeRange(p, p));
 
-        // ✅ 드래그 시작 기록
+    // ✅ 드래그 시작 기록
     dragStartCellRef.current = { r, c };
     didDragRef.current = false;
 
-    // ✅ 셀 내부 input이 텍스트 선택/포커스를 먼저 가져가면 드래그가 끊기거나 selection이 축소될 수 있어
-    // 드래그 시작 시점에는 기본 동작을 막는다.
+    // ✅ 드래그 시작 시점에는 기본 동작을 막는다(텍스트 선택/포커스 개입 방지)
     e.preventDefault();
 
     const el = e.currentTarget as HTMLElement;
