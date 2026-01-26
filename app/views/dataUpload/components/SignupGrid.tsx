@@ -131,6 +131,9 @@ export default function SignupGrid({
   const [resizeMode, setResizeMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // ✅ 드래그 중에는 input/select가 포커스/텍스트선택으로 개입하지 못하게 잠깐 잠금
+  const [dragLock, setDragLock] = useState(false);
+
   // 강제전송 토큰 변화 감지(모달에서 +1)
   const lastForceSubmitTokenRef = useRef<number | null>(null);
 
@@ -393,6 +396,7 @@ export default function SignupGrid({
         cellCapturePointerIdRef.current = null;
       }
       draggingRef.current = false;
+      setDragLock(false);
 
       // ✅ 행 드래그도 셀과 동일하게 capture 잔존 방지
       {
@@ -412,6 +416,7 @@ export default function SignupGrid({
       // ✅ 행 드래그도 강제 종료(포인터가 header 밖에서 up 되는 케이스)
       rowDraggingRef.current = false;
       rowAnchorRef.current = null;
+      setDragLock(false);
     };
 
     // ✅ 드래그 중 브라우저가 pointercancel(스크롤/포커스/텍스트선택 개입 등)을 발생시키는 케이스에서도
@@ -538,6 +543,7 @@ export default function SignupGrid({
     });
 
     draggingRef.current = false;
+    setDragLock(false);
     anchorRef.current = null;
     activeRef.current = null;
     setRangeSync(null);
@@ -552,6 +558,9 @@ export default function SignupGrid({
   function setCell(rowIndex: number, key: string, value: string) {
     rowsTouchedRef.current = true;
     setRows((prev) => {
+      // ✅ 삭제 직후 늦게 도착한 onChange(rAF 등)가 rows를 다시 늘리는 것을 방지
+      if (rowIndex < 0 || rowIndex >= prev.length) return prev;
+
       const next = prev.slice();
       const row = { ...(next[rowIndex] || {}) };
       row[key] = value;
@@ -571,12 +580,14 @@ export default function SignupGrid({
 
     function clearRowSelection() {
     rowDraggingRef.current = false;
+    setDragLock(false);
     rowAnchorRef.current = null;
     setRowRangeSync(null);
   }
 
-   function clearCellSelection() {
+     function clearCellSelection() {
     draggingRef.current = false;
+    setDragLock(false);
     anchorRef.current = null;
     activeRef.current = null;
     setRangeSync(null);
@@ -912,7 +923,7 @@ export default function SignupGrid({
     clearRowSelection();
 
     draggingRef.current = true;
-
+    setDragLock(true);
     const p = { r, c };
     anchorRef.current = p;
     activeRef.current = p;
@@ -948,8 +959,9 @@ export default function SignupGrid({
     selectFromAnchor(p);
   }
 
-    function handleCellPointerUp(e: React.PointerEvent) {
+     function handleCellPointerUp(e: React.PointerEvent) {
     draggingRef.current = false;
+    setDragLock(false);
 
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -970,7 +982,7 @@ export default function SignupGrid({
       }
     }
   }
-
+ 
    function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
     if (!showToolbar) return;
 
@@ -1304,6 +1316,7 @@ export default function SignupGrid({
 
       <div
         className="flex-1 min-h-0 border rounded bg-white overflow-auto"
+        style={dragLock ? { userSelect: "none" } : undefined}
         onMouseDown={() => {
           // 그리드 안을 클릭하면 활성화
           gridActiveRef.current = true;
@@ -1395,6 +1408,7 @@ export default function SignupGrid({
                         clearCellSelection();
 
                         rowDraggingRef.current = true;
+                                      setDragLock(true);
                                       rowAnchorRef.current = r;
                                      setRowRangeSync(normalizeRowRange(r, r));
 
@@ -1414,6 +1428,7 @@ export default function SignupGrid({
                       }}
                       onPointerUpCapture={(e) => {
                                                rowDraggingRef.current = false;
+                                                                              setDragLock(false);
                         try {
                           (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                         } catch {
@@ -1485,14 +1500,16 @@ export default function SignupGrid({
                           }}
                           onContextMenu={(e) => handleCellContextMenu(e, r, c)}
                         >
-                          <CellEditor
-                            columnKey={key}
-                            value={String(row?.[key] ?? "")}
-                            onFocus={() => handleEditorFocus(r, c)}
-                            onChange={(v) => setCell(r, key, v)}
-                            partnerOptions={partnerOptions || []}
-                            onAddPartnerOption={onAddPartnerOption}
-                          />
+                                                   <div style={dragLock ? { pointerEvents: "none" } : undefined}>
+                            <CellEditor
+                              columnKey={key}
+                              value={String(row?.[key] ?? "")}
+                              onFocus={() => handleEditorFocus(r, c)}
+                              onChange={(v) => setCell(r, key, v)}
+                              partnerOptions={partnerOptions || []}
+                              onAddPartnerOption={onAddPartnerOption}
+                            />
+                          </div>
                         </div>
                       );
                     })}

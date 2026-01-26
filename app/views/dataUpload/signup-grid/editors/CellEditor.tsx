@@ -42,21 +42,34 @@ export default function CellEditor({
   const isAddress = columnKey === "계약자주소";
 
   /**
-   * ✅ 입력 튕김 방지:
-   * - 화면에 보여주는 값은 로컬 state(localValue)가 담당
-   * - 부모 rows 업데이트(onChange)는 rAF로 1프레임 1회만 반영(과도한 리렌더 감소)
+   * ✅ 입력 안정화 + "삭제 직후 행이 다시 생기는 현상" 방지 보강
+   * - UI 표시는 localValue가 담당(입력 튕김 방지)
+   * - 부모 반영(onChange)은 rAF로 1프레임 1회만 수행(과도 리렌더 감소)
+   * - 언마운트 시 예약된 rAF를 취소(삭제/행삭제 직후 늦게 들어오는 setCell 방지에 도움)
    */
   const [localValue, setLocalValue] = useState<string>(String(value ?? ""));
   const focusedRef = useRef(false);
 
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef<string>(String(value ?? ""));
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, []);
 
   // 외부 value 변경은 "포커스 아닐 때만" 로컬 값에 반영 (입력 중 튕김 방지)
   useEffect(() => {
     const next = String(value ?? "");
 
-    // ✅ 핵심: 선택 지우기/붙여넣기 등 외부 동작으로 값이 ""로 바뀌면,
+    // ✅ 선택 지우기/붙여넣기 등 외부 동작으로 값이 ""로 바뀌면,
     // 포커스 중이어도 로컬값을 강제로 ""로 맞춰서 "지웠는데 다시 나타남" 방지
     if (focusedRef.current) {
       if (next === "" && pendingRef.current !== "") {
@@ -75,11 +88,14 @@ export default function CellEditor({
   }, [value]);
 
   function flushToParent(next: string) {
+    if (!mountedRef.current) return;
+
     // 예약된 rAF 취소
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+
     pendingRef.current = next;
     onChange(next);
   }
@@ -90,6 +106,7 @@ export default function CellEditor({
 
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
+      if (!mountedRef.current) return;
       onChange(pendingRef.current);
     });
   }
