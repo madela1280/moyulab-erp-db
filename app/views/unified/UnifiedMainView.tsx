@@ -259,7 +259,7 @@ export default function UnifiedMainView() {
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
-          onColWidthUnitByKeyChange={setColWidthUnitByKeyChange}
+          onColWidthUnitByKeyChange={setColWidthUnitByKey}
         />
       </div>
 
