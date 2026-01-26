@@ -9,6 +9,7 @@ import SignupGrid from "@/views/dataUpload/components/SignupGrid";
 import SignupTransferErrorModal from "@/views/dataUpload/signup-transfer/SignupTransferErrorModal";
 import { useSignupDraft } from "@/views/dataUpload/signup-draft/useSignupDraft";
 import { syncEmitUnifiedUpdate, syncListen } from "@/global-sync/sync-engine";
+import { apiGetSignupPartners, apiPatchSignupPartners } from "@/views/dataUpload/signup-partners/serviceSignupPartners";
 
 type UnifiedColumnsResponse = {
   order: string[];
@@ -19,14 +20,12 @@ type SignupSettings = {
   selectedKeys: string[];
   colWidthSteps: Record<string, number>;
   rowCount: number;
-  partnerOptions: string[];
 };
 
 const DEFAULT_SETTINGS: SignupSettings = {
   selectedKeys: [],
   colWidthSteps: {},
   rowCount: 1,
-  partnerOptions: [],
 };
 
 function toUserMessage(raw: string) {
@@ -55,19 +54,24 @@ export default function SignupView() {
   // 전송 실패 모달
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferErrorMessage, setTransferErrorMessage] = useState("");
-  // 강제전송 트리거(토큰) - SignupGrid에서 이 토큰을 받아 force 전송 실행
   const [forceSubmitToken, setForceSubmitToken] = useState(0);
 
-  // settings (DB/API 기반)
+  // settings (DB/API 기반) — /api/signup-settings
   const [colWidthSteps, setColWidthSteps] = useState<Record<string, number>>(DEFAULT_SETTINGS.colWidthSteps);
   const [rowCount, setRowCount] = useState<number>(DEFAULT_SETTINGS.rowCount);
-  const [partnerOptions, setPartnerOptions] = useState<string[]>(DEFAULT_SETTINGS.partnerOptions);
 
-  // ✅ 최신값 ref (언마운트 flush에서 stale closure 방지)
+  // ✅ 신규가입 전용 거래처 목록 — /api/signup-partners (통합관리와 분리)
+  const [partnerOptions, setPartnerOptions] = useState<string[]>([]);
+
+  // ✅ 최신값 ref
   const latestSelectedKeysRef = useRef<string[]>([]);
   const latestColWidthStepsRef = useRef<Record<string, number>>({});
   const latestRowCountRef = useRef<number>(DEFAULT_SETTINGS.rowCount);
+
   const latestPartnerOptionsRef = useRef<string[]>([]);
+  useEffect(() => {
+    latestPartnerOptionsRef.current = Array.isArray(partnerOptions) ? partnerOptions : [];
+  }, [partnerOptions]);
 
   useEffect(() => {
     latestSelectedKeysRef.current = Array.isArray(selectedKeys) ? selectedKeys : [];
@@ -78,26 +82,21 @@ export default function SignupView() {
   useEffect(() => {
     latestRowCountRef.current = Number.isFinite(Number(rowCount)) ? Number(rowCount) : DEFAULT_SETTINGS.rowCount;
   }, [rowCount]);
-  useEffect(() => {
-    latestPartnerOptionsRef.current = Array.isArray(partnerOptions) ? partnerOptions : [];
-  }, [partnerOptions]);
 
   // settings hydrate / patch queue
   const settingsHydratedRef = useRef(false);
   const patchTimerRef = useRef<number | null>(null);
-
-  // ✅ pendingPatchRef는 "진짜 저장 대기중인 것만" 유지
-  // - selectedKeys는 즉시 저장이 기본이며, 즉시 저장 실패한 경우에만 pending에 쌓음
   const pendingPatchRef = useRef<Partial<SignupSettings>>({});
 
-  // unified.update 수신 시 reload 폭주 방지(점멸 방지)
+  // unified.update 수신 시 reload 폭주 방지
   const reloadTimerRef = useRef<number | null>(null);
   const settingsReloadTimerRef = useRef<number | null>(null);
+  const partnersReloadTimerRef = useRef<number | null>(null);
 
   // 다른 탭 수정 내용을 Grid에 "강제 적용"하기 위한 토큰
   const [rowsReloadToken, setRowsReloadToken] = useState(0);
 
-  // ✅ settings 변경 시 unified:update emit 스로틀(다른 탭에 실시간 반영)
+  // settings 변경 시 unified:update emit 스로틀
   const lastEmitAtRef = useRef(0);
   const emitTimerRef = useRef<number | null>(null);
   const EMIT_THROTTLE_MS = 1200;
@@ -151,15 +150,11 @@ export default function SignupView() {
     const nextRowCount = Number.isFinite(Number(j?.rowCount))
       ? Math.max(1, Math.floor(Number(j?.rowCount)))
       : DEFAULT_SETTINGS.rowCount;
-    const nextPartnerOptions = Array.isArray(j?.partnerOptions)
-      ? j.partnerOptions.map(String)
-      : DEFAULT_SETTINGS.partnerOptions;
 
     return {
       selectedKeys: nextSelectedKeys,
       colWidthSteps: nextColWidthSteps,
       rowCount: nextRowCount,
-      partnerOptions: nextPartnerOptions,
     };
   }
 
@@ -177,16 +172,23 @@ export default function SignupView() {
     return (await r.json()) as SignupSettings;
   }
 
-  // ✅ selectedKeys는 즉시 저장
+  async function loadSignupPartners() {
+    try {
+      const j = await apiGetSignupPartners();
+      const list = Array.isArray(j?.partnerOptions) ? j.partnerOptions.map(String) : [];
+      setPartnerOptions(list);
+      latestPartnerOptionsRef.current = list;
+    } catch {
+      // ignore
+    }
+  }
+
   async function saveSelectedKeysImmediately(next: string[]) {
     try {
       const saved = await patchSettingsNow({ selectedKeys: next }, false);
-
       const safe = Array.isArray(saved?.selectedKeys) ? saved.selectedKeys : next;
       setSelectedKeys(safe);
-      latestSelectedKeysRef.current = safe;
 
-      // pending에서 selectedKeys 제거
       const p = pendingPatchRef.current || {};
       if ("selectedKeys" in p) {
         const { selectedKeys: _drop, ...rest } = p as any;
@@ -200,13 +202,15 @@ export default function SignupView() {
     }
   }
 
-  // ✅ rowCount 즉시 저장(언마운트 레이스 방지)
   async function saveRowCountImmediately(nextCount: number) {
     const count = Math.max(1, Math.floor(Number(nextCount)));
     try {
       const saved = await patchSettingsNow({ rowCount: count }, false);
 
-      const safeRowCount = Number.isFinite(Number(saved?.rowCount)) ? Math.max(1, Math.floor(Number(saved.rowCount))) : count;
+      const safeRowCount = Number.isFinite(Number(saved?.rowCount))
+        ? Math.max(1, Math.floor(Number(saved.rowCount)))
+        : count;
+
       setRowCount(safeRowCount);
       latestRowCountRef.current = safeRowCount;
 
@@ -223,33 +227,7 @@ export default function SignupView() {
     }
   }
 
-  // ✅ partnerOptions 즉시 저장(거래처 추가/삭제 실시간 반영 핵심)
-  async function savePartnerOptionsImmediately(nextOptions: string[]) {
-    const merged = Array.from(new Set((nextOptions || []).map(String))).filter(Boolean);
-
-    try {
-      const saved = await patchSettingsNow({ partnerOptions: merged }, false);
-
-      const safe = Array.isArray(saved?.partnerOptions) ? saved.partnerOptions.map(String) : merged;
-      setPartnerOptions(safe);
-      latestPartnerOptionsRef.current = safe;
-
-      const p = pendingPatchRef.current || {};
-      if ("partnerOptions" in p) {
-        const { partnerOptions: _drop, ...rest } = p as any;
-        pendingPatchRef.current = rest;
-      }
-
-      // ✅ 다른 화면/탭에도 즉시 반영되게 emit
-      emitUnifiedUpdateThrottled();
-    } catch {
-      setError("설정 저장에 실패했습니다.(partnerOptions)");
-      pendingPatchRef.current = { ...pendingPatchRef.current, partnerOptions: merged };
-    }
-  }
-
   function queuePatch(partial: Partial<SignupSettings>) {
-    // ✅ selectedKeys는 여기서 절대 저장하지 않음(즉시 저장만)
     const { selectedKeys: _ignore, ...rest } = partial as any;
     pendingPatchRef.current = { ...pendingPatchRef.current, ...rest };
 
@@ -300,24 +278,11 @@ export default function SignupView() {
             ? (pending.colWidthSteps as Record<string, number>)
             : server.colWidthSteps,
         rowCount: "rowCount" in pending ? Math.max(1, Math.floor(Number(pending.rowCount))) : server.rowCount,
-        partnerOptions:
-          "partnerOptions" in pending
-            ? Array.isArray(pending.partnerOptions)
-              ? pending.partnerOptions.map(String)
-              : []
-            : server.partnerOptions,
       };
 
       setSelectedKeys(merged.selectedKeys);
       setColWidthSteps(merged.colWidthSteps);
       setRowCount(merged.rowCount);
-      setPartnerOptions(merged.partnerOptions);
-
-      // ref 즉시 동기화(언마운트 flush 안전)
-      latestSelectedKeysRef.current = merged.selectedKeys;
-      latestColWidthStepsRef.current = merged.colWidthSteps;
-      latestRowCountRef.current = merged.rowCount;
-      latestPartnerOptionsRef.current = merged.partnerOptions;
 
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
@@ -358,7 +323,6 @@ export default function SignupView() {
     const snapshot: Partial<SignupSettings> = {
       colWidthSteps: latestColWidthStepsRef.current,
       rowCount: latestRowCountRef.current,
-      partnerOptions: latestPartnerOptionsRef.current,
     };
 
     const pendingSelectedKeys =
@@ -388,7 +352,7 @@ export default function SignupView() {
   }
 
   // ---------------------------------------------------------------------------
-  // 내 탭 편집 직후 syncListen reload 덮어쓰기 방지
+  // syncListen 수신 시: draft reload + settings reload + signup-partners reload
   // ---------------------------------------------------------------------------
   const LOCAL_EDIT_GRACE_MS = 2000;
   const lastLocalEditAtRef = useRef<number>(0);
@@ -403,14 +367,22 @@ export default function SignupView() {
     settingsReloadTimerRef.current = window.setTimeout(() => {
       void loadSettings();
       settingsReloadTimerRef.current = null;
-    }, 500);
+    }, 800);
+  }
+
+  function ensurePartnersReloadScheduled() {
+    if (partnersReloadTimerRef.current) return;
+    partnersReloadTimerRef.current = window.setTimeout(() => {
+      void loadSignupPartners();
+      partnersReloadTimerRef.current = null;
+    }, 400);
   }
 
   function scheduleReloadFromSync() {
     pendingSyncReloadRef.current = true;
 
-    // ✅ settings(=partnerOptions 포함)도 반드시 다시 로드
     ensureSettingsReloadScheduled();
+    ensurePartnersReloadScheduled();
 
     const now = Date.now();
     const elapsed = now - lastLocalEditAtRef.current;
@@ -440,11 +412,13 @@ export default function SignupView() {
   useEffect(() => {
     void loadColumns();
     void loadSettings();
+    void loadSignupPartners();
 
     return () => {
       flushSettingsPatch("unmount");
       if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
       if (settingsReloadTimerRef.current) window.clearTimeout(settingsReloadTimerRef.current);
+      if (partnersReloadTimerRef.current) window.clearTimeout(partnersReloadTimerRef.current);
       if (emitTimerRef.current) window.clearTimeout(emitTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -496,12 +470,19 @@ export default function SignupView() {
         initialRowCount={rowCount}
         partnerOptions={partnerOptions}
         onAddPartnerOption={async (name) => {
-          // ✅ 거래처 추가는 "즉시 저장 + emit"으로 통일(다른 화면/탭 즉시 반영)
           const n = String(name || "").trim();
           if (!n) return;
 
-          const next = Array.from(new Set([...(latestPartnerOptionsRef.current || []), n])).filter(Boolean);
-          await savePartnerOptionsImmediately(next);
+          try {
+            const saved = await apiPatchSignupPartners({ add: n });
+            const next = Array.isArray(saved?.partnerOptions) ? saved.partnerOptions : [];
+            setPartnerOptions(next);
+            latestPartnerOptionsRef.current = next;
+
+            emitUnifiedUpdateThrottled();
+          } catch {
+            // ignore
+          }
         }}
         initialRows={draft.rows}
         rowsReloadToken={rowsReloadToken}
@@ -510,12 +491,9 @@ export default function SignupView() {
           draft.setRows(nextRows);
         }}
         onSubmitSuccess={async () => {
-          // 전송 성공 → draft(데이터)만 삭제, 양식은 유지
           await draft.clear();
 
-          // 전송 후에도 항상 40행 유지(빈 데이터)
           const KEEP_ROWS = 40;
-
           setRowCount(KEEP_ROWS);
           latestRowCountRef.current = KEEP_ROWS;
 
