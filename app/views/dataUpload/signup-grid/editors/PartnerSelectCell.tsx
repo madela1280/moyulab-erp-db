@@ -23,6 +23,10 @@ export default function PartnerSelectCell({
   onChange,
   onFocus,
   options,
+
+  // ✅ CellEditor에서 내려주는 prop(빌드 에러 방지용으로 다시 받음)
+  //    실제 저장/반영은 이 컴포넌트가 DB에 즉시 PATCH로 보장한다.
+  onAddPartnerOption,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -30,6 +34,8 @@ export default function PartnerSelectCell({
 
   // 상위에서 내려주면 fallback으로만 사용(최신은 DB에서 읽음)
   options: string[];
+
+  onAddPartnerOption?: (name: string) => void | Promise<void>;
 }) {
   const [remoteOptions, setRemoteOptions] = useState<string[]>([]);
   const remoteOptionsRef = useRef<string[]>([]);
@@ -148,6 +154,13 @@ export default function PartnerSelectCell({
           const curList = remoteOptionsRef.current.length > 0 ? remoteOptionsRef.current : options;
           const next = Array.from(new Set([...(curList || []), n]));
           await patchOptionsNoStore(next);
+
+          // 3) 상위도 best-effort로 맞춰줌(있으면)
+          try {
+            await onAddPartnerOption?.(n);
+          } catch {
+            // ignore
+          }
         }}
         onDelete={async (name) => {
           const n = normalizeName(name);
