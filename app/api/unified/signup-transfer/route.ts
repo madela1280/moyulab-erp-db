@@ -28,6 +28,10 @@ function normalizeString(v: any) {
   return String(v ?? "").trim();
 }
 
+function normalizeLower(v: any) {
+  return normalizeString(v).toLowerCase();
+}
+
 function hasAnyValue(data: Record<string, string>) {
   for (const v of Object.values(data)) {
     if (String(v ?? "").trim() !== "") return true;
@@ -176,7 +180,6 @@ async function checkRecipientPhoneDuplicates(
 
   if (!clean.length) return new Set();
 
-  // VALUES ($1,$2),($3,$4)...
   const valuesSql: string[] = [];
   const params: any[] = [];
   for (let i = 0; i < clean.length; i++) {
@@ -203,6 +206,51 @@ async function checkRecipientPhoneDuplicates(
     if (key !== "|") out.add(key);
   }
   return out;
+}
+
+// -----------------------------------------------------------------------------
+// ✅ 신규가입 기기번호 검증: 기기관리 6개 테이블의 "시스템 기기번호"에 존재해야 함
+// - force=true이면 검증 스킵(강제전송은 기존대로)
+// - 대소문자 무시 매칭: lower(...)로 비교
+// -----------------------------------------------------------------------------
+const DEVICE_TABLES = [
+  "device_symphony",
+  "device_lactina",
+  "device_swing",
+  "device_swing_maxi",
+  "device_simile",
+  "device_gaksimil",
+] as const;
+
+async function tableExists(client: any, tableName: string): Promise<boolean> {
+  const r = await client.query(`SELECT to_regclass($1) AS reg`, [`public.${tableName}`]);
+  return !!r.rows?.[0]?.reg;
+}
+
+async function checkRegisteredDeviceNosLower(client: any, devicesLower: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  if (!devicesLower.length) return found;
+
+  // 테이블이 없으면 skip (운영 환경/마이그레이션 차이 방어)
+  for (const table of DEVICE_TABLES) {
+    const exists = await tableExists(client, table);
+    if (!exists) continue;
+
+    // data JSONB 구조 가정: data->>'시스템 기기번호'
+    // 대소문자 무시: lower(...)
+    const q = `
+      SELECT DISTINCT lower(COALESCE(data->>'시스템 기기번호','')) AS device
+      FROM ${table}
+      WHERE lower(COALESCE(data->>'시스템 기기번호','')) = ANY($1::text[])
+    `;
+    const r = await client.query(q, [devicesLower]);
+    for (const row of r.rows || []) {
+      const d = normalizeLower(row?.device);
+      if (d) found.add(d);
+    }
+  }
+
+  return found;
 }
 
 export async function POST(req: Request) {
@@ -256,6 +304,43 @@ export async function POST(req: Request) {
         anyConfirmNeeded: false,
         results,
       });
+    }
+
+    // 2.5) ✅ 기기번호가 기기관리(6개) "시스템 기기번호"에 존재하는지 검증 (force면 스킵)
+    if (!force) {
+      const devicesLower = Array.from(
+        new Set(
+          candidates
+            .map((c) => normalizeLower(c.data["기기번호"]))
+            .filter(Boolean)
+        )
+      );
+
+      const registered = await checkRegisteredDeviceNosLower(client, devicesLower);
+
+      let anyNotRegistered = false;
+      for (const c of candidates) {
+        const dLower = normalizeLower(c.data["기기번호"]);
+        if (!dLower) continue;
+        if (!registered.has(dLower)) {
+          anyNotRegistered = true;
+          results.push({
+            rowIndex: c.rowIndex,
+            ok: false,
+            code: "DEVICE_NOT_REGISTERED",
+            reason: "등록된 기기번호가 아닙니다",
+          });
+        }
+      }
+
+      if (anyNotRegistered) {
+        return NextResponse.json({
+          ok: false,
+          anyFailed: true,
+          anyConfirmNeeded: false,
+          results,
+        });
+      }
     }
 
     // 3) 중복 규칙(옵션)
@@ -382,10 +467,7 @@ export async function POST(req: Request) {
     try {
       await client.query("ROLLBACK");
     } catch {}
-    return NextResponse.json(
-      { error: "SIGNUP_TRANSFER_FAILED", message: String(e?.message || "") },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "SIGNUP_TRANSFER_FAILED", message: String(e?.message || "") }, { status: 500 });
   } finally {
     client.release();
   }

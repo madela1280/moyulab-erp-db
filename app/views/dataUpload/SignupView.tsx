@@ -55,7 +55,7 @@ export default function SignupView() {
   // 전송 실패 모달
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferErrorMessage, setTransferErrorMessage] = useState("");
-  // 강제전송 트리거(토큰) - 다음 파일(SignupGrid)에서 이 토큰을 받아 force 전송 실행하게 됨
+  // 강제전송 트리거(토큰) - SignupGrid에서 이 토큰을 받아 force 전송 실행
   const [forceSubmitToken, setForceSubmitToken] = useState(0);
 
   // settings (DB/API 기반)
@@ -151,7 +151,9 @@ export default function SignupView() {
     const nextRowCount = Number.isFinite(Number(j?.rowCount))
       ? Math.max(1, Math.floor(Number(j?.rowCount)))
       : DEFAULT_SETTINGS.rowCount;
-    const nextPartnerOptions = Array.isArray(j?.partnerOptions) ? j.partnerOptions.map(String) : DEFAULT_SETTINGS.partnerOptions;
+    const nextPartnerOptions = Array.isArray(j?.partnerOptions)
+      ? j.partnerOptions.map(String)
+      : DEFAULT_SETTINGS.partnerOptions;
 
     return {
       selectedKeys: nextSelectedKeys,
@@ -195,6 +197,33 @@ export default function SignupView() {
       setError("양식 저장에 실패했습니다.(selectedKeys)");
       // 실패 시에만 pending에 쌓음
       pendingPatchRef.current = { ...pendingPatchRef.current, selectedKeys: next };
+    }
+  }
+
+  // ✅ rowCount는 저장 성공 직후 "즉시 저장"이 필요(바로 나갈 때 1로 덮어쓰이는 레이스 방지)
+  async function saveRowCountImmediately(nextCount: number) {
+    const count = Math.max(1, Math.floor(Number(nextCount)));
+    try {
+      const saved = await patchSettingsNow({ rowCount: count }, false);
+
+      const safeRowCount = Number.isFinite(Number(saved?.rowCount)) ? Math.max(1, Math.floor(Number(saved.rowCount))) : count;
+      setRowCount(safeRowCount);
+
+      // ✅ 언마운트 flush가 stale로 덮어쓰지 않게 ref 즉시 동기화
+      latestRowCountRef.current = safeRowCount;
+
+      // pending에서 rowCount 제거(중복 저장/덮어쓰기 방지)
+      const p = pendingPatchRef.current || {};
+      if ("rowCount" in p) {
+        const { rowCount: _drop, ...rest } = p as any;
+        pendingPatchRef.current = rest;
+      }
+
+      emitUnifiedUpdateThrottled();
+    } catch {
+      // 실패하면 pending에만 누적(유실 방지)
+      pendingPatchRef.current = { ...pendingPatchRef.current, rowCount: count };
+      setError("설정 저장에 실패했습니다.(rowCount)");
     }
   }
 
@@ -255,13 +284,23 @@ export default function SignupView() {
             : server.colWidthSteps,
         rowCount: "rowCount" in pending ? Math.max(1, Math.floor(Number(pending.rowCount))) : server.rowCount,
         partnerOptions:
-          "partnerOptions" in pending ? (Array.isArray(pending.partnerOptions) ? pending.partnerOptions.map(String) : []) : server.partnerOptions,
+          "partnerOptions" in pending
+            ? Array.isArray(pending.partnerOptions)
+              ? pending.partnerOptions.map(String)
+              : []
+            : server.partnerOptions,
       };
 
       setSelectedKeys(merged.selectedKeys);
       setColWidthSteps(merged.colWidthSteps);
       setRowCount(merged.rowCount);
       setPartnerOptions(merged.partnerOptions);
+
+      // ref 즉시 동기화(언마운트 flush 안전)
+      latestSelectedKeysRef.current = merged.selectedKeys;
+      latestColWidthStepsRef.current = merged.colWidthSteps;
+      latestRowCountRef.current = merged.rowCount;
+      latestPartnerOptionsRef.current = merged.partnerOptions;
 
       const wasHydrated = settingsHydratedRef.current;
       settingsHydratedRef.current = true;
@@ -279,11 +318,6 @@ export default function SignupView() {
     }
   }
 
-  /**
-   * ✅ 핵심 수정:
-   * - 언마운트/카테고리 이동 시 flush에서 "selectedKeys 스냅샷"으로 덮어쓰기 금지
-   * - selectedKeys는 이미 즉시 저장이 원칙이며, 즉시 저장 실패로 pending에 남아있는 경우에만 flush에서 전송
-   */
   function flushSettingsPatch(reason: "unmount" | "beforeunload") {
     if (patchTimerRef.current) {
       window.clearTimeout(patchTimerRef.current);
@@ -314,7 +348,11 @@ export default function SignupView() {
 
     // ✅ pending에 selectedKeys가 있을 때만 포함(즉시저장 실패 케이스)
     const pendingSelectedKeys =
-      "selectedKeys" in pending ? (Array.isArray((pending as any).selectedKeys) ? ((pending as any).selectedKeys as string[]) : []) : null;
+      "selectedKeys" in pending
+        ? Array.isArray((pending as any).selectedKeys)
+          ? ((pending as any).selectedKeys as string[])
+          : []
+        : null;
 
     const body: Partial<SignupSettings> = {
       ...pending,
@@ -325,13 +363,9 @@ export default function SignupView() {
     // ✅ 만약 pending에 selectedKeys가 없으면, selectedKeys는 보내지 않음
     if (!pendingSelectedKeys) {
       const { selectedKeys: _drop, ...rest } = body as any;
-      // eslint-disable-next-line no-param-reassign
       (body as any).selectedKeys = undefined;
       // @ts-ignore
-      body.selectedKeys = undefined;
-      // @ts-ignore
       delete body.selectedKeys;
-      // @ts-ignore
       Object.assign(body, rest);
     }
 
@@ -472,8 +506,13 @@ export default function SignupView() {
 
           // 전송 후에도 항상 15행 유지(빈 데이터)
           const KEEP_ROWS = 15;
+
+          // ✅ UI 즉시 반영 + flush 레이스 방지(ref 즉시 동기화)
           setRowCount(KEEP_ROWS);
-          queuePatch({ rowCount: KEEP_ROWS });
+          latestRowCountRef.current = KEEP_ROWS;
+
+          // ✅ DB에도 즉시 저장(바로 나가도 1로 덮어쓰이지 않게)
+          await saveRowCountImmediately(KEEP_ROWS);
         }}
         onTransferFailed={(message) => {
           setTransferErrorMessage(String(message || "저장(전송)에 실패했습니다."));
@@ -485,8 +524,11 @@ export default function SignupView() {
           queuePatch({ colWidthSteps: next });
         }}
         onRowCountChange={(count) => {
-          setRowCount(count);
-          queuePatch({ rowCount: count });
+          const c = Math.max(1, Math.floor(Number(count)));
+          setRowCount(c);
+          // ✅ ref 즉시 동기화(언마운트 flush 안전)
+          latestRowCountRef.current = c;
+          queuePatch({ rowCount: c });
         }}
       />
 
