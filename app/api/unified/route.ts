@@ -1,3 +1,5 @@
+// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\route.ts
+
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
@@ -16,17 +18,38 @@ function toNum(v: string | null): number | null {
   return n;
 }
 
+function normalizeString(v: any) {
+  return String(v ?? "").trim();
+}
+
+// ✅ 거래처분류 → 안내분류 매핑 조회(신규 생성 시 자동세팅용)
+async function findGuideByPartnerName(partnerName: string): Promise<string | null> {
+  const p = normalizeString(partnerName);
+  if (!p) return null;
+
+  const r = await query(
+    `SELECT guide_name
+     FROM partner_guide_map
+     WHERE partner_name=$1
+     LIMIT 1`,
+    [p]
+  );
+
+  const g = normalizeString(r.rows?.[0]?.guide_name);
+  return g ? g : null;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const sp = url.searchParams;
 
   // meta=count : 전체 개수만
-// ✅ Grid가 사용하는 total/정렬 기준은 unified_order이므로 count도 동일 기준으로 맞춘다.
-// (unified vs unified_order 불일치 시 reload가 반복되며 점멸/스크롤튐 발생 가능)
-if ((sp.get("meta") || "").toLowerCase() === "count") {
-  const r = await query(`SELECT COUNT(*)::int AS count FROM unified_order`);
-  return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
-}
+  // ✅ Grid가 사용하는 total/정렬 기준은 unified_order이므로 count도 동일 기준으로 맞춘다.
+  // (unified vs unified_order 불일치 시 reload가 반복되며 점멸/스크롤튐 발생 가능)
+  if ((sp.get("meta") || "").toLowerCase() === "count") {
+    const r = await query(`SELECT COUNT(*)::int AS count FROM unified_order`);
+    return NextResponse.json({ count: Number(r.rows[0]?.count ?? 0) });
+  }
 
   // ids=1,2,3 : 현재 화면에 떠있는 행만 부분 갱신(merge)용
   const idsParam = sp.get("ids");
@@ -272,15 +295,26 @@ if ((sp.get("meta") || "").toLowerCase() === "count") {
 export async function POST(req: Request) {
   const body = await req.json();
 
-  const r = await query(
-    `INSERT INTO unified (data) VALUES ($1) RETURNING id, data`,
-    [body]
-  );
+  // ✅ 상태는 파생 표시 컬럼이므로 저장 대상에서 제외(무시)
+  // ✅ 거래처분류가 있으면 안내분류를 매핑 기준으로 자동 세팅
+  const data: Record<string, any> = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+
+  delete data["상태"];
+
+  if (Object.prototype.hasOwnProperty.call(data, "거래처분류")) {
+    const partner = normalizeString(data["거래처분류"]);
+    if (!partner) {
+      data["안내분류"] = null;
+    } else {
+      const guide = await findGuideByPartnerName(partner);
+      data["안내분류"] = guide ? guide : null;
+    }
+  }
+
+  const r = await query(`INSERT INTO unified (data) VALUES ($1) RETURNING id, data`, [data]);
   const created = r.rows[0];
 
-  const maxR = await query(
-    `SELECT COALESCE(MAX(sort_key), 0) AS max FROM unified_order`
-  );
+  const maxR = await query(`SELECT COALESCE(MAX(sort_key), 0) AS max FROM unified_order`);
   const max = Number(maxR.rows[0]?.max ?? 0);
   const nextKey = max + 1000;
 
