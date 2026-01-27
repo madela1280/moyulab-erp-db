@@ -30,7 +30,7 @@ export default function UnifiedMainView() {
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
 
-  // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로만 오픈
+  // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로 오픈
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
   const [guidePanelInitialPartner, setGuidePanelInitialPartner] = useState<string>("");
 
@@ -78,27 +78,13 @@ export default function UnifiedMainView() {
   }
 
   // ---------------------------------------------------------------------------
-  // 거래처분류 팝오버(통합관리) + 실시간 옵션 갱신
+  // 거래처분류 옵션 로딩(통합관리) + 실시간 옵션 갱신
   // ---------------------------------------------------------------------------
   const [partnerOptions, setPartnerOptions] = useState<string[]>([]);
   const partnerOptionsRef = useRef<string[]>([]);
   useEffect(() => {
     partnerOptionsRef.current = partnerOptions;
   }, [partnerOptions]);
-
-  const [partnerPopover, setPartnerPopover] = useState<{
-    open: boolean;
-    x: number;
-    y: number;
-    unifiedId: number | null;
-    currentValue: string;
-  }>({
-    open: false,
-    x: 0,
-    y: 0,
-    unifiedId: null,
-    currentValue: "",
-  });
 
   async function loadPartnerOptionsNoStore() {
     const r = await fetch("/api/signup-settings", { cache: "no-store" });
@@ -127,10 +113,7 @@ export default function UnifiedMainView() {
       throw new Error(t || `FAILED(${r.status})`);
     }
 
-    // ✅ 서버 기준 즉시 재조회
     await loadPartnerOptionsNoStore();
-
-    // ✅ 다른 탭/화면도 즉시 반영되게 emit
     syncEmitUnifiedUpdate();
   }
 
@@ -138,7 +121,6 @@ export default function UnifiedMainView() {
     void loadPartnerOptionsNoStore();
   }, []);
 
-  // ✅ 다른 화면/탭에서 partnerOptions가 바뀌면(=unified:update emit) 여기서 즉시 재조회
   const partnerReloadTimerRef = useRef<number | null>(null);
   useEffect(() => {
     const off = syncListen(() => {
@@ -157,9 +139,17 @@ export default function UnifiedMainView() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // 거래처분류 셀 클릭 → 거래처 선택 팝오버 오픈
-  // 안내분류 셀 클릭 → 안내분류 설정(거래처별) 패널 오픈
+  // 거래처분류 셀 클릭 → 거래처 팝오버
+  // 안내분류 셀 클릭 → 안내분류 패널
   // ---------------------------------------------------------------------------
+  const [partnerPopover, setPartnerPopover] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    unifiedId: number | null;
+    currentValue: string;
+  }>({ open: false, x: 0, y: 0, unifiedId: null, currentValue: "" });
+
   const OPEN_THRESHOLD_PX = 4;
 
   const partnerDownRef = useRef<{
@@ -201,7 +191,6 @@ export default function UnifiedMainView() {
       | HTMLSelectElement
       | HTMLTextAreaElement
       | null;
-
     return normalizeName(input?.value ?? td.textContent ?? "");
   }
 
@@ -228,9 +217,8 @@ export default function UnifiedMainView() {
     if (colKey !== "안내분류") return null;
 
     const tr = findRowTrFromTd(td);
-    if (!tr) return null;
+    if (!tr) return { partnerName: "" };
 
-    // 같은 행에서 거래처분류 값을 찾아서 패널 초기 선택값으로 사용
     const partnerTd = tr.querySelector('td[data-col-key="거래처분류"]') as HTMLElement | null;
     const partnerName = readCellValue(partnerTd);
 
@@ -243,11 +231,10 @@ export default function UnifiedMainView() {
 
     const t = e.target as HTMLElement | null;
 
-    // 1) 거래처분류 셀 클릭
     const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
-      // ✅ 거래처분류 셀은 클릭 팝오버가 목적이므로 input 포커스/락 흐름 진입 방지
       e.preventDefault();
+      e.stopPropagation();
 
       partnerDownRef.current = {
         pending: true,
@@ -259,11 +246,10 @@ export default function UnifiedMainView() {
       return;
     }
 
-    // 2) 안내분류 셀 클릭
     const guideInfo = findGuideCellInfoFromTarget(t);
     if (guideInfo) {
-      // ✅ 안내분류 셀은 클릭으로 “설정 패널”을 여는 것이 목적(그리드 편집 진입 방지)
       e.preventDefault();
+      e.stopPropagation();
 
       guideDownRef.current = {
         pending: true,
@@ -276,7 +262,6 @@ export default function UnifiedMainView() {
   }
 
   function onGridMouseMoveCapture(e: React.MouseEvent) {
-    // 거래처분류 클릭/드래그 구분
     const st1 = partnerDownRef.current;
     if (st1?.pending) {
       const dx = Math.abs(e.clientX - st1.startX);
@@ -284,7 +269,6 @@ export default function UnifiedMainView() {
       if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) partnerDownRef.current = null;
     }
 
-    // 안내분류 클릭/드래그 구분
     const st2 = guideDownRef.current;
     if (st2?.pending) {
       const dx = Math.abs(e.clientX - st2.startX);
@@ -294,7 +278,6 @@ export default function UnifiedMainView() {
   }
 
   function onGridMouseUpCapture(e: React.MouseEvent) {
-    // 1) 거래처분류 팝오버 오픈
     const st1 = partnerDownRef.current;
     partnerDownRef.current = null;
     if (st1?.pending) {
@@ -308,7 +291,6 @@ export default function UnifiedMainView() {
       return;
     }
 
-    // 2) 안내분류 설정 패널 오픈
     const st2 = guideDownRef.current;
     guideDownRef.current = null;
     if (st2?.pending) {
@@ -366,7 +348,6 @@ export default function UnifiedMainView() {
 
           const next = normalizeName(name);
           await syncPatch(unifiedId, "거래처분류", next);
-
           setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }));
         }}
         onClose={() => setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }))}
@@ -378,9 +359,7 @@ export default function UnifiedMainView() {
           await patchPartnerOptionsNoStore(nextOptions);
 
           const unifiedId = partnerPopover.unifiedId;
-          if (unifiedId) {
-            await syncPatch(unifiedId, "거래처분류", n);
-          }
+          if (unifiedId) await syncPatch(unifiedId, "거래처분류", n);
         }}
         onDelete={async (raw) => {
           const n = normalizeName(raw);
@@ -396,14 +375,12 @@ export default function UnifiedMainView() {
         }}
       />
 
-      {/* ✅ 안내분류 컬럼 셀 클릭으로만 오픈 */}
       <PartnerGuidePanel
         open={isPartnerGuideOpen}
         onClose={() => setIsPartnerGuideOpen(false)}
         partnerOptions={partnerOptions}
         initialPartner={guidePanelInitialPartner}
         onChanged={() => {
-          // 매핑 변경은 다른 탭/화면에도 즉시 반영되도록 unified:update emit
           syncEmitUnifiedUpdate();
         }}
       />

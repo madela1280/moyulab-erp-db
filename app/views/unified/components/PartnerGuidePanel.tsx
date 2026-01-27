@@ -39,22 +39,14 @@ function sortKorean(a: string, b: string) {
 export default function PartnerGuidePanel(props: {
   open: boolean;
   onClose: () => void;
-
-  /** 이미 UnifiedMainView에서 불러온 partnerOptions가 있으면 재사용(없으면 내부 fetch) */
   partnerOptions?: string[];
-
-  /** 패널 오픈 시 이 거래처를 우선 선택(안내분류 셀 클릭으로 들어온 경우) */
   initialPartner?: string;
-
-  /** 저장/변경 후 외부(=UnifiedMainView)에서 syncEmitUnifiedUpdate() 등 실행할 때 사용 */
   onChanged?: () => void;
 }) {
   const { open, onClose, onChanged } = props;
 
-  // draggable panel (local UI state only)
   const { pos, onMouseDownDragHandle } = useDraggablePanel({ x: 120, y: 120 }, { w: 560, h: 520 });
 
-  // data
   const [partners, setPartners] = useState<string[]>([]);
   const [categories, setCategories] = useState<GuideCategory[]>([]);
   const [mappings, setMappings] = useState<Record<string, string | null>>({});
@@ -62,7 +54,7 @@ export default function PartnerGuidePanel(props: {
   const [selectedPartner, setSelectedPartner] = useState<string>("");
   const [selectedGuide, setSelectedGuide] = useState<string>("");
 
-  // 안내분류 추가 입력
+  // ✅ 입력칸 방식(프롬프트 사용 금지)
   const [newGuideName, setNewGuideName] = useState<string>("");
 
   const selectedPartnerGuide = mappings[selectedPartner] ?? null;
@@ -84,7 +76,7 @@ export default function PartnerGuidePanel(props: {
     return list;
   }, [categories]);
 
-  async function loadPartnersFromSignupSettings() {
+  async function loadPartnersFromSignupSettings(): Promise<string[]> {
     const r = await fetch("/api/signup-settings", { cache: "no-store" });
     if (!r.ok) return [];
 
@@ -97,10 +89,11 @@ export default function PartnerGuidePanel(props: {
   }
 
   async function refreshAll() {
-    const p =
-      Array.isArray(props.partnerOptions) && props.partnerOptions.length
-        ? Array.from(new Set(props.partnerOptions.map(normalizeName).filter(Boolean))).sort(sortKorean)
-        : await loadPartnersFromSignupSettings();
+    // ✅ partnerOptions prop이 비어있거나 undefined면 항상 서버에서 다시 불러오기
+    const propList = Array.isArray(props.partnerOptions) ? props.partnerOptions : [];
+    const propMerged = Array.from(new Set(propList.map(normalizeName).filter(Boolean))).sort(sortKorean);
+
+    const p = propMerged.length ? propMerged : await loadPartnersFromSignupSettings();
 
     const [c, m] = await Promise.all([fetchGuideCategories(), fetchPartnerGuideMappings()]);
 
@@ -115,24 +108,20 @@ export default function PartnerGuidePanel(props: {
     setCategories(c);
     setMappings(map);
 
-    // 선택 파트너: initialPartner 우선(있고 목록에 존재하면)
     const init = normalizeName(props.initialPartner);
     const nextPartner = init && p.includes(init) ? init : p[0] ?? "";
     setSelectedPartner(nextPartner);
 
-    // 선택 가이드: 해당 파트너의 현재 매핑값으로 보정
     const nextGuide = map[nextPartner] ?? null;
     setSelectedGuide(nextGuide ?? "");
   }
 
-  // open 시 로드
   useEffect(() => {
     if (!open) return;
     void refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, props.initialPartner]);
 
-  // selectedPartner가 바뀌면 우측 선택 가이드 표시 보정
   useEffect(() => {
     if (!open) return;
     const g = mappings[selectedPartner] ?? null;
@@ -175,7 +164,6 @@ export default function PartnerGuidePanel(props: {
       const next = await fetchGuideCategories();
       setCategories(next);
 
-      // 현재 선택이 삭제된 경우 정리
       setSelectedGuide((g) => (g === target ? "" : g));
     } catch (e: any) {
       alert(String(e?.message ?? e ?? "안내분류 삭제 실패"));
@@ -197,7 +185,6 @@ export default function PartnerGuidePanel(props: {
       aria-modal="true"
     >
       <div className="w-full h-full bg-white border shadow-lg flex flex-col">
-        {/* header (drag handle) */}
         <div
           className="flex items-center justify-between px-3 py-2 border-b bg-slate-50 select-none cursor-move"
           onMouseDown={onMouseDownDragHandle}
@@ -212,9 +199,8 @@ export default function PartnerGuidePanel(props: {
           </button>
         </div>
 
-        {/* body */}
         <div className="flex-1 min-h-0 grid grid-cols-2 gap-0">
-          {/* left: partners */}
+          {/* left */}
           <div className="flex flex-col border-r min-h-0">
             <div className="px-3 py-2 text-xs font-semibold text-slate-700 border-b bg-white">
               거래처 ({filteredPartners.length})
@@ -252,7 +238,7 @@ export default function PartnerGuidePanel(props: {
                   {!filteredPartners.length && (
                     <tr>
                       <td className="px-3 py-4 text-slate-400" colSpan={2}>
-                        거래처 목록이 없습니다.
+                        거래처 목록이 없습니다. (거래처분류 옵션을 확인하세요)
                       </td>
                     </tr>
                   )}
@@ -261,7 +247,7 @@ export default function PartnerGuidePanel(props: {
             </div>
           </div>
 
-          {/* right: guide categories */}
+          {/* right */}
           <div className="flex flex-col min-h-0">
             <div className="px-3 py-2 text-xs font-semibold text-slate-700 border-b bg-white">
               안내분류 ({sortedCategories.length})
@@ -291,7 +277,6 @@ export default function PartnerGuidePanel(props: {
                         setSelectedGuide(c.name);
                         await patchMapping(selectedPartner, c.name);
                       }}
-                      title="클릭하면 선택 거래처의 안내분류가 이 값으로 세팅됩니다."
                     >
                       {c.name}
                     </button>
@@ -303,7 +288,6 @@ export default function PartnerGuidePanel(props: {
               </div>
             </div>
 
-            {/* footer actions */}
             <div className="border-t p-2 flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <input
@@ -338,7 +322,6 @@ export default function PartnerGuidePanel(props: {
                   onClick={async () => {
                     await refreshAll();
                   }}
-                  title="거래처/안내분류/매핑 재조회"
                 >
                   새로고침
                 </button>
@@ -347,7 +330,6 @@ export default function PartnerGuidePanel(props: {
           </div>
         </div>
 
-        {/* hint */}
         <div className="px-3 py-2 border-t bg-white text-[11px] text-slate-500">
           - 거래처를 선택한 뒤, 우측 안내분류를 클릭하면 매핑이 저장됩니다.
           <br />- 패널 상단을 드래그해서 위치를 옮길 수 있습니다.

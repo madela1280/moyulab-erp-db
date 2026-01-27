@@ -743,7 +743,8 @@ async function refreshCountAndMaybeReload() {
     /* --------------------- 셀 저장 --------------------- */
     async function saveCell(id: number, key: string, value: string) {
   // ✅ "상태"는 파생 표시이므로 DB에 저장/수정하지 않음
-  if (key === "상태") return;
+  // ✅ "안내분류"는 거래처↔안내분류 매핑(패널)로만 관리하므로 그리드 저장 차단
+  if (key === "상태" || key === "안내분류") return;
   await syncPatch(id, key, value);
 }
 
@@ -1300,7 +1301,7 @@ async function refreshCountAndMaybeReload() {
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
   const colKey = viewColumns[cIndex];
   if (!colKey) continue;
-  if (colKey === "상태") continue; // ✅ 상태는 파생값이므로 제외
+  if (colKey === "상태" || colKey === "안내분류") continue; // ✅ 상태(파생)/안내분류(매핑관리) 제외
   newData[colKey] = "";
 }
           next[rIndex] = { ...row, data: newData };
@@ -1340,7 +1341,7 @@ async function refreshCountAndMaybeReload() {
 
         const newData: Record<string, any> = { ...row.data };
         viewColumns.forEach((key) => {
-  if (key === "상태") return; // ✅ 상태는 파생값이므로 제외
+  if (key === "상태" || key === "안내분류") return; // ✅ 상태(파생)/안내분류(매핑관리) 제외
   newData[key] = "";
 });
 
@@ -1478,7 +1479,7 @@ cells.push(v);
   if (colIndex >= viewColumns.length) break;
 
   const key = viewColumns[colIndex];
-  if (key === "상태") continue; // ✅ 상태는 파생값이므로 제외
+ if (key === "상태" || key === "안내분류") continue; // ✅ 상태(파생)/안내분류(매핑관리) 제외
 
   const v = srcRow[colOffset] ?? "";
   newData[key] = v;
@@ -1772,7 +1773,7 @@ cells.push(v);
         })()
       : undefined
   }
-  readOnly={key === "상태"}
+  readOnly={key === "상태" || key === "안내분류"}
   value={
     key === "상태"
       ? getDerivedStatusForRow(row.data ?? {}).status
@@ -1788,29 +1789,29 @@ cells.push(v);
     setSelectedRowRange(null);
 
     // ✅ 상태는 표시 전용: 락/편집 흐름 진입 금지
-    if (key === "상태") return;
+    if (key === "상태" || key === "안내분류") return;
 
     const initial = String(row.data[key] ?? "");
     handleFocus(row.id, key, initial, e);
   }}
   onChange={(e) => {
-    // ✅ 상태는 표시 전용
-    if (key === "상태") return;
+  // ✅ 상태/안내분류는 표시 전용
+  if (key === "상태" || key === "안내분류") return;
 
-    if (
-      activeEditCell &&
-      activeEditCell.rowId === row.id &&
-      activeEditCell.key === key
-    ) {
-      setActiveEditValue(e.target.value);
-    }
-    if (myRowLocks[row.id]) {
-      updateLocalCell(row.id, key, e.target.value);
-    }
-  }}
+  if (
+    activeEditCell &&
+    activeEditCell.rowId === row.id &&
+    activeEditCell.key === key
+  ) {
+    setActiveEditValue(e.target.value);
+  }
+  if (myRowLocks[row.id]) {
+    updateLocalCell(row.id, key, e.target.value);
+  }
+}}
   onPaste={(e) => {
     // ✅ 상태는 표시 전용
-    if (key === "상태") return;
+   if (key === "상태" || key === "안내분류") return;
 
     if (skipNextNativePasteRef.current) {
       skipNextNativePasteRef.current = false;
@@ -1828,7 +1829,7 @@ cells.push(v);
   }}
   onBlur={async (e) => {
     // ✅ 상태는 표시 전용(저장/락 흐름 없음)
-    if (key === "상태") return;
+    if (key === "상태" || key === "안내분류") return;
 
     const v = e.target.value as string;
 
