@@ -2,12 +2,14 @@
 import { parseUnifiedCell, todayStart } from "./parseUnifiedDate";
 
 export type UnifiedStatus =
+  | "" // ✅ 완전 빈행 등: 상태 표시 안 함
   | "회수완료"
   | "만기5일전"
   | "만기4일전"
   | "만기3일전"
   | "만기2일전"
   | "만기1일전"
+  | "오늘만기"
   | "회수중"
   | "만기지남"
   | "대여중"
@@ -15,11 +17,15 @@ export type UnifiedStatus =
 
 export type UnifiedStatusResult = {
   status: UnifiedStatus;
-  /** UI에서 상태 글자색 처리용(예: 만기3일전 = 파란색) */
+  /** UI에서 상태 글자색 처리용(예: 만기3일전 = 파란색, 오늘만기=빨간색) */
   textColor?: string;
 };
 
 type Inputs = {
+  수취인명?: unknown;
+  연락처1?: unknown;
+  계약자주소?: unknown;
+
   택배발송일?: unknown;
   시작일?: unknown;
   종료일?: unknown;
@@ -38,6 +44,10 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
   const requested = parseUnifiedCell(input.반납요청일);
   const completed = parseUnifiedCell(input.반납완료일);
 
+  // ✅ 발송전은 "완전 빈행"에는 표시하지 않기 위한 최소 정보 체크
+  const hasMinimumInfo =
+    hasText(input.수취인명) || hasText(input.연락처1) || hasText(input.계약자주소);
+
   // (1) 회수완료 최우선:
   // - 반납완료일에 값이 있으면(날짜/문자 무관) 무조건 회수완료
   if (completed.kind !== "empty") return { status: "회수완료" };
@@ -53,6 +63,11 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
     if (diff === 3) return { status: "만기3일전", textColor: "#2563eb" }; // blue-600
     if (diff === 2) return { status: "만기2일전" };
     if (diff === 1) return { status: "만기1일전" };
+
+    // ✅ 오늘만기(빨간 글씨): 종료일이 오늘이고, 반납요청/반납완료 모두 "비어있을 때"
+    if (diff === 0 && requested.kind === "empty" && completed.kind === "empty") {
+      return { status: "오늘만기", textColor: "#dc2626" }; // red-600
+    }
   }
 
   // (3) 회수중: 반납요청일(날짜) 있고, 반납완료일은 비어있음
@@ -63,18 +78,37 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
     if (ended.date.getTime() < today.getTime()) return { status: "만기지남" };
   }
 
-  // (5) 대여중: (택배발송일 있으면 그날부터, 없으면 시작일부터) 오늘이 [start..end] 안
-  const startBase = shipped.kind === "date" ? shipped.date : started.kind === "date" ? started.date : null;
+  // (5) 대여중:
+  // - "택배발송일에 날짜가 있으면 발송된 것"
+  // - 종료일이 없어도(비어있어도) 택배발송일이 유효한 날짜이고 오늘 <=/=> 조건 맞으면 대여중 표시
+  const shippedDate = shipped.kind === "date" ? shipped.date : null;
+  const startedDate = started.kind === "date" ? started.date : null;
+
+  // ✅ 시작 기준: 택배발송일 우선, 없으면 시작일
+  const startBase = shippedDate ?? startedDate;
+
+  // ✅ 종료일이 없어도, "택배발송일이 유효한 날짜"이고 오늘이 그 날짜 이상이면 대여중
+  if (shippedDate && shippedDate.getTime() <= today.getTime() && ended.kind !== "date") {
+    return { status: "대여중" };
+  }
+
+  // ✅ 종료일이 있으면 기존처럼 [start..end] 범위면 대여중
   if (startBase && ended.kind === "date") {
     const t = today.getTime();
     if (startBase.getTime() <= t && t <= ended.date.getTime()) return { status: "대여중" };
   }
 
   // (6) 발송전(기타/누락 포함)
+  // ✅ 단, 완전 빈행에는 발송전 표시하지 않음
+  if (!hasMinimumInfo) return { status: "" };
   return { status: "발송전" };
 }
 
 /** a - b (일 단위), 둘 다 startOfDay로 들어온다는 전제 */
 function diffDays(a: Date, b: Date) {
   return Math.round((a.getTime() - b.getTime()) / MS_PER_DAY);
+}
+
+function hasText(v: unknown) {
+  return String(v ?? "").trim().length > 0;
 }

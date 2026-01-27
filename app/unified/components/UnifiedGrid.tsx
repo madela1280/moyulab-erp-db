@@ -74,6 +74,11 @@ const { today } = useUnifiedStatusTicker();
 function getDerivedStatusForRow(rowData: Record<string, any>) {
   return calcUnifiedStatus(
     {
+      // ✅ 발송전은 완전 빈행에는 표시하지 않기 위해 최소 정보도 같이 전달
+      수취인명: rowData?.["수취인명"],
+      연락처1: rowData?.["연락처1"],
+      계약자주소: rowData?.["계약자주소"],
+
       택배발송일: rowData?.["택배발송일"],
       시작일: rowData?.["시작일"],
       종료일: rowData?.["종료일"],

@@ -10,6 +10,9 @@ export type ParsedCell =
  * - 날짜로 판정되면 kind:"date"
  * - 날짜가 아니면서 값이 있으면 kind:"text"
  * - null/undefined/""(공백 포함)이면 kind:"empty"
+ *
+ * 추가 규칙:
+ * - "1900-01-00" (또는 1900.01.00 / 1900/01/00, 뒤에 시간 포함) 형태는 "비정상 날짜"로 보고 empty 처리
  */
 export function parseUnifiedCell(value: unknown): ParsedCell {
   if (value === null || value === undefined) return { kind: "empty" };
@@ -35,12 +38,17 @@ export function parseUnifiedCell(value: unknown): ParsedCell {
   const s = String(value).trim();
   if (!s) return { kind: "empty" };
 
+  // ✅ 비정상 날짜 placeholder 차단: 1900-01-00(시간 포함 가능)
+  // 예: "1900-01-00", "1900-01-00 00:00:00", "1900/01/00", "1900.01.00"
+  if (/^1900[-./]01[-./]00(\b|$)/.test(s)) return { kind: "empty" };
+
   // ISO datetime이면 날짜부분만 우선 파싱(타임존 흔들림 방지)
   const isoDatePart = s.includes("T") ? s.split("T")[0] : s;
 
   const ymd = parseYMDLike(isoDatePart) ?? parseYYYYMMDD(isoDatePart);
   if (ymd) {
     const d = new Date(ymd.y, ymd.m - 1, ymd.d);
+    // ✅ 역변환 검증으로 2025-02-31 같은 날짜를 확실히 차단
     if (isValidDate(d) && d.getFullYear() === ymd.y && d.getMonth() === ymd.m - 1 && d.getDate() === ymd.d) {
       return { kind: "date", date: startOfDay(d) };
     }
