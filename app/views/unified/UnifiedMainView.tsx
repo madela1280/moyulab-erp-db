@@ -29,7 +29,16 @@ type SignupSettings = {
   partnerOptions: string[];
 };
 
-const EXT_KEYS = ["1차연장", "2차연장", "3차연장", "4차연장", "5차연장"] as const;
+const EXT_KEYS = [
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
+  "6차연장",
+  "7차연장",
+] as const;
+
 type ExtKey = (typeof EXT_KEYS)[number];
 
 export default function UnifiedMainView() {
@@ -41,7 +50,7 @@ export default function UnifiedMainView() {
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
   const [guidePanelInitialPartner, setGuidePanelInitialPartner] = useState<string>("");
 
-  // ✅ 1~5차 연장 입력 패널
+  // ✅ 1~7차 연장 입력 패널
   const [extPanel, setExtPanel] = useState<{
     open: boolean;
     x: number;
@@ -49,7 +58,6 @@ export default function UnifiedMainView() {
     rowId: number | null;
     colKey: ExtKey | "";
     initialValue: string;
-    endDate: string;
   }>({
     open: false,
     x: 0,
@@ -57,9 +65,9 @@ export default function UnifiedMainView() {
     rowId: null,
     colKey: "",
     initialValue: "",
-    endDate: "",
   });
 
+  // (결제수단 추가등록 기능은 다음 단계 — 지금은 고정 옵션 + 패널에서 직접입력 지원)
   const paymentOptions = useMemo(() => ["계좌이체", "서비스", "카드", "온라인연장"], []);
 
   const {
@@ -167,7 +175,7 @@ export default function UnifiedMainView() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // 셀 클릭 캡처: 거래처분류/안내분류/1~5차연장
+  // 셀 클릭 캡처: 거래처분류/안내분류/1~7차연장
   // ---------------------------------------------------------------------------
   const [partnerPopover, setPartnerPopover] = useState<{
     open: boolean;
@@ -175,7 +183,13 @@ export default function UnifiedMainView() {
     y: number;
     unifiedId: number | null;
     currentValue: string;
-  }>({ open: false, x: 0, y: 0, unifiedId: null, currentValue: "" });
+  }>({
+    open: false,
+    x: 0,
+    y: 0,
+    unifiedId: null,
+    currentValue: "",
+  });
 
   const OPEN_THRESHOLD_PX = 4;
 
@@ -201,7 +215,6 @@ export default function UnifiedMainView() {
     rowId: number;
     colKey: ExtKey;
     cellValue: string;
-    endDate: string;
   } | null>(null);
 
   function findCellTd(t: HTMLElement | null) {
@@ -228,6 +241,7 @@ export default function UnifiedMainView() {
       | HTMLSelectElement
       | HTMLTextAreaElement
       | null;
+
     return normalizeName(input?.value ?? td.textContent ?? "");
   }
 
@@ -258,7 +272,6 @@ export default function UnifiedMainView() {
 
     const partnerTd = tr.querySelector('td[data-col-key="거래처분류"]') as HTMLElement | null;
     const partnerName = readCellValue(partnerTd);
-
     return { partnerName };
   }
 
@@ -266,7 +279,7 @@ export default function UnifiedMainView() {
     const td = findCellTd(t);
     if (!td) return null;
 
-    const colKey = String((td as any).dataset?.colKey ?? "") as ExtKey | string;
+    const colKey = String((td as any).dataset?.colKey ?? "");
     if (!EXT_KEYS.includes(colKey as ExtKey)) return null;
 
     const tr = findRowTrFromTd(td);
@@ -274,11 +287,7 @@ export default function UnifiedMainView() {
     if (!rowId) return null;
 
     const cellValue = readCellValue(td);
-
-    const endTd = tr?.querySelector('td[data-col-key="종료일"]') as HTMLElement | null;
-    const endDate = readCellValue(endTd);
-
-    return { rowId, colKey: colKey as ExtKey, cellValue, endDate };
+    return { rowId, colKey: colKey as ExtKey, cellValue };
   }
 
   function onGridMouseDownCapture(e: React.MouseEvent) {
@@ -325,7 +334,6 @@ export default function UnifiedMainView() {
         rowId: extInfo.rowId,
         colKey: extInfo.colKey,
         cellValue: extInfo.cellValue,
-        endDate: extInfo.endDate,
       };
       return;
     }
@@ -386,7 +394,6 @@ export default function UnifiedMainView() {
         rowId: st3.rowId,
         colKey: st3.colKey,
         initialValue: st3.cellValue,
-        endDate: st3.endDate,
       });
       return;
     }
@@ -491,14 +498,20 @@ export default function UnifiedMainView() {
           const colKey = extPanel.colKey;
           if (!rowId || !colKey) return;
 
-          // 1) 해당 차수 셀 저장
+          // 1) 해당 차수 셀 저장(비우기면 "")
           await syncPatch(rowId, colKey, nextCellText);
 
-          // 2) 연장일수 있으면 종료일 +N일 자동반영
+          // 2) 연장일수 있으면 "현재 종료일(서버 최신)"에 +N일 누적 반영
+          //    (삭제/비우기면 fields.days=null이라 종료일 자동 변경 없음)
           if (fields?.days) {
-            const nextEnd = addDaysToEndDate(extPanel.endDate, fields.days);
-            if (nextEnd) {
-              await syncPatch(rowId, "종료일", nextEnd);
+            const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
+            if (r.ok) {
+              const j = await r.json().catch(() => null);
+              const endDateRaw = String(j?.data?.["종료일"] ?? "");
+              const nextEnd = addDaysToEndDate(endDateRaw, fields.days);
+              if (nextEnd) {
+                await syncPatch(rowId, "종료일", nextEnd);
+              }
             }
           }
         }}

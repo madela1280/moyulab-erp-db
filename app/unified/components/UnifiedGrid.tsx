@@ -211,7 +211,15 @@ function setColWidthUnitByKeyNext(
 const viewColumns = columnOrder;
 
 function isExtensionKey(key: any) {
-  return key === "1차연장" || key === "2차연장" || key === "3차연장" || key === "4차연장" || key === "5차연장";
+  return (
+    key === "1차연장" ||
+    key === "2차연장" ||
+    key === "3차연장" ||
+    key === "4차연장" ||
+    key === "5차연장" ||
+    key === "6차연장" ||
+    key === "7차연장"
+  );
 }
 
    function moveColLeft(key: string) {

@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { parseExtensionCell, formatExtensionCell, type ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  parseExtensionCell,
+  formatExtensionCell,
+  type ExtensionCellFields,
+} from "@/views/unified/extensions/extensionFormat";
 
 function normalizeName(v: any) {
   return String(v ?? "").trim();
@@ -21,39 +25,47 @@ function clampMoneyString(v: string) {
   return String(i);
 }
 
+function clampToViewport(x: number, y: number, w: number, h: number) {
+  const margin = 12;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const maxX = Math.max(margin, vw - w - margin);
+  const maxY = Math.max(margin, vh - h - margin);
+  return {
+    x: Math.min(maxX, Math.max(margin, x)),
+    y: Math.min(maxY, Math.max(margin, y)),
+  };
+}
+
 /**
- * 1~5차연장 공용 입력 패널
- * - 셀에는 "연장일수/결제수단/금액/접수일" 문자열 형태로 저장/표시
+ * 1~N차연장 공용 입력 패널
+ * - 셀 저장 포맷: "연장일수/결제수단/금액/접수일"
  *   예) 30/계좌이체/20000/26.01.02
+ *
+ * ✅ 포함 기능
+ * - "삭제(비우기)" 버튼: 셀 문자열을 ""로 저장(종료일 롤백은 자동 처리하지 않음)
+ * - 패널 드래그 이동: 상단 헤더 드래그
  */
 export default function ExtensionEditPanel(props: {
   open: boolean;
   title?: string;
 
-  /** 현재 셀 문자열(없으면 "") */
   initialValue: string;
-
-  /** 결제수단 옵션(추후 별도 관리 기능 붙이기 전까지는 고정 배열로 전달 가능) */
   paymentOptions: string[];
 
-  /** 패널 위치(선택) */
   x?: number;
   y?: number;
 
-  /** 저장(클릭한 차수 컬럼에 셀 문자열 저장 + 종료일 자동반영은 상위에서 처리) */
   onSave: (nextCellText: string, fields: ExtensionCellFields) => Promise<void> | void;
-
   onClose: () => void;
 }) {
   const { open, title, initialValue, paymentOptions, onClose, onSave } = props;
 
-  const posStyle = useMemo(() => {
-    if (Number.isFinite(props.x) && Number.isFinite(props.y)) {
-      return { left: props.x as number, top: props.y as number };
-    }
-    // 기본: 화면 중앙 근처
-    return { left: "50%", top: "22%", transform: "translateX(-50%)" as const };
-  }, [props.x, props.y]);
+  const PANEL_W = 360;
+  const PANEL_H = 320;
+
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 200, y: 140 });
+  const dragRef = useRef<{ dragging: boolean; sx: number; sy: number; bx: number; by: number } | null>(null);
 
   const [days, setDays] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<string>("");
@@ -63,6 +75,7 @@ export default function ExtensionEditPanel(props: {
 
   const [saving, setSaving] = useState(false);
 
+  // open될 때 초기 위치/값 세팅
   useEffect(() => {
     if (!open) return;
 
@@ -72,24 +85,46 @@ export default function ExtensionEditPanel(props: {
     setAmount(parsed.amount ?? "");
     setReceivedDate(parsed.receivedDate ?? "");
     setCustomPay("");
+
+    const baseX = Number.isFinite(props.x) ? (props.x as number) : 200;
+    const baseY = Number.isFinite(props.y) ? (props.y as number) : 140;
+    setPos(clampToViewport(baseX, baseY, PANEL_W, PANEL_H));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialValue]);
 
-  const canSave = useMemo(() => {
-    if (!open) return false;
-    // 입력이 아무것도 없으면 "지우기" 저장도 가능하게(true)
-    return true;
-  }, [open]);
+  // 드래그 이동
+  useEffect(() => {
+    function onMove(ev: MouseEvent) {
+      const st = dragRef.current;
+      if (!st?.dragging) return;
+      const dx = ev.clientX - st.sx;
+      const dy = ev.clientY - st.sy;
+      setPos(clampToViewport(st.bx + dx, st.by + dy, PANEL_W, PANEL_H));
+    }
+
+    function onUp() {
+      const st = dragRef.current;
+      if (st) st.dragging = false;
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const canSave = useMemo(() => open && !saving, [open, saving]);
 
   async function handleSave() {
-    if (!canSave || saving) return;
+    if (!canSave) return;
 
     const normalizedDays = clampIntString(days, 0, 3650);
     const normalizedAmount = clampMoneyString(amount);
 
     const pay =
-      paymentMethod === "__CUSTOM__"
-        ? normalizeName(customPay)
-        : normalizeName(paymentMethod);
+      paymentMethod === "__CUSTOM__" ? normalizeName(customPay) : normalizeName(paymentMethod);
 
     const fields: ExtensionCellFields = {
       days: normalizedDays || null,
@@ -109,37 +144,64 @@ export default function ExtensionEditPanel(props: {
     }
   }
 
+  async function handleClear() {
+    if (!canSave) return;
+
+    // ✅ 비우기(삭제): 셀 문자열만 지움. (종료일 롤백은 자동으로 하지 않음)
+    const fields: ExtensionCellFields = {
+      days: null,
+      paymentMethod: null,
+      amount: null,
+      receivedDate: null,
+    };
+
+    setSaving(true);
+    try {
+      await onSave("", fields);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!open) return null;
 
   return (
     <>
-      {/* backdrop */}
       <div
         className="fixed inset-0 z-[80]"
         onMouseDown={() => onClose()}
         style={{ background: "rgba(0,0,0,0.15)" }}
       />
 
-      {/* panel */}
       <div
         className="fixed z-[81] bg-white border shadow-lg"
         style={{
-          ...posStyle,
-          width: 340,
+          left: pos.x,
+          top: pos.y,
+          width: PANEL_W,
+          height: PANEL_H,
           borderRadius: 8,
         }}
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
-          <div className="text-sm font-semibold text-slate-700">
-            {title ?? "연장 입력"}
-          </div>
+        <div
+          className="px-3 py-2 border-b bg-slate-50 flex items-center justify-between select-none cursor-move"
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            dragRef.current = { dragging: true, sx: e.clientX, sy: e.clientY, bx: pos.x, by: pos.y };
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <div className="text-sm font-semibold text-slate-700">{title ?? "연장 입력"}</div>
           <button
             type="button"
             className="text-xs px-2 py-1 border rounded bg-white hover:bg-slate-100"
             onClick={onClose}
+            disabled={saving}
           >
             닫기
           </button>
@@ -200,24 +262,35 @@ export default function ExtensionEditPanel(props: {
             />
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-2">
+          <div className="mt-3 flex items-center justify-between gap-2">
             <button
               type="button"
               className="text-xs px-3 py-2 border rounded bg-white hover:bg-slate-50"
-              onClick={onClose}
-              disabled={saving}
+              onClick={handleClear}
+              disabled={!canSave}
+              title="이 차수 연장 기록을 비웁니다(종료일은 자동 롤백하지 않음)"
             >
-              취소
+              삭제(비우기)
             </button>
-            <button
-              type="button"
-              className="text-xs px-3 py-2 border rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              onClick={handleSave}
-              disabled={!canSave || saving}
-              title='저장 시 셀에는 "연장일수/결제수단/금액/접수일" 형태로 표시됩니다.'
-            >
-              저장
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="text-xs px-3 py-2 border rounded bg-white hover:bg-slate-50"
+                onClick={onClose}
+                disabled={!canSave}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-2 border rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleSave}
+                disabled={!canSave}
+              >
+                저장
+              </button>
+            </div>
           </div>
 
           <div className="mt-2 text-[11px] text-slate-500">
