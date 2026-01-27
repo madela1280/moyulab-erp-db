@@ -1191,54 +1191,59 @@ async function refreshCountAndMaybeReload() {
     }
 
     function handleCellKeyDown(
-      e: React.KeyboardEvent<HTMLInputElement>,
-      rowIndex: number,
-      colIndex: number
-    ) {
-      let targetRow = rowIndex;
-      let targetCol = colIndex;
+  e: React.KeyboardEvent<HTMLInputElement>,
+  rowIndex: number,
+  colIndex: number
+) {
+  let targetRow = rowIndex;
+  let targetCol = colIndex;
 
-      switch (e.key) {
-        case "ArrowDown": {
-          if (rowIndex >= rows.length - 1) return;
-          targetRow = rowIndex + 1;
-          break;
-        }
-        case "ArrowUp": {
-          if (rowIndex <= 0) return;
-          targetRow = rowIndex - 1;
-          break;
-        }
-        case "ArrowRight": {
-          if (colIndex < viewColumns.length - 1) {
-            targetCol = colIndex + 1;
-          } else {
-            // 마지막 컬럼에서 → : 다음 행 첫 컬럼
-            if (rowIndex >= rows.length - 1) return;
-            targetRow = rowIndex + 1;
-            targetCol = 0;
-          }
-          break;
-        }
-        case "ArrowLeft": {
-          if (colIndex > 0) {
-            targetCol = colIndex - 1;
-          } else {
-            // 첫 컬럼에서 ← : 위 행 마지막 컬럼
-            if (rowIndex <= 0) return;
-            targetRow = rowIndex - 1;
-            targetCol = viewColumns.length - 1;
-          }
-          break;
-        }
-        default:
-          return; // 다른 키는 기본 동작 유지
-      }
-
-      if (focusCell(targetRow, targetCol)) {
-        e.preventDefault();
-      }
+  switch (e.key) {
+    case "ArrowDown": {
+      if (rowIndex >= rows.length - 1) return;
+      targetRow = rowIndex + 1;
+      break;
     }
+    case "ArrowUp": {
+      if (rowIndex <= 0) return;
+      targetRow = rowIndex - 1;
+      break;
+    }
+    case "ArrowRight": {
+      if (colIndex < viewColumns.length - 1) {
+        targetCol = colIndex + 1;
+      } else {
+        if (rowIndex >= rows.length - 1) return;
+        targetRow = rowIndex + 1;
+        targetCol = 0;
+      }
+      break;
+    }
+    case "ArrowLeft": {
+      if (colIndex > 0) {
+        targetCol = colIndex - 1;
+      } else {
+        if (rowIndex <= 0) return;
+        targetRow = rowIndex - 1;
+        targetCol = viewColumns.length - 1;
+      }
+      break;
+    }
+    default:
+      return;
+  }
+
+  if (focusCell(targetRow, targetCol)) {
+    e.preventDefault();
+
+    // ✅ 키보드 이동 시 하늘색 선택 표시도 커서 따라가게 동기화
+    setSelectedRowRange(null);
+    setCellRangeByPoints(targetRow, targetCol, targetRow, targetCol);
+
+    // (선택) 붙여넣기 후 포커스 복귀 기준도 최신으로 갱신
+    lastFocusForPasteRef.current = { rowIndex: targetRow, colIndex: targetCol };
+  }
+}
 
     /* --------------------- 행 삭제 --------------------- */
       
