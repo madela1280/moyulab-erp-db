@@ -1,0 +1,124 @@
+// app/api/partner-guide-map/route.ts
+import { NextResponse } from "next/server";
+import { query } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
+
+/**
+ * 거래처 -> 안내분류 매핑 관리 API
+ *
+ * 필요 DB 테이블(1회 생성):
+ *
+ * CREATE TABLE IF NOT EXISTS partner_guide_map (
+ *   partner_name text PRIMARY KEY,
+ *   guide_name text,
+ *   updated_by text,
+ *   updated_at timestamptz NOT NULL DEFAULT now()
+ * );
+ *
+ * 가이드:
+ * - partner_name은 signup-settings의 partnerOptions(거래처분류 옵션) 기준으로 사용
+ * - guide_name은 guide_categories.name 중 하나(또는 빈값=null)
+ */
+
+function norm(v: any) {
+  return String(v ?? "").trim();
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const partner = norm(url.searchParams.get("partner"));
+
+  if (partner) {
+    const r = await query(
+      `
+      SELECT partner_name, guide_name, updated_by, updated_at
+      FROM partner_guide_map
+      WHERE partner_name=$1
+      `,
+      [partner]
+    );
+    const row = r.rows?.[0] ?? null;
+    return NextResponse.json({
+      mapping: row
+        ? {
+            partner_name: String(row.partner_name ?? ""),
+            guide_name: row.guide_name ?? null,
+            updated_by: row.updated_by ?? null,
+            updated_at: row.updated_at ?? null,
+          }
+        : null,
+    });
+  }
+
+  const r = await query(
+    `
+    SELECT partner_name, guide_name, updated_by, updated_at
+    FROM partner_guide_map
+    ORDER BY partner_name ASC
+    `
+  );
+
+  return NextResponse.json({
+    mappings: (r.rows || []).map((x: any) => ({
+      partner_name: String(x.partner_name ?? ""),
+      guide_name: x.guide_name ?? null,
+      updated_by: x.updated_by ?? null,
+      updated_at: x.updated_at ?? null,
+    })),
+  });
+}
+
+/**
+ * PATCH: partner -> guide 매핑 설정
+ * body: { partner_name: string, guide_name: string | null | "" }
+ */
+export async function PATCH(req: Request) {
+  const user = await getSessionUser();
+  if (!user?.username) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const partner_name = norm(body?.partner_name);
+  const rawGuide = body?.guide_name;
+
+  if (!partner_name) return NextResponse.json({ error: "INVALID_PARTNER" }, { status: 400 });
+
+  const guide_name = norm(rawGuide);
+  const guideValue = guide_name ? guide_name : null;
+
+  // upsert
+  await query(
+    `
+    INSERT INTO partner_guide_map (partner_name, guide_name, updated_by)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (partner_name) DO UPDATE
+      SET guide_name = EXCLUDED.guide_name,
+          updated_by = EXCLUDED.updated_by,
+          updated_at = now()
+    `,
+    [partner_name, guideValue, user.username]
+  );
+
+  return NextResponse.json({ ok: true, partner_name, guide_name: guideValue });
+}
+
+/**
+ * DELETE: 매핑 삭제(=비우기)
+ * body: { partner_name: string }
+ */
+export async function DELETE(req: Request) {
+  const user = await getSessionUser();
+  if (!user?.username) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const partner_name = norm(body?.partner_name);
+
+  if (!partner_name) return NextResponse.json({ error: "INVALID_PARTNER" }, { status: 400 });
+
+  await query(`DELETE FROM partner_guide_map WHERE partner_name=$1`, [partner_name]);
+
+  return NextResponse.json({ ok: true, partner_name });
+}

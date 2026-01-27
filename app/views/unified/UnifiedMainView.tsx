@@ -8,6 +8,7 @@ import AddTemplateModal from "@/unified/components/AddTemplateModal";
 import { syncEmitUnifiedUpdate, syncListen, syncPatch } from "@/global-sync/sync-engine";
 
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
+import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
 function normalizeName(v: any) {
   return String(v ?? "").trim();
@@ -28,6 +29,9 @@ export default function UnifiedMainView() {
   const gridRef = useRef<UnifiedGridHandle | null>(null);
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
+
+  // ✅ 안내분류(거래처별) 설정 패널
+  const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
 
   const {
     availableColumns,
@@ -247,6 +251,20 @@ export default function UnifiedMainView() {
         onAddTemplate={() => setIsAddTemplateOpen(true)}
       />
 
+      {/* ✅ 안내분류 설정 버튼(공용 컴포넌트 수정 없이 View에서만 추가) */}
+      <div className="px-2 py-1 border-b bg-white flex items-center gap-2">
+        <button
+          type="button"
+          className="text-xs px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
+          onClick={() => setIsPartnerGuideOpen(true)}
+        >
+          안내분류 설정
+        </button>
+        <div className="text-[11px] text-slate-500">
+          거래처별 안내분류 매핑을 관리합니다(드래그 이동/스크롤).
+        </div>
+      </div>
+
       <div
         className="flex-1 min-h-0"
         onMouseDownCapture={onGridMouseDownCapture}
@@ -310,6 +328,17 @@ export default function UnifiedMainView() {
           if (unifiedId && normalizeName(partnerPopover.currentValue) === n) {
             await syncPatch(unifiedId, "거래처분류", "");
           }
+        }}
+      />
+
+      {/* ✅ 거래처별 안내분류 설정 패널 */}
+      <PartnerGuidePanel
+        open={isPartnerGuideOpen}
+        onClose={() => setIsPartnerGuideOpen(false)}
+        partnerOptions={partnerOptions}
+        onChanged={() => {
+          // 매핑 변경은 다른 탭/화면에도 즉시 반영되도록 unified:update emit
+          syncEmitUnifiedUpdate();
         }}
       />
     </div>

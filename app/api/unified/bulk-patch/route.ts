@@ -91,6 +91,31 @@ async function buildDeviceInfoMap(devicesLower: string[]): Promise<Map<string, D
   return map;
 }
 
+// ✅ 거래처분류 → 안내분류 매핑 맵(대량 적용용)
+async function buildPartnerGuideMap(partners: string[]): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  const cleaned = Array.from(new Set((partners || []).map(normalizeString).filter(Boolean)));
+  if (!cleaned.length) return map;
+
+  const r = await query(
+    `
+    SELECT partner_name, guide_name
+    FROM partner_guide_map
+    WHERE partner_name = ANY($1::text[])
+    `,
+    [cleaned]
+  );
+
+  for (const row of r.rows || []) {
+    const p = normalizeString(row?.partner_name);
+    if (!p) continue;
+    const g = normalizeString(row?.guide_name);
+    map.set(p, g ? g : null);
+  }
+
+  return map;
+}
+
 export async function POST(req: Request) {
   const body = await req.json();
 
@@ -105,7 +130,6 @@ export async function POST(req: Request) {
     const patchRaw = u?.patch ?? u?.data;
 
     // ✅ "상태"는 파생 표시 컬럼이므로 bulk 저장 대상에서 제외(무시)
-    // - 업로드/붙여넣기에서 상태가 들어와도 DB에 박히지 않게 원천 차단
     const patch =
       isPlainObject(patchRaw)
         ? (() => {
@@ -134,14 +158,14 @@ export async function POST(req: Request) {
   // - 매칭 성공 시: 기종/구매/렌탈/에러횟수/제품(=제품명) merge
   // ---------------------------------------------------------------------------
   const deviceNosLowerSet = new Set<string>();
-  const targetIndexes: number[] = [];
+  const deviceTargetIndexes: number[] = [];
 
   for (let i = 0; i < updates.length; i++) {
     const p = updates[i]?.patch;
     if (!isPlainObject(p)) continue;
     if (!Object.prototype.hasOwnProperty.call(p, "기기번호")) continue;
 
-    targetIndexes.push(i);
+    deviceTargetIndexes.push(i);
 
     const raw = (p as any)["기기번호"];
     const dLower = normalizeLower(raw);
@@ -150,7 +174,7 @@ export async function POST(req: Request) {
 
   const deviceMap = await buildDeviceInfoMap(Array.from(deviceNosLowerSet));
 
-  for (const idx of targetIndexes) {
+  for (const idx of deviceTargetIndexes) {
     const u = updates[idx];
     const p = u.patch as Record<string, any>;
 
@@ -181,6 +205,45 @@ export async function POST(req: Request) {
       p["에러횟수"] = null;
       p["제품"] = null;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ 거래처분류가 bulk로 들어오는 경우 자동 매칭(거래처 → 안내분류)
+  // - patch 안에 "거래처분류" 키가 포함된 update만 대상
+  // - 매핑이 없거나 거래처분류가 비면 안내분류는 null
+  // - 거래처분류가 포함된 경우 안내분류는 항상 매핑 기준으로 overwrite
+  // ---------------------------------------------------------------------------
+  const partnerNamesSet = new Set<string>();
+  const partnerTargetIndexes: number[] = [];
+
+  for (let i = 0; i < updates.length; i++) {
+    const p = updates[i]?.patch;
+    if (!isPlainObject(p)) continue;
+    if (!Object.prototype.hasOwnProperty.call(p, "거래처분류")) continue;
+
+    partnerTargetIndexes.push(i);
+
+    const raw = (p as any)["거래처분류"];
+    const partner = normalizeString(raw);
+    if (partner) partnerNamesSet.add(partner);
+  }
+
+  const partnerGuideMap = await buildPartnerGuideMap(Array.from(partnerNamesSet));
+
+  for (const idx of partnerTargetIndexes) {
+    const u = updates[idx];
+    const p = u.patch as Record<string, any>;
+
+    const rawPartner = p["거래처분류"];
+    const partner = normalizeString(rawPartner);
+
+    if (!partner) {
+      p["안내분류"] = null;
+      continue;
+    }
+
+    const guide = partnerGuideMap.get(partner) ?? null;
+    p["안내분류"] = guide;
   }
 
   // jsonb merge: data = data || patch

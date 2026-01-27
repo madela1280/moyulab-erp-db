@@ -1,4 +1,4 @@
-// app/api/unified/[id]/route.ts
+// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\[id]\route.ts
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
@@ -14,6 +14,23 @@ function normalizeString(v: any) {
 
 function normalizeLower(v: any) {
   return normalizeString(v).toLowerCase();
+}
+
+// ✅ 거래처분류 → 안내분류 매핑 조회
+async function findGuideByPartnerName(partnerName: string): Promise<string | null> {
+  const p = normalizeString(partnerName);
+  if (!p) return null;
+
+  const r = await query(
+    `SELECT guide_name
+     FROM partner_guide_map
+     WHERE partner_name=$1
+     LIMIT 1`,
+    [p]
+  );
+
+  const g = normalizeString(r.rows?.[0]?.guide_name);
+  return g ? g : null;
 }
 
 // 기기관리 6개 테이블(소카테고리)
@@ -131,6 +148,18 @@ export async function PATCH(req: Request) {
     merged[key] = (body as any)[key]; // body[key] === null → null 저장
   }
 
+  // ✅ 거래처분류가 "이번 PATCH에서 변경되었을 때" 안내분류 자동 세팅
+  // - 매핑이 없으면 안내분류는 비움(null)
+  if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "거래처분류")) {
+    const partnerName = normalizeString(merged["거래처분류"]);
+    if (!partnerName) {
+      merged["안내분류"] = null;
+    } else {
+      const guide = await findGuideByPartnerName(partnerName);
+      merged["안내분류"] = guide ? guide : null;
+    }
+  }
+
   // ✅ 기기번호가 "이번 PATCH에서 변경되었을 때"만 자동 매칭 반영
   // - 수기 입력/수정(syncPatch) 대응
   // - 붙여넣기/대량수정은 bulk-patch에서 별도로 처리 예정
@@ -170,6 +199,4 @@ export async function DELETE(req: Request) {
   // 삭제 성공
   return NextResponse.json({ ok: true });
 }
-
-
 
