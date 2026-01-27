@@ -210,6 +210,10 @@ function setColWidthUnitByKeyNext(
 
 const viewColumns = columnOrder;
 
+function isExtensionKey(key: any) {
+  return key === "1차연장" || key === "2차연장" || key === "3차연장" || key === "4차연장" || key === "5차연장";
+}
+
    function moveColLeft(key: string) {
   setColumnOrderNext((prev) => {
     const i = prev.indexOf(key);
@@ -744,8 +748,8 @@ async function refreshCountAndMaybeReload() {
     async function saveCell(id: number, key: string, value: string) {
   // ✅ "상태"는 파생 표시이므로 DB에 저장/수정하지 않음
   // ✅ "안내분류"는 거래처↔안내분류 매핑(패널)로만 관리하므로 그리드 저장 차단
-  if (key === "상태" || key === "안내분류") return;
-  await syncPatch(id, key, value);
+  if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
+await syncPatch(id, key, value);
 }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
@@ -1306,8 +1310,8 @@ async function refreshCountAndMaybeReload() {
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
   const colKey = viewColumns[cIndex];
   if (!colKey) continue;
-  if (colKey === "상태" || colKey === "안내분류") continue; // ✅ 상태(파생)/안내분류(매핑관리) 제외
-  newData[colKey] = "";
+  if (colKey === "상태" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
+newData[colKey] = "";
 }
           next[rIndex] = { ...row, data: newData };
           updates.push({ id: row.id, patch: newData });
@@ -1346,8 +1350,8 @@ async function refreshCountAndMaybeReload() {
 
         const newData: Record<string, any> = { ...row.data };
         viewColumns.forEach((key) => {
-  if (key === "상태" || key === "안내분류") return; // ✅ 상태(파생)/안내분류(매핑관리) 제외
-  newData[key] = "";
+  if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
+newData[key] = "";
 });
 
         next[i] = { ...row, data: newData };
@@ -1484,10 +1488,10 @@ cells.push(v);
   if (colIndex >= viewColumns.length) break;
 
   const key = viewColumns[colIndex];
- if (key === "상태" || key === "안내분류") continue; // ✅ 상태(파생)/안내분류(매핑관리) 제외
+if (key === "상태" || key === "안내분류" || isExtensionKey(key)) continue;
 
-  const v = srcRow[colOffset] ?? "";
-  newData[key] = v;
+const v = srcRow[colOffset] ?? "";
+newData[key] = v;
 }
 
         next[rowIndex] = { ...row, data: newData };
@@ -1778,30 +1782,29 @@ cells.push(v);
         })()
       : undefined
   }
-  readOnly={key === "상태" || key === "안내분류"}
-  value={
-    key === "상태"
-      ? getDerivedStatusForRow(row.data ?? {}).status
-      : activeEditCell &&
-        activeEditCell.rowId === row.id &&
-        activeEditCell.key === key
-      ? activeEditValue
-      : (row.data[key] ?? "")
-  }
+  readOnly={key === "상태" || key === "안내분류" || isExtensionKey(key)}
+value={
+  key === "상태"
+    ? getDerivedStatusForRow(row.data ?? {}).status
+    : activeEditCell &&
+      activeEditCell.rowId === row.id &&
+      activeEditCell.key === key
+    ? activeEditValue
+    : (row.data[key] ?? "")
+}
   data-row={rowIndex}
   data-col={colIndex}
   onFocus={(e) => {
     setSelectedRowRange(null);
 
     // ✅ 상태는 표시 전용: 락/편집 흐름 진입 금지
-    if (key === "상태" || key === "안내분류") return;
-
-    const initial = String(row.data[key] ?? "");
+    if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
+const initial = String(row.data[key] ?? "");
     handleFocus(row.id, key, initial, e);
   }}
   onChange={(e) => {
   // ✅ 상태/안내분류는 표시 전용
-  if (key === "상태" || key === "안내분류") return;
+ if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
 
   if (
     activeEditCell &&
@@ -1816,9 +1819,8 @@ cells.push(v);
 }}
   onPaste={(e) => {
     // ✅ 상태는 표시 전용
-   if (key === "상태" || key === "안내분류") return;
-
-    if (skipNextNativePasteRef.current) {
+   if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
+if (skipNextNativePasteRef.current) {
       skipNextNativePasteRef.current = false;
     }
 
@@ -1834,9 +1836,8 @@ cells.push(v);
   }}
   onBlur={async (e) => {
     // ✅ 상태는 표시 전용(저장/락 흐름 없음)
-    if (key === "상태" || key === "안내분류") return;
-
-    const v = e.target.value as string;
+    if (key === "상태" || key === "안내분류" || isExtensionKey(key)) return;
+const v = e.target.value as string;
 
     editingCellRef.current = null;
     setActiveEditCell(null);

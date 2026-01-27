@@ -10,6 +10,10 @@ import { syncEmitUnifiedUpdate, syncListen, syncPatch } from "@/global-sync/sync
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
 import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
+import ExtensionEditPanel from "@/views/unified/extensions/ExtensionEditPanel";
+import { addDaysToEndDate } from "@/views/unified/extensions/extensionDate";
+import type { ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+
 function normalizeName(v: any) {
   return String(v ?? "").trim();
 }
@@ -25,6 +29,9 @@ type SignupSettings = {
   partnerOptions: string[];
 };
 
+const EXT_KEYS = ["1차연장", "2차연장", "3차연장", "4차연장", "5차연장"] as const;
+type ExtKey = (typeof EXT_KEYS)[number];
+
 export default function UnifiedMainView() {
   const gridRef = useRef<UnifiedGridHandle | null>(null);
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
@@ -33,6 +40,27 @@ export default function UnifiedMainView() {
   // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로 오픈
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
   const [guidePanelInitialPartner, setGuidePanelInitialPartner] = useState<string>("");
+
+  // ✅ 1~5차 연장 입력 패널
+  const [extPanel, setExtPanel] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    rowId: number | null;
+    colKey: ExtKey | "";
+    initialValue: string;
+    endDate: string;
+  }>({
+    open: false,
+    x: 0,
+    y: 0,
+    rowId: null,
+    colKey: "",
+    initialValue: "",
+    endDate: "",
+  });
+
+  const paymentOptions = useMemo(() => ["계좌이체", "서비스", "카드", "온라인연장"], []);
 
   const {
     availableColumns,
@@ -139,8 +167,7 @@ export default function UnifiedMainView() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // 거래처분류 셀 클릭 → 거래처 팝오버
-  // 안내분류 셀 클릭 → 안내분류 패널
+  // 셀 클릭 캡처: 거래처분류/안내분류/1~5차연장
   // ---------------------------------------------------------------------------
   const [partnerPopover, setPartnerPopover] = useState<{
     open: boolean;
@@ -165,6 +192,16 @@ export default function UnifiedMainView() {
     startX: number;
     startY: number;
     partnerName: string;
+  } | null>(null);
+
+  const extDownRef = useRef<{
+    pending: boolean;
+    startX: number;
+    startY: number;
+    rowId: number;
+    colKey: ExtKey;
+    cellValue: string;
+    endDate: string;
   } | null>(null);
 
   function findCellTd(t: HTMLElement | null) {
@@ -225,6 +262,25 @@ export default function UnifiedMainView() {
     return { partnerName };
   }
 
+  function findExtCellInfoFromTarget(t: HTMLElement | null) {
+    const td = findCellTd(t);
+    if (!td) return null;
+
+    const colKey = String((td as any).dataset?.colKey ?? "") as ExtKey | string;
+    if (!EXT_KEYS.includes(colKey as ExtKey)) return null;
+
+    const tr = findRowTrFromTd(td);
+    const rowId = getRowIdFromTr(tr);
+    if (!rowId) return null;
+
+    const cellValue = readCellValue(td);
+
+    const endTd = tr?.querySelector('td[data-col-key="종료일"]') as HTMLElement | null;
+    const endDate = readCellValue(endTd);
+
+    return { rowId, colKey: colKey as ExtKey, cellValue, endDate };
+  }
+
   function onGridMouseDownCapture(e: React.MouseEvent) {
     if (isColumnEditMode) return;
     if (e.button !== 0) return;
@@ -235,7 +291,6 @@ export default function UnifiedMainView() {
     if (partnerInfo) {
       e.preventDefault();
       e.stopPropagation();
-
       partnerDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -250,12 +305,27 @@ export default function UnifiedMainView() {
     if (guideInfo) {
       e.preventDefault();
       e.stopPropagation();
-
       guideDownRef.current = {
         pending: true,
         startX: e.clientX,
         startY: e.clientY,
         partnerName: guideInfo.partnerName,
+      };
+      return;
+    }
+
+    const extInfo = findExtCellInfoFromTarget(t);
+    if (extInfo) {
+      e.preventDefault();
+      e.stopPropagation();
+      extDownRef.current = {
+        pending: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        rowId: extInfo.rowId,
+        colKey: extInfo.colKey,
+        cellValue: extInfo.cellValue,
+        endDate: extInfo.endDate,
       };
       return;
     }
@@ -274,6 +344,13 @@ export default function UnifiedMainView() {
       const dx = Math.abs(e.clientX - st2.startX);
       const dy = Math.abs(e.clientY - st2.startY);
       if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) guideDownRef.current = null;
+    }
+
+    const st3 = extDownRef.current;
+    if (st3?.pending) {
+      const dx = Math.abs(e.clientX - st3.startX);
+      const dy = Math.abs(e.clientY - st3.startY);
+      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) extDownRef.current = null;
     }
   }
 
@@ -296,6 +373,22 @@ export default function UnifiedMainView() {
     if (st2?.pending) {
       setGuidePanelInitialPartner(normalizeName(st2.partnerName));
       setIsPartnerGuideOpen(true);
+      return;
+    }
+
+    const st3 = extDownRef.current;
+    extDownRef.current = null;
+    if (st3?.pending) {
+      setExtPanel({
+        open: true,
+        x: e.clientX,
+        y: e.clientY,
+        rowId: st3.rowId,
+        colKey: st3.colKey,
+        initialValue: st3.cellValue,
+        endDate: st3.endDate,
+      });
+      return;
     }
   }
 
@@ -382,6 +475,32 @@ export default function UnifiedMainView() {
         initialPartner={guidePanelInitialPartner}
         onChanged={() => {
           syncEmitUnifiedUpdate();
+        }}
+      />
+
+      <ExtensionEditPanel
+        open={extPanel.open}
+        title={extPanel.colKey ? `${extPanel.colKey} 입력` : "연장 입력"}
+        x={extPanel.x}
+        y={extPanel.y}
+        initialValue={extPanel.initialValue}
+        paymentOptions={paymentOptions}
+        onClose={() => setExtPanel((p) => ({ ...p, open: false, rowId: null, colKey: "" }))}
+        onSave={async (nextCellText: string, fields: ExtensionCellFields) => {
+          const rowId = extPanel.rowId;
+          const colKey = extPanel.colKey;
+          if (!rowId || !colKey) return;
+
+          // 1) 해당 차수 셀 저장
+          await syncPatch(rowId, colKey, nextCellText);
+
+          // 2) 연장일수 있으면 종료일 +N일 자동반영
+          if (fields?.days) {
+            const nextEnd = addDaysToEndDate(extPanel.endDate, fields.days);
+            if (nextEnd) {
+              await syncPatch(rowId, "종료일", nextEnd);
+            }
+          }
         }}
       />
     </div>
