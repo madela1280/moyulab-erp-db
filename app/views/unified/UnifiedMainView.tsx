@@ -30,8 +30,9 @@ export default function UnifiedMainView() {
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
 
-  // ✅ 안내분류(거래처별) 설정 패널
+  // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로만 오픈
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
+  const [guidePanelInitialPartner, setGuidePanelInitialPartner] = useState<string>("");
 
   const {
     availableColumns,
@@ -155,7 +156,12 @@ export default function UnifiedMainView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 클릭/드래그 구분 (거래처분류 셀 클릭 시만 오픈)
+  // ---------------------------------------------------------------------------
+  // 거래처분류 셀 클릭 → 거래처 선택 팝오버 오픈
+  // 안내분류 셀 클릭 → 안내분류 설정(거래처별) 패널 오픈
+  // ---------------------------------------------------------------------------
+  const OPEN_THRESHOLD_PX = 4;
+
   const partnerDownRef = useRef<{
     pending: boolean;
     startX: number;
@@ -164,31 +170,71 @@ export default function UnifiedMainView() {
     currentValue: string;
   } | null>(null);
 
-  const OPEN_THRESHOLD_PX = 4;
+  const guideDownRef = useRef<{
+    pending: boolean;
+    startX: number;
+    startY: number;
+    partnerName: string;
+  } | null>(null);
 
-  function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
+  function findCellTd(t: HTMLElement | null) {
     if (!t) return null;
+    return t.closest("td[data-col-key]") as HTMLElement | null;
+  }
 
-    const td = t.closest("td[data-col-key]") as HTMLElement | null;
+  function findRowTrFromTd(td: HTMLElement | null) {
     if (!td) return null;
+    return td.closest("tr[data-unified-id]") as HTMLElement | null;
+  }
 
-    const colKey = String((td as any).dataset?.colKey ?? "");
-    if (colKey !== "거래처분류") return null;
-
-    const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
+  function getRowIdFromTr(tr: HTMLElement | null) {
     if (!tr) return null;
-
     const id = Number((tr as any).dataset?.unifiedId ?? 0);
     if (!Number.isFinite(id) || id <= 0) return null;
+    return id;
+  }
 
+  function readCellValue(td: HTMLElement | null) {
+    if (!td) return "";
     const input = td.querySelector("input,select,textarea") as
       | HTMLInputElement
       | HTMLSelectElement
       | HTMLTextAreaElement
       | null;
 
-    const currentValue = normalizeName(input?.value ?? td.textContent ?? "");
+    return normalizeName(input?.value ?? td.textContent ?? "");
+  }
+
+  function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
+    const td = findCellTd(t);
+    if (!td) return null;
+
+    const colKey = String((td as any).dataset?.colKey ?? "");
+    if (colKey !== "거래처분류") return null;
+
+    const tr = findRowTrFromTd(td);
+    const id = getRowIdFromTr(tr);
+    if (!id) return null;
+
+    const currentValue = readCellValue(td);
     return { unifiedId: id, currentValue };
+  }
+
+  function findGuideCellInfoFromTarget(t: HTMLElement | null) {
+    const td = findCellTd(t);
+    if (!td) return null;
+
+    const colKey = String((td as any).dataset?.colKey ?? "");
+    if (colKey !== "안내분류") return null;
+
+    const tr = findRowTrFromTd(td);
+    if (!tr) return null;
+
+    // 같은 행에서 거래처분류 값을 찾아서 패널 초기 선택값으로 사용
+    const partnerTd = tr.querySelector('td[data-col-key="거래처분류"]') as HTMLElement | null;
+    const partnerName = readCellValue(partnerTd);
+
+    return { partnerName };
   }
 
   function onGridMouseDownCapture(e: React.MouseEvent) {
@@ -196,46 +242,79 @@ export default function UnifiedMainView() {
     if (e.button !== 0) return;
 
     const t = e.target as HTMLElement | null;
-    const info = findPartnerCellInfoFromTarget(t);
-    if (!info) return;
 
-    // ✅ 거래처분류 셀은 클릭 팝오버가 목적이므로 input 포커스/락 흐름 진입 방지
-    e.preventDefault();
+    // 1) 거래처분류 셀 클릭
+    const partnerInfo = findPartnerCellInfoFromTarget(t);
+    if (partnerInfo) {
+      // ✅ 거래처분류 셀은 클릭 팝오버가 목적이므로 input 포커스/락 흐름 진입 방지
+      e.preventDefault();
 
-    partnerDownRef.current = {
-      pending: true,
-      startX: e.clientX,
-      startY: e.clientY,
-      unifiedId: info.unifiedId,
-      currentValue: info.currentValue,
-    };
+      partnerDownRef.current = {
+        pending: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        unifiedId: partnerInfo.unifiedId,
+        currentValue: partnerInfo.currentValue,
+      };
+      return;
+    }
+
+    // 2) 안내분류 셀 클릭
+    const guideInfo = findGuideCellInfoFromTarget(t);
+    if (guideInfo) {
+      // ✅ 안내분류 셀은 클릭으로 “설정 패널”을 여는 것이 목적(그리드 편집 진입 방지)
+      e.preventDefault();
+
+      guideDownRef.current = {
+        pending: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        partnerName: guideInfo.partnerName,
+      };
+      return;
+    }
   }
 
   function onGridMouseMoveCapture(e: React.MouseEvent) {
-    const st = partnerDownRef.current;
-    if (!st || !st.pending) return;
+    // 거래처분류 클릭/드래그 구분
+    const st1 = partnerDownRef.current;
+    if (st1?.pending) {
+      const dx = Math.abs(e.clientX - st1.startX);
+      const dy = Math.abs(e.clientY - st1.startY);
+      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) partnerDownRef.current = null;
+    }
 
-    const dx = Math.abs(e.clientX - st.startX);
-    const dy = Math.abs(e.clientY - st.startY);
-
-    if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) {
-      // 드래그로 판단 → 팝오버 오픈 취소(그리드 드래그 흐름 유지)
-      partnerDownRef.current = null;
+    // 안내분류 클릭/드래그 구분
+    const st2 = guideDownRef.current;
+    if (st2?.pending) {
+      const dx = Math.abs(e.clientX - st2.startX);
+      const dy = Math.abs(e.clientY - st2.startY);
+      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) guideDownRef.current = null;
     }
   }
 
   function onGridMouseUpCapture(e: React.MouseEvent) {
-    const st = partnerDownRef.current;
+    // 1) 거래처분류 팝오버 오픈
+    const st1 = partnerDownRef.current;
     partnerDownRef.current = null;
-    if (!st || !st.pending) return;
+    if (st1?.pending) {
+      setPartnerPopover({
+        open: true,
+        x: e.clientX,
+        y: e.clientY,
+        unifiedId: st1.unifiedId,
+        currentValue: st1.currentValue,
+      });
+      return;
+    }
 
-    setPartnerPopover({
-      open: true,
-      x: e.clientX,
-      y: e.clientY,
-      unifiedId: st.unifiedId,
-      currentValue: st.currentValue,
-    });
+    // 2) 안내분류 설정 패널 오픈
+    const st2 = guideDownRef.current;
+    guideDownRef.current = null;
+    if (st2?.pending) {
+      setGuidePanelInitialPartner(normalizeName(st2.partnerName));
+      setIsPartnerGuideOpen(true);
+    }
   }
 
   return (
@@ -250,20 +329,6 @@ export default function UnifiedMainView() {
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
         onAddTemplate={() => setIsAddTemplateOpen(true)}
       />
-
-      {/* ✅ 안내분류 설정 버튼(공용 컴포넌트 수정 없이 View에서만 추가) */}
-      <div className="px-2 py-1 border-b bg-white flex items-center gap-2">
-        <button
-          type="button"
-          className="text-xs px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
-          onClick={() => setIsPartnerGuideOpen(true)}
-        >
-          안내분류 설정
-        </button>
-        <div className="text-[11px] text-slate-500">
-          거래처별 안내분류 매핑을 관리합니다(드래그 이동/스크롤).
-        </div>
-      </div>
 
       <div
         className="flex-1 min-h-0"
@@ -331,11 +396,12 @@ export default function UnifiedMainView() {
         }}
       />
 
-      {/* ✅ 거래처별 안내분류 설정 패널 */}
+      {/* ✅ 안내분류 컬럼 셀 클릭으로만 오픈 */}
       <PartnerGuidePanel
         open={isPartnerGuideOpen}
         onClose={() => setIsPartnerGuideOpen(false)}
         partnerOptions={partnerOptions}
+        initialPartner={guidePanelInitialPartner}
         onChanged={() => {
           // 매핑 변경은 다른 탭/화면에도 즉시 반영되도록 unified:update emit
           syncEmitUnifiedUpdate();

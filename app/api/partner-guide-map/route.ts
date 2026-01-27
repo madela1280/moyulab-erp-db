@@ -1,4 +1,3 @@
-// app/api/partner-guide-map/route.ts
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
@@ -15,13 +14,33 @@ import { getSessionUser } from "@/lib/auth";
  *   updated_at timestamptz NOT NULL DEFAULT now()
  * );
  *
- * 가이드:
- * - partner_name은 signup-settings의 partnerOptions(거래처분류 옵션) 기준으로 사용
- * - guide_name은 guide_categories.name 중 하나(또는 빈값=null)
+ * 정책:
+ * - PATCH/DELETE로 매핑이 바뀌면, unified 테이블에서 해당 거래처(거래처분류)를 가진 모든 행의 안내분류를 즉시 일괄 반영
+ * - 안내분류 값은 저장형(문자열 or null)으로 유지
  */
 
 function norm(v: any) {
   return String(v ?? "").trim();
+}
+
+async function applyGuideToUnifiedRows(partner_name: string, guide_name: string | null) {
+  const p = norm(partner_name);
+  if (!p) return;
+
+  // ✅ partner_name과 일치하는 통합관리 행들의 "안내분류"를 매핑값으로 overwrite
+  // - guide_name이 null이면 안내분류는 json null로 저장(그리드에서는 ""로 표시됨)
+  await query(
+    `
+    UPDATE unified
+    SET data =
+      CASE
+        WHEN $2::text IS NULL THEN jsonb_set(data, '{안내분류}', 'null'::jsonb, true)
+        ELSE jsonb_set(data, '{안내분류}', to_jsonb($2::text), true)
+      END
+    WHERE btrim(COALESCE(data->>'거래처분류','')) = $1
+    `,
+    [p, guide_name]
+  );
 }
 
 export async function GET(req: Request) {
@@ -100,6 +119,9 @@ export async function PATCH(req: Request) {
     [partner_name, guideValue, user.username]
   );
 
+  // ✅ 통합관리(unified)에도 즉시 반영
+  await applyGuideToUnifiedRows(partner_name, guideValue);
+
   return NextResponse.json({ ok: true, partner_name, guide_name: guideValue });
 }
 
@@ -119,6 +141,9 @@ export async function DELETE(req: Request) {
   if (!partner_name) return NextResponse.json({ error: "INVALID_PARTNER" }, { status: 400 });
 
   await query(`DELETE FROM partner_guide_map WHERE partner_name=$1`, [partner_name]);
+
+  // ✅ 매핑 삭제는 통합관리 안내분류도 비움(null)으로 즉시 반영
+  await applyGuideToUnifiedRows(partner_name, null);
 
   return NextResponse.json({ ok: true, partner_name });
 }
