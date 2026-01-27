@@ -1,3 +1,4 @@
+// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\bulk-patch\route.ts
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
@@ -101,7 +102,19 @@ export async function POST(req: Request) {
   // 정규화 (patch / data 둘 다 허용)
   const updates = updatesRaw.map((u: any) => {
     const id = Number(u?.id);
-    const patch = u?.patch ?? u?.data;
+    const patchRaw = u?.patch ?? u?.data;
+
+    // ✅ "상태"는 파생 표시 컬럼이므로 bulk 저장 대상에서 제외(무시)
+    // - 업로드/붙여넣기에서 상태가 들어와도 DB에 박히지 않게 원천 차단
+    const patch =
+      isPlainObject(patchRaw)
+        ? (() => {
+            const copy: Record<string, any> = { ...(patchRaw as any) };
+            delete copy["상태"];
+            return copy;
+          })()
+        : patchRaw;
+
     return { id, patch };
   });
 

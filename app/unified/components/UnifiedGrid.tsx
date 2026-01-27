@@ -22,6 +22,9 @@ import {
   DEFAULT_COL_WIDTH_UNIT_BY_KEY,
 } from "@/unified/columns/unifiedColumns";
 
+import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
+import { useUnifiedStatusTicker } from "@/unified/status/useUnifiedStatusTicker";
+
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
 };
@@ -63,6 +66,23 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     const [totalCount, setTotalCount] = useState<number>(0);
     const [baseIndex, setBaseIndex] = useState<number>(1); // rows[0]의 "전체 기준" 행번호(1-based)
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
+
+ // ✅ 상태 컬럼은 DB 저장값이 아니라 "오늘 기준 파생 표시"로 처리
+// - 자정에 자동으로 다시 계산되어 만기 D-5→D-4 같은 변화가 반영됨
+const { today } = useUnifiedStatusTicker();
+
+function getDerivedStatusForRow(rowData: Record<string, any>) {
+  return calcUnifiedStatus(
+    {
+      택배발송일: rowData?.["택배발송일"],
+      시작일: rowData?.["시작일"],
+      종료일: rowData?.["종료일"],
+      반납요청일: rowData?.["반납요청일"],
+      반납완료일: rowData?.["반납완료일"],
+    },
+    today
+  );
+}
 
    // ===== 최신 state 스냅샷(ref) 유지: syncListen 중복구독/스테일 클로저 방지 =====
 const rowsRef = useRef<UnifiedRow[]>([]);
@@ -717,8 +737,10 @@ async function refreshCountAndMaybeReload() {
 
     /* --------------------- 셀 저장 --------------------- */
     async function saveCell(id: number, key: string, value: string) {
-      await syncPatch(id, key, value);
-    }
+  // ✅ "상태"는 파생 표시이므로 DB에 저장/수정하지 않음
+  if (key === "상태") return;
+  await syncPatch(id, key, value);
+}
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
     async function handleFocus(
@@ -1271,9 +1293,11 @@ async function refreshCountAndMaybeReload() {
 
           const newData: Record<string, any> = { ...row.data };
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-            const colKey = viewColumns[cIndex];
-            if (colKey) newData[colKey] = "";
-          }
+  const colKey = viewColumns[cIndex];
+  if (!colKey) continue;
+  if (colKey === "상태") continue; // ✅ 상태는 파생값이므로 제외
+  newData[colKey] = "";
+}
           next[rIndex] = { ...row, data: newData };
           updates.push({ id: row.id, patch: newData });
         }
@@ -1311,8 +1335,9 @@ async function refreshCountAndMaybeReload() {
 
         const newData: Record<string, any> = { ...row.data };
         viewColumns.forEach((key) => {
-          newData[key] = "";
-        });
+  if (key === "상태") return; // ✅ 상태는 파생값이므로 제외
+  newData[key] = "";
+});
 
         next[i] = { ...row, data: newData };
         updates.push({ id: row.id, patch: newData });
@@ -1348,8 +1373,12 @@ async function refreshCountAndMaybeReload() {
           const cells: string[] = [];
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
             const colKey = viewColumns[cIndex];
-            const v = (row.data[colKey] ?? "") as string;
-            cells.push(v);
+            const v =
+  colKey === "상태"
+    ? getDerivedStatusForRow(row.data ?? {}).status
+    : ((row.data[colKey] ?? "") as string);
+
+cells.push(v);
           }
           lines.push(cells.join("\t"));
         }
@@ -1374,8 +1403,14 @@ async function refreshCountAndMaybeReload() {
       }
 
       const lines = slice.map((row) =>
-        viewColumns.map((key) => (row.data[key] ?? "") as string).join("\t")
-      );
+  viewColumns
+    .map((key) =>
+      key === "상태"
+        ? getDerivedStatusForRow(row.data ?? {}).status
+        : ((row.data[key] ?? "") as string)
+    )
+    .join("\t")
+);
       const text = lines.join("\n");
 
       try {
@@ -1434,12 +1469,15 @@ async function refreshCountAndMaybeReload() {
         const newData: Record<string, any> = { ...row.data };
 
         for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
-          const colIndex = baseColIndex + colOffset;
-          if (colIndex >= viewColumns.length) break;
-          const key = viewColumns[colIndex];
-          const v = srcRow[colOffset] ?? "";
-          newData[key] = v;
-        }
+  const colIndex = baseColIndex + colOffset;
+  if (colIndex >= viewColumns.length) break;
+
+  const key = viewColumns[colIndex];
+  if (key === "상태") continue; // ✅ 상태는 파생값이므로 제외
+
+  const v = srcRow[colOffset] ?? "";
+  newData[key] = v;
+}
 
         next[rowIndex] = { ...row, data: newData };
         updates.push({ id: row.id, data: newData });
@@ -1718,85 +1756,109 @@ async function refreshCountAndMaybeReload() {
                                  onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
                                >
                                 <input
-                                  className={`w-full bg-transparent outline-none text-slate-900 ${
-                                    key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
-                                }`} 
-                                   value={
-                                      activeEditCell &&
-                                      activeEditCell.rowId === row.id &&
-                                      activeEditCell.key === key
-                                        ? activeEditValue
-                                        : (row.data[key] ?? "")
-                                  }
-                                 data-row={rowIndex}
-                                 data-col={colIndex}
-                                 onFocus={(e) => {
-                                     setSelectedRowRange(null);
-                                     const initial = String(row.data[key] ?? "");
-                                     handleFocus(row.id, key, initial, e);
-                                   }}
-                                   onChange={(e) => {
-                                    if (
-                                      activeEditCell &&
-                                      activeEditCell.rowId === row.id &&
-                                      activeEditCell.key === key
-                                    ) {
-                                      setActiveEditValue(e.target.value);
-                                    }
-                                    if (myRowLocks[row.id]) {
-                                      updateLocalCell(row.id, key, e.target.value);
-                                    }
-                                  }}
-                                  onPaste={(e) => {
-                                    if (skipNextNativePasteRef.current) {
-                                      skipNextNativePasteRef.current = false;
-                                    }
+  className={`w-full bg-transparent outline-none text-slate-900 ${
+    key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
+  }`}
+  style={
+    key === "상태"
+      ? (() => {
+          const st = getDerivedStatusForRow(row.data ?? {});
+          return st.textColor ? { color: st.textColor } : undefined;
+        })()
+      : undefined
+  }
+  readOnly={key === "상태"}
+  value={
+    key === "상태"
+      ? getDerivedStatusForRow(row.data ?? {}).status
+      : activeEditCell &&
+        activeEditCell.rowId === row.id &&
+        activeEditCell.key === key
+      ? activeEditValue
+      : (row.data[key] ?? "")
+  }
+  data-row={rowIndex}
+  data-col={colIndex}
+  onFocus={(e) => {
+    setSelectedRowRange(null);
 
-                                    const hasRange = !!selectedCellRange || !!selectedRowRange;
-                                    if (!hasRange) return;
+    // ✅ 상태는 표시 전용: 락/편집 흐름 진입 금지
+    if (key === "상태") return;
 
-                                    const text = e.clipboardData?.getData("text/plain") ?? "";
-                                    if (!text) return;
+    const initial = String(row.data[key] ?? "");
+    handleFocus(row.id, key, initial, e);
+  }}
+  onChange={(e) => {
+    // ✅ 상태는 표시 전용
+    if (key === "상태") return;
 
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    void pasteTextToSelectedRange(text);
-                                  }}
-                                  onBlur={async (e) => {
-                                    const v = e.target.value as string;
+    if (
+      activeEditCell &&
+      activeEditCell.rowId === row.id &&
+      activeEditCell.key === key
+    ) {
+      setActiveEditValue(e.target.value);
+    }
+    if (myRowLocks[row.id]) {
+      updateLocalCell(row.id, key, e.target.value);
+    }
+  }}
+  onPaste={(e) => {
+    // ✅ 상태는 표시 전용
+    if (key === "상태") return;
 
-                                    editingCellRef.current = null;
-                                    setActiveEditCell(null);
-                                    setActiveEditValue("");
+    if (skipNextNativePasteRef.current) {
+      skipNextNativePasteRef.current = false;
+    }
 
-                                    if (!myRowLocks[row.id]) {
-                                      // 편집 중 원격 변경이 들어왔으면, 편집 종료 후 보이는 행만 부분 갱신
-                                      if (pendingReloadRef.current) {
-                                        pendingReloadRef.current = false;
-                                        await refreshVisibleRowsFromServer();
-                                      }
-                                      return;
-                                    }
+    const hasRange = !!selectedCellRange || !!selectedRowRange;
+    if (!hasRange) return;
 
-                                    suppressReloadFor(800);
-                                    updateLocalCell(row.id, key, v);
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (!text) return;
 
-                                    await saveCell(row.id, key, v);
-                                    await releaseLock("unified", row.id);
+    e.preventDefault();
+    e.stopPropagation();
+    void pasteTextToSelectedRange(text);
+  }}
+  onBlur={async (e) => {
+    // ✅ 상태는 표시 전용(저장/락 흐름 없음)
+    if (key === "상태") return;
 
-                                    setMyRowLocks((prev) => {
-                                      const copy = { ...prev };
-                                      delete copy[row.id];
-                                      return copy;
-                                    });
+    const v = e.target.value as string;
 
-                                    if (pendingReloadRef.current) {
-                                      pendingReloadRef.current = false;
-                                      await refreshVisibleRowsFromServer();
-                                    }
-                                  }}
-                                  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-                                />
+    editingCellRef.current = null;
+    setActiveEditCell(null);
+    setActiveEditValue("");
+
+    if (!myRowLocks[row.id]) {
+      // 편집 중 원격 변경이 들어왔으면, 편집 종료 후 보이는 행만 부분 갱신
+      if (pendingReloadRef.current) {
+        pendingReloadRef.current = false;
+        await refreshVisibleRowsFromServer();
+      }
+      return;
+    }
+
+    suppressReloadFor(800);
+    updateLocalCell(row.id, key, v);
+
+    await saveCell(row.id, key, v);
+    await releaseLock("unified", row.id);
+
+    setMyRowLocks((prev) => {
+      const copy = { ...prev };
+      delete copy[row.id];
+      return copy;
+    });
+
+    if (pendingReloadRef.current) {
+      pendingReloadRef.current = false;
+      await refreshVisibleRowsFromServer();
+    }
+  }}
+  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+/>
                               </td>
                             );
                           })}

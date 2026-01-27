@@ -1,3 +1,5 @@
+// app/api/unified/[id]/route.ts
+
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
@@ -122,8 +124,10 @@ export async function PATCH(req: Request) {
   const source = old.rows[0]?.data || {};
 
   // ⭐ null 값도 정확하게 merge (삭제 반영)
+  // ✅ "상태" 컬럼은 파생 표시용이므로, 서버 저장 대상에서 제외(무시)
   const merged: Record<string, any> = { ...source };
   for (const key in body) {
+    if (key === "상태") continue; // ✅ 상태 저장 차단
     merged[key] = (body as any)[key]; // body[key] === null → null 저장
   }
 
@@ -166,8 +170,6 @@ export async function DELETE(req: Request) {
   // 삭제 성공
   return NextResponse.json({ ok: true });
 }
-
-
 
 
 
