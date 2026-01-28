@@ -479,8 +479,11 @@ function setWidthUnit(key: string, unit: number) {
     } | null>(null);
     const [activeEditValue, setActiveEditValue] = useState<string>("");
 
-    // 포커스 경쟁/이탈 처리용
+        // 포커스 경쟁/이탈 처리용
     const focusSeqRef = useRef(0);
+
+    // ✅ 락 획득이 끝나기 전에 blur가 나가도 저장이 되도록 "락 대기"를 추적
+    const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
 
     // Ctrl+V로 우리가 직접 붙여넣기 처리할 때, 브라우저 기본 paste 1회를 무시하기 위한 플래그
     const skipNextNativePasteRef = useRef(false);
@@ -1013,7 +1016,13 @@ await syncPatch(id, key, value);
       setActiveEditCell({ rowId, key });
       setActiveEditValue(initialValue ?? "");
 
-      const result = await acquireLock("unified", rowId);
+            const p = acquireLock("unified", rowId);
+      lockPendingRef.current[rowId] = p;
+
+      const result = await p;
+
+      // 완료되면 pending 해제
+      lockPendingRef.current[rowId] = null;
 
       // 포커스가 이미 다른 셀로 이동한 경우(경쟁 상태) 처리
       const stillActive =
@@ -2109,17 +2118,18 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
   const initial = String(row.data[key] ?? "");
   handleFocus(row.id, key, initial, e);
 }}
-        onChange={(e) => {
+               onChange={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
           if (activeEditCell && activeEditCell.rowId === row.id && activeEditCell.key === key) {
             setActiveEditValue(e.target.value);
           }
-          if (myRowLocks[row.id]) {
-            updateLocalCell(row.id, key, e.target.value);
-          }
+
+          // ✅ 락이 아직 도착 전이어도 로컬 rows는 즉시 갱신해서 입력이 “사라지지” 않게 함
+          updateLocalCell(row.id, key, e.target.value);
         }}
+
         onPaste={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
@@ -2138,44 +2148,70 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           e.stopPropagation();
           void pasteTextToSelectedRange(text);
         }}
-        onBlur={async (e) => {
+                onBlur={async (e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
           const v = e.target.value as string;
 
-          editingCellRef.current = null;
-          setActiveEditCell(null);
-          setActiveEditValue("");
+          // ✅ stale 방지: 이 onBlur 실행 시점의 락 보유 여부를 로컬 변수로 확정
+          let hasLock = !!myRowLocks[row.id];
 
-          if (!myRowLocks[row.id]) {
+          // ✅ blur가 먼저 와도 handleFocus의 락 완료를 잠깐 기다려본다
+          if (!hasLock) {
+            const pending = lockPendingRef.current[row.id];
+            if (pending) {
+              const result = await pending.catch(() => null);
+              if (result?.ok) {
+                hasLock = true;
+                setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+              }
+            }
+          }
+
+          // ✅ 끝까지 락이 없으면 저장하지 않고 서버값으로 되돌림
+          if (!hasLock) {
+            editingCellRef.current = null;
+            setActiveEditCell(null);
+            setActiveEditValue("");
+
+            // 혹시 원격 업데이트 보류가 있었다면 1번만 반영
+            if (pendingReloadRef.current) pendingReloadRef.current = false;
+
+            await refreshVisibleRowsFromServer();
+            unfreezeDisplayRows();
+            return;
+          }
+
+          try {
+            suppressReloadFor(800);
+            updateLocalCell(row.id, key, v);
+
+            // ✅ 저장(=syncPatch) 시도
+            await saveCell(row.id, key, v);
+          } finally {
+            // ✅ 저장 성공/실패와 무관하게 락 해제는 시도(락 고착 방지)
+            await releaseLock("unified", row.id);
+
+            setMyRowLocks((prev) => {
+              const copy = { ...prev };
+              delete copy[row.id];
+              return copy;
+            });
+
+            editingCellRef.current = null;
+            setActiveEditCell(null);
+            setActiveEditValue("");
+
             if (pendingReloadRef.current) {
               pendingReloadRef.current = false;
               await refreshVisibleRowsFromServer();
             }
-            return;
+
+            // ✅ 편집 종료 시: 스냅샷 해제(필터/정렬 최신 반영)
+            unfreezeDisplayRows();
           }
-
-          suppressReloadFor(800);
-          updateLocalCell(row.id, key, v);
-
-          await saveCell(row.id, key, v);
-          await releaseLock("unified", row.id);
-
-          setMyRowLocks((prev) => {
-            const copy = { ...prev };
-            delete copy[row.id];
-            return copy;
-          });
-
-          if (pendingReloadRef.current) {
-  pendingReloadRef.current = false;
-  await refreshVisibleRowsFromServer();
-}
-
-// ✅ 편집 종료 시: 스냅샷 해제(필터/정렬 최신 반영)
-unfreezeDisplayRows();
-}}
+        }}
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                />
     </td>
