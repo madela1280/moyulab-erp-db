@@ -961,7 +961,7 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
 );
 
     /* --------------------- 로컬 셀 값 반영 --------------------- */
-    function freezeDisplayRowsIfNeeded() {
+function freezeDisplayRowsIfNeeded() {
   if (displayRowsFrozen) return;
   setDisplayRowsFrozen(computedDisplayRows);
 }
@@ -978,6 +978,16 @@ function updateFrozenRow(id: number, key: string, value: string) {
     if (!prev) return prev;
     return prev.map((r) => (r.id === id ? { ...r, data: { ...r.data, [key]: value } } : r));
   });
+}
+
+// ✅ 누락되어 빌드가 깨진 함수: 로컬 rows(+ frozen snapshot) 둘 다 갱신
+function updateLocalCell(id: number, key: string, value: string) {
+  setRows((prev) =>
+    prev.map((r) => (r.id === id ? { ...r, data: { ...(r.data ?? {}), [key]: value } } : r))
+  );
+
+  // 필터/정렬 편집 중 스냅샷도 같이 갱신(화면 값 “안 바뀌는 것처럼” 보이는 문제 방지)
+  updateFrozenRow(id, key, value);
 }
 
     /* --------------------- 셀 저장 --------------------- */
