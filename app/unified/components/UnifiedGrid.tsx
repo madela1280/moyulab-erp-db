@@ -253,11 +253,14 @@ const computedDisplayRows = useMemo(() => {
 
   let out = rows;
 
-  // filter: 표시값 기준
+   // filter: 표시값 기준
   if (filterState?.selectedByKey) {
     const entries = Object.entries(filterState.selectedByKey);
     if (entries.length) {
       out = out.filter((row) => {
+        // ✅ 필터 중 편집/저장한 행은 잠깐 유지(사라짐=튕김 체감 방지)
+        if (isPinnedRow(row.id)) return true;
+
         for (const [key, selectedSet] of entries) {
           if (!selectedSet || selectedSet.size === 0) continue;
           const v = getDisplayText(row, key);
@@ -482,8 +485,25 @@ function setWidthUnit(key: string, unit: number) {
         // 포커스 경쟁/이탈 처리용
     const focusSeqRef = useRef(0);
 
-    // ✅ 락 획득이 끝나기 전에 blur가 나가도 저장이 되도록 "락 대기"를 추적
+        // ✅ 락 획득이 끝나기 전에 blur가 나가도 저장이 되도록 "락 대기"를 추적
     const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
+
+    // ✅ 필터 상태에서 편집/저장 직후 행이 사라져 “튕김”처럼 보이는 문제 방지용 핀(잠깐 유지)
+    const pinnedRowsRef = useRef<Record<number, number>>({}); // { [rowId]: expiresAtMs }
+
+    function pinRow(rowId: number, ms = 8000) {
+      pinnedRowsRef.current[rowId] = Date.now() + ms;
+    }
+
+    function isPinnedRow(rowId: number) {
+      const exp = pinnedRowsRef.current[rowId];
+      if (!exp) return false;
+      if (exp < Date.now()) {
+        delete pinnedRowsRef.current[rowId];
+        return false;
+      }
+      return true;
+    }
 
     // Ctrl+V로 우리가 직접 붙여넣기 처리할 때, 브라우저 기본 paste 1회를 무시하기 위한 플래그
     const skipNextNativePasteRef = useRef(false);
@@ -2106,11 +2126,14 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
         }
         data-row={rowIndex}
         data-col={colIndex}
-        onFocus={(e) => {
+                onFocus={(e) => {
   setSelectedRowRange(null);
 
   // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용: 락/편집 흐름 진입 금지
   if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+
+  // ✅ 편집/저장 직후 필터에서 사라지지 않게 핀
+  pinRow(row.id);
 
   // ✅ 편집 시작 시: displayRows 스냅샷 고정(필터/정렬로 행이 튕기는 것 방지)
   freezeDisplayRowsIfNeeded();
@@ -2118,18 +2141,17 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
   const initial = String(row.data[key] ?? "");
   handleFocus(row.id, key, initial, e);
 }}
-               onChange={(e) => {
+
+                  onChange={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
+          // ✅ 입력 안정성 최우선: 타이핑 중에는 rows(setRows)를 건드리지 않는다(키 입력 누락/잘림 방지)
           if (activeEditCell && activeEditCell.rowId === row.id && activeEditCell.key === key) {
             setActiveEditValue(e.target.value);
           }
-
-          // ✅ 락이 아직 도착 전이어도 로컬 rows는 즉시 갱신해서 입력이 “사라지지” 않게 함
-          updateLocalCell(row.id, key, e.target.value);
         }}
-
+     
         onPaste={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
@@ -2148,11 +2170,14 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           e.stopPropagation();
           void pasteTextToSelectedRange(text);
         }}
-                onBlur={async (e) => {
+                   onBlur={async (e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
           const v = e.target.value as string;
+
+          // ✅ 편집/저장 직후 필터에서 사라지지 않게 핀(blur 시점에도 연장)
+          pinRow(row.id);
 
           // ✅ stale 방지: 이 onBlur 실행 시점의 락 보유 여부를 로컬 변수로 확정
           let hasLock = !!myRowLocks[row.id];
@@ -2175,7 +2200,6 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             setActiveEditCell(null);
             setActiveEditValue("");
 
-            // 혹시 원격 업데이트 보류가 있었다면 1번만 반영
             if (pendingReloadRef.current) pendingReloadRef.current = false;
 
             await refreshVisibleRowsFromServer();
@@ -2185,12 +2209,13 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
           try {
             suppressReloadFor(800);
+
+            // ✅ rows 반영은 “타이핑 중”이 아니라 “blur 1회”에만(입력 누락/잘림 방지)
             updateLocalCell(row.id, key, v);
 
-            // ✅ 저장(=syncPatch) 시도
+            // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
             await saveCell(row.id, key, v);
           } finally {
-            // ✅ 저장 성공/실패와 무관하게 락 해제는 시도(락 고착 방지)
             await releaseLock("unified", row.id);
 
             setMyRowLocks((prev) => {
@@ -2208,10 +2233,9 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
               await refreshVisibleRowsFromServer();
             }
 
-            // ✅ 편집 종료 시: 스냅샷 해제(필터/정렬 최신 반영)
             unfreezeDisplayRows();
           }
-        }}
+        }}     
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                />
     </td>
