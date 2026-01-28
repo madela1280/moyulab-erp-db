@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { computeZeroExtensionDaysFromDates } from "@/views/unified/extensions/extensionCompute";
 
 function getId(req: Request) {
   const url = new URL(req.url);
@@ -148,6 +149,28 @@ export async function PATCH(req: Request) {
     merged[key] = (body as any)[key]; // body[key] === null → null 저장
   }
 
+  // ✅ 0차연장 규칙(최초 1회 기록):
+  // - body에 "0차연장"이 직접 들어온 경우(업로드/수기입력)는 그대로 저장(자동계산 없음)
+  // - "시작일" 또는 "종료일"이 이번 PATCH에서 변경되었고,
+  //   현재 DB의 0차연장이 비어있다면(=null/""), 종료일-시작일을 계산하여 1회만 기록
+  if (
+    body &&
+    typeof body === "object" &&
+    !Object.prototype.hasOwnProperty.call(body, "0차연장") &&
+    (Object.prototype.hasOwnProperty.call(body, "시작일") || Object.prototype.hasOwnProperty.call(body, "종료일"))
+  ) {
+    const zeroRaw = normalizeString(merged["0차연장"]);
+    const startRaw = normalizeString(merged["시작일"]);
+    const endRaw = normalizeString(merged["종료일"]);
+
+    if (!zeroRaw) {
+      const computed = computeZeroExtensionDaysFromDates(startRaw, endRaw);
+      if (computed != null) {
+        merged["0차연장"] = computed;
+      }
+    }
+  }
+
   // ✅ 거래처분류가 "이번 PATCH에서 변경되었을 때" 안내분류 자동 세팅
   // - 매핑이 없으면 안내분류는 비움(null)
   if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "거래처분류")) {
@@ -199,4 +222,3 @@ export async function DELETE(req: Request) {
   // 삭제 성공
   return NextResponse.json({ ok: true });
 }
-
