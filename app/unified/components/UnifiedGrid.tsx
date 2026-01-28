@@ -241,7 +241,10 @@ const filterMode = !!props.filterMode;
 const filterState = props.filterState;
 const sortState = props.sortState;
 
-const displayRows = useMemo(() => {
+// ✅ 편집 중에는 displayRows를 스냅샷으로 고정(행 튕김/사라짐 방지)
+const [displayRowsFrozen, setDisplayRowsFrozen] = useState<UnifiedRow[] | null>(null);
+
+const computedDisplayRows = useMemo(() => {
   function getDisplayText(row: UnifiedRow, key: string) {
     if (key === "상태") return String(getDerivedStatusForRow(row.data ?? {}).status ?? "");
     if (key === "총연장횟수") return String(countExtensionRounds(row.data ?? {}));
@@ -250,7 +253,7 @@ const displayRows = useMemo(() => {
 
   let out = rows;
 
-  // ✅ filter: 체크된 값들은 "표시값" 기준으로 비교
+  // filter: 표시값 기준
   if (filterState?.selectedByKey) {
     const entries = Object.entries(filterState.selectedByKey);
     if (entries.length) {
@@ -265,7 +268,7 @@ const displayRows = useMemo(() => {
     }
   }
 
-  // ✅ sort: "표시값" 기준으로 정렬
+  // sort: 표시값 기준
   if (sortState?.key) {
     const k = sortState.key;
     const dir = sortState.dir === "desc" ? "desc" : "asc";
@@ -281,6 +284,8 @@ const displayRows = useMemo(() => {
 
   return out;
 }, [rows, filterState, sortState, today]);
+
+const displayRows = displayRowsFrozen ?? computedDisplayRows;
 
 // ✅ (추가) 필터 팝오버 상태
 const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
@@ -956,13 +961,24 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
 );
 
     /* --------------------- 로컬 셀 값 반영 --------------------- */
-    function updateLocalCell(id: number, key: string, value: string) {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === id ? { ...row, data: { ...row.data, [key]: value } } : row
-        )
-      );
-    }
+    function freezeDisplayRowsIfNeeded() {
+  if (displayRowsFrozen) return;
+  setDisplayRowsFrozen(computedDisplayRows);
+}
+
+function unfreezeDisplayRows() {
+  if (!displayRowsFrozen) return;
+  setDisplayRowsFrozen(null);
+}
+
+// 편집 중 스냅샷에도 동일하게 값 반영(화면 값이 안 바뀌는 것처럼 보이는 문제 방지)
+function updateFrozenRow(id: number, key: string, value: string) {
+  if (!displayRowsFrozen) return;
+  setDisplayRowsFrozen((prev) => {
+    if (!prev) return prev;
+    return prev.map((r) => (r.id === id ? { ...r, data: { ...r.data, [key]: value } } : r));
+  });
+}
 
     /* --------------------- 셀 저장 --------------------- */
    async function saveCell(id: number, key: string, value: string) {
@@ -2072,14 +2088,17 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
         data-row={rowIndex}
         data-col={colIndex}
         onFocus={(e) => {
-          setSelectedRowRange(null);
+  setSelectedRowRange(null);
 
-          // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용: 락/편집 흐름 진입 금지
-          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+  // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용: 락/편집 흐름 진입 금지
+  if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-          const initial = String(row.data[key] ?? "");
-          handleFocus(row.id, key, initial, e);
-        }}
+  // ✅ 편집 시작 시: displayRows 스냅샷 고정(필터/정렬로 행이 튕기는 것 방지)
+  freezeDisplayRowsIfNeeded();
+
+  const initial = String(row.data[key] ?? "");
+  handleFocus(row.id, key, initial, e);
+}}
         onChange={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
@@ -2140,10 +2159,13 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           });
 
           if (pendingReloadRef.current) {
-            pendingReloadRef.current = false;
-            await refreshVisibleRowsFromServer();
-          }
-        }}
+  pendingReloadRef.current = false;
+  await refreshVisibleRowsFromServer();
+}
+
+// ✅ 편집 종료 시: 스냅샷 해제(필터/정렬 최신 반영)
+unfreezeDisplayRows();
+}}
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                />
     </td>
