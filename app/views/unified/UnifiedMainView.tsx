@@ -12,10 +12,14 @@ import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
 import ExtensionEditPanel from "@/views/unified/extensions/ExtensionEditPanel";
 import { addDaysToEndDate, subDaysFromEndDate } from "@/views/unified/extensions/extensionDate";
-import {
-  parseExtensionCell,
-  type ExtensionCellFields,
-} from "@/views/unified/extensions/extensionFormat";
+import { parseExtensionCell, type ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+
+// ✅ (추가) 통합관리: 필터/칼라/다운로드(심포니와 동일 UX)
+import ColorPopover, { type UnifiedSoftColor } from "@/unified/color/ColorPopover";
+import type { ColorApplyMode } from "@/unified/color/ColorModeToggle";
+import { createEmptyFilterState, type ColumnFilterState } from "@/unified/filter/useUnifiedFilter";
+import { defaultSortState, type UnifiedSortState } from "@/unified/filter/useUnifiedSort";
+import { exportUnifiedCsv } from "@/unified/export/serviceUnifiedExport";
 
 function normalizeName(v: any) {
   return String(v ?? "").trim();
@@ -48,6 +52,15 @@ export default function UnifiedMainView() {
   const gridRef = useRef<UnifiedGridHandle | null>(null);
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
+
+  // ✅ (추가) 필터/정렬
+  const [filterMode, setFilterMode] = useState(false);
+  const [filterState, setFilterState] = useState<ColumnFilterState>(() => createEmptyFilterState());
+  const [sortState, setSortState] = useState<UnifiedSortState>(() => defaultSortState());
+
+  // ✅ (추가) 칼라
+  const [colorOpen, setColorOpen] = useState(false);
+  const [colorAnchor, setColorAnchor] = useState<{ x: number; y: number } | null>(null);
 
   // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로 오픈
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
@@ -176,6 +189,42 @@ export default function UnifiedMainView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // ✅ (추가) 필터/칼라/다운로드 핸들러 (버튼 위치/모양은 GridHeader 그대로)
+  // ---------------------------------------------------------------------------
+  function handleToggleFilterMode() {
+    if (filterMode) {
+      setFilterMode(false);
+      setFilterState(createEmptyFilterState());
+      setSortState(defaultSortState());
+      return;
+    }
+    setFilterMode(true);
+  }
+
+  function openColor(anchor: { x: number; y: number }) {
+    setColorAnchor(anchor);
+    setColorOpen(true);
+  }
+
+  async function applyColor(color: UnifiedSoftColor, mode: ColorApplyMode) {
+    // UnifiedGrid에 핸들러가 연결되면 동작(다음 단계에서 UnifiedGrid에 메서드 추가 예정)
+    const anyRef = gridRef.current as any;
+    await anyRef?.applyColorToSelection?.(color, mode);
+  }
+
+  async function handleDownload() {
+    const blob = await exportUnifiedCsv({ filter: { filterState, sortState } });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "unified.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   // ---------------------------------------------------------------------------
   // 셀 클릭 캡처: 거래처분류/안내분류/1~7차연장
@@ -413,6 +462,10 @@ export default function UnifiedMainView() {
         isColumnEditMode={isColumnEditMode}
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
         onAddTemplate={() => setIsAddTemplateOpen(true)}
+        filterMode={filterMode}
+        onToggleFilterMode={handleToggleFilterMode}
+        onOpenColor={openColor}
+        onDownload={handleDownload}
       />
 
       <div
@@ -428,6 +481,9 @@ export default function UnifiedMainView() {
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
           onColWidthUnitByKeyChange={setColWidthUnitByKey}
+          // ✅ 필터/정렬/칼라는 다음 단계에서 UnifiedGrid에 props/ref로 연결
+          //    (버튼 위치/형태 유지, 기능만 추가)
+          {...({ filterMode, filterState, onFilterStateChange: setFilterState, sortState, onSortStateChange: setSortState } as any)}
         />
       </div>
 
@@ -539,6 +595,13 @@ export default function UnifiedMainView() {
             }
           }
         }}
+      />
+
+      <ColorPopover
+        open={colorOpen}
+        anchor={colorAnchor}
+        onClose={() => setColorOpen(false)}
+        onApply={applyColor}
       />
     </div>
   );

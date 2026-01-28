@@ -7,6 +7,14 @@ type Props = {
 
   // ✅ 양식추가(새 컬럼 추가) 버튼 핸들러
   onAddTemplate: () => void;
+
+  // ✅ (추가) 필터/칼라/다운로드: 버튼 위치/모양은 그대로, onClick만 연결
+  filterMode?: boolean;
+  onToggleFilterMode?: () => void;
+
+  onOpenColor?: (anchor: { x: number; y: number }) => void;
+
+  onDownload?: () => void;
 };
 
 function Icon({ name }: { name: string }) {
@@ -123,6 +131,11 @@ export default function GridHeader({
   isColumnEditMode,
   onToggleColumnEditMode,
   onAddTemplate,
+
+  filterMode,
+  onToggleFilterMode,
+  onOpenColor,
+  onDownload,
 }: Props) {
   return (
     <div className="w-full flex items-center gap-2 px-2 py-2 bg-white border-b">
@@ -131,15 +144,31 @@ export default function GridHeader({
       <div className="flex items-center gap-2">
         <ToolButton icon="folder">안내분류</ToolButton>
         <ToolButton icon="tag">분류</ToolButton>
-        <ToolButton icon="filter">필터</ToolButton>
+
+        <ToolButton icon="filter" onClick={onToggleFilterMode} active={!!filterMode}>
+          필터
+        </ToolButton>
+
         <ToolButton icon="search">검색</ToolButton>
-        <ToolButton icon="palette">칼라</ToolButton>
+
+        {/* ✅ 칼라 버튼: 모양/위치 그대로, 클릭 위치(anchor)만 전달 */}
+        <div
+          onMouseDown={(e) => {
+            if (!onOpenColor) return;
+            onOpenColor({ x: e.clientX, y: e.clientY });
+          }}
+        >
+          <ToolButton icon="palette">칼라</ToolButton>
+        </div>
+
         <ToolButton icon="duplicate">중복</ToolButton>
         <ToolButton icon="check">오류검사</ToolButton>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <ToolButton icon="download">다운로드</ToolButton>
+        <ToolButton icon="download" onClick={onDownload}>
+          다운로드
+        </ToolButton>
 
         <ToolButton icon="plus" onClick={onAdd10}>
           행10추가

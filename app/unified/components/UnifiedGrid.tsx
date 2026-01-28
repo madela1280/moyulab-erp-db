@@ -6,6 +6,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -26,8 +27,24 @@ import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
 import { useUnifiedStatusTicker } from "@/unified/status/useUnifiedStatusTicker";
 import { countExtensionRounds } from "@/views/unified/extensions/extensionCompute";
 
+// ✅ (추가) 통합관리 필터/정렬 UI (심포니 동일 UX)
+import ColumnFilterPopover from "@/unified/filter/ColumnFilterPopover";
+import {
+  applyUnifiedFilter,
+  getUniqueValuesForColumn,
+  isFilterActive,
+  type ColumnFilterState,
+} from "@/unified/filter/useUnifiedFilter";
+import { applyUnifiedSort, type UnifiedSortState } from "@/unified/filter/useUnifiedSort";
+
+// ✅ (추가) 통합관리 칼라
+import { buildUnifiedColorBulkPatch } from "@/unified/color/applyUnifiedColor";
+import type { UnifiedSoftColor } from "@/unified/color/ColorPopover";
+import type { ColorApplyMode } from "@/unified/color/ColorModeToggle";
+
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
+  applyColorToSelection: (color: UnifiedSoftColor, mode: ColorApplyMode) => Promise<void>;
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
@@ -59,6 +76,14 @@ type UnifiedGridProps = {
 
   colWidthUnitByKey?: Record<string, number>;
   onColWidthUnitByKeyChange?: (next: Record<string, number>) => void;
+
+  // ✅ (추가) 필터/정렬 (심포니 동일 UX)
+  filterMode?: boolean;
+  filterState?: ColumnFilterState;
+  onFilterStateChange?: (next: ColumnFilterState) => void;
+
+  sortState?: UnifiedSortState;
+  onSortStateChange?: (next: UnifiedSortState) => void;
 };
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
@@ -211,6 +236,86 @@ function setColWidthUnitByKeyNext(
 
 const viewColumns = columnOrder;
 
+// ✅ (추가) 필터/정렬 적용된 표시 rows
+const filterMode = !!props.filterMode;
+const filterState = props.filterState;
+const sortState = props.sortState;
+
+const displayRows = useMemo(() => {
+  const f = filterState ? applyUnifiedFilter(rows, filterState) : rows;
+  const s = sortState ? applyUnifiedSort(f, sortState) : f;
+  return s;
+}, [rows, filterState, sortState]);
+
+// ✅ (추가) 필터 팝오버 상태
+const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+const [filterPopoverAnchor, setFilterPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
+const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
+
+const filterValues = useMemo(() => {
+  if (!filterColumnKey) return [];
+  return getUniqueValuesForColumn(rows, filterColumnKey);
+}, [rows, filterColumnKey]);
+
+const filterSelectedSet = useMemo(() => {
+  if (!filterColumnKey) return new Set<string>();
+  return (filterState?.selectedByKey?.[filterColumnKey] ?? new Set<string>()) as Set<string>;
+}, [filterState, filterColumnKey]);
+
+const filterSearch = useMemo(() => {
+  if (!filterColumnKey) return "";
+  return String(filterState?.searchByKey?.[filterColumnKey] ?? "");
+}, [filterState, filterColumnKey]);
+
+function closeFilterPopover() {
+  setFilterPopoverOpen(false);
+  setFilterPopoverAnchor(null);
+  setFilterColumnKey(null);
+}
+
+const filterActive = filterState ? isFilterActive(filterState) : false;
+
+function toggleFilterValue(colKey: string, v: string) {
+  if (!props.onFilterStateChange || !filterState) return;
+  const prev = filterState.selectedByKey[colKey] ?? new Set<string>();
+  const nextSet = new Set(prev);
+  if (nextSet.has(v)) nextSet.delete(v);
+  else nextSet.add(v);
+
+  props.onFilterStateChange({
+    ...filterState,
+    selectedByKey: { ...filterState.selectedByKey, [colKey]: nextSet },
+  });
+}
+
+function setFilterSearch(colKey: string, q: string) {
+  if (!props.onFilterStateChange || !filterState) return;
+  props.onFilterStateChange({
+    ...filterState,
+    searchByKey: { ...filterState.searchByKey, [colKey]: q },
+  });
+}
+
+function selectAllFilterValues(colKey: string) {
+  if (!props.onFilterStateChange || !filterState) return;
+  const set = new Set<string>(filterValues);
+  props.onFilterStateChange({
+    ...filterState,
+    selectedByKey: { ...filterState.selectedByKey, [colKey]: set },
+  });
+}
+
+function clearFilterForColumn(colKey: string) {
+  if (!props.onFilterStateChange || !filterState) return;
+  const nextSelected = { ...filterState.selectedByKey };
+  delete nextSelected[colKey];
+
+  props.onFilterStateChange({
+    ...filterState,
+    selectedByKey: nextSelected,
+  });
+}
+
 function isExtensionKey(key: any) {
   return (
     key === "1차연장" ||
@@ -221,6 +326,27 @@ function isExtensionKey(key: any) {
     key === "6차연장" ||
     key === "7차연장"
   );
+}
+
+type CellStyleInfo = { bg?: string; fg?: string };
+
+function cellStyleKey(rowId: number, colKey: string) {
+  return `${rowId}:${colKey}`;
+}
+
+// ✅ Tailwind 스캔 이슈 없이 항상 동작하도록 inline 색으로 렌더
+const INLINE_PALETTE: Record<string, { bg: string; text: string }> = {
+  red: { bg: "#FECACA", text: "#991B1B" },
+  yellow: { bg: "#FEF08A", text: "#854D0E" },
+  blue: { bg: "#BFDBFE", text: "#1E40AF" },
+  green: { bg: "#BBF7D0", text: "#166534" },
+  purple: { bg: "#E9D5FF", text: "#6B21A8" },
+  black: { bg: "#CBD5E1", text: "#0F172A" },
+};
+
+function getCellStyleInfo(rowData: Record<string, any>, rowId: number, colKey: string): CellStyleInfo {
+  const map = (rowData?.__cellStyle ?? {}) as Record<string, CellStyleInfo>;
+  return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
    function moveColLeft(key: string) {
@@ -454,7 +580,7 @@ async function refreshCountAndMaybeReload() {
     function updateVisibleRangeNow() {
   const el = scrollRef.current;
   if (!el) return;
-  const r = calcVisibleRange(el, rows.length);
+ const r = calcVisibleRange(el, displayRows.length);
   visibleRangeRef.current = r;
   setVisibleRange(r);
 }
@@ -740,13 +866,49 @@ async function refreshCountAndMaybeReload() {
       await reload();
     }
 
+// ✅ (추가) 칼라 적용: 선택 셀 범위 기준으로 __cellStyle 저장(bulk-patch)
+async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMode) {
+  if (!selectedCellRange) return;
+
+  const updates = buildUnifiedColorBulkPatch({
+    rows: displayRows,
+    viewColumns,
+    range: selectedCellRange,
+    color,
+    mode,
+  });
+
+  if (!updates.length) return;
+
+  // 로컬 반영(rows는 원본, id 기준으로 갱신)
+  setRows((prev) => {
+    const styleById = new Map<number, any>();
+    for (const u of updates) styleById.set(u.id, (u.patch as any).__cellStyle);
+
+    return prev.map((r) => {
+      const nextStyle = styleById.get(r.id);
+      if (!nextStyle) return r;
+      return { ...r, data: { ...r.data, __cellStyle: nextStyle } };
+    });
+  });
+
+  await fetch(`/api/unified/bulk-patch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
+
+  syncEmitUnifiedUpdate();
+}
+
     useImperativeHandle(
-      ref,
-      () => ({
-        appendBlankRows,
-      }),
-      []
-    );
+  ref,
+  () => ({
+    appendBlankRows,
+    applyColorToSelection,
+  }),
+  [displayRows, selectedCellRange, viewColumns]
+);
 
     /* --------------------- 로컬 셀 값 반영 --------------------- */
     function updateLocalCell(id: number, key: string, value: string) {
@@ -914,7 +1076,7 @@ await syncPatch(id, key, value);
 
     function setCellRangeByPoints(r1: number, c1: number, r2: number, c2: number) {
       const startRow = Math.max(0, Math.min(r1, r2));
-      const endRow = Math.min(rows.length - 1, Math.max(r1, r2));
+      const endRow = Math.min(displayRows.length - 1, Math.max(r1, r2));
       const startCol = Math.max(0, Math.min(c1, c2));
       const endCol = Math.min(viewColumns.length - 1, Math.max(c1, c2));
 
@@ -999,17 +1161,17 @@ await syncPatch(id, key, value);
     /* --------------------- 선택된 행 범위 유틸 --------------------- */
 
     function getSelectedRowRangeInfo() {
-      if (!selectedRowRange)
-        return { start: 0, end: -1, slice: [] as UnifiedRow[] };
-      const { start, end } = selectedRowRange;
-      const safeStart = Math.max(0, start);
-      const safeEnd = Math.min(rows.length - 1, end);
-      return {
-        start: safeStart,
-        end: safeEnd,
-        slice: rows.slice(safeStart, safeEnd + 1),
-      };
-    }
+  if (!selectedRowRange)
+    return { start: 0, end: -1, slice: [] as UnifiedRow[] };
+  const { start, end } = selectedRowRange;
+  const safeStart = Math.max(0, start);
+  const safeEnd = Math.min(displayRows.length - 1, end);
+  return {
+    start: safeStart,
+    end: safeEnd,
+    slice: displayRows.slice(safeStart, safeEnd + 1),
+  };
+}
 
     /* --------------------- 행 컨텍스트 메뉴 --------------------- */
 
@@ -1128,80 +1290,78 @@ await syncPatch(id, key, value);
          
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
-        async function handleInsertRows() {
-      let { start, end } = getSelectedRowRangeInfo();
+     async function handleInsertRows() {
+  let { start, end, slice } = getSelectedRowRangeInfo(); // displayRows 기준
 
-      // 선택이 없으면 현재 selectedRowRange 사용
-      if (end < start) {
-        if (!selectedRowRange) {
-          setRowContextMenu(null);
-          return;
-        }
-        start = selectedRowRange.start;
-        end = selectedRowRange.end;
-      }
+  if (!slice.length) {
+    setRowContextMenu(null);
+    return;
+  }
 
-      const oldLen = rows.length;
-      if (oldLen === 0) {
-        // 빈 상태면 그냥 맨 뒤에 1행 추가
-        await appendBlankRows(1);
-        setRowContextMenu(null);
-        return;
-      }
+  const N = Math.max(1, end - start + 1);
 
-      const N = Math.max(1, end - start + 1); // 삽입할 행 개수 (선택 행 수만큼)
+  // ✅ displayRows 기준으로 before/after id 계산
+  const beforeId = start > 0 ? displayRows[start - 1]?.id ?? null : null;
+  const afterId = displayRows[start]?.id ?? null;
 
-      // "선택 시작 행" 위에 끼워넣기(Excel 스타일)
-            const beforeId = start > 0 ? rows[start - 1]?.id ?? null : null;
-      const afterId = rows[start]?.id ?? null;
+  const insRes = await fetch("/api/unified/insert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count: N, beforeId, afterId }),
+  });
 
-      const insRes = await fetch("/api/unified/insert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          count: N,
-          beforeId,
-          afterId,
-        }),
-      });
+  const insJson = await insRes.json();
+  const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
 
-      const insJson = await insRes.json();
-      const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
+  // ✅ 필터/정렬 중에는 인덱스 꼬임 위험이 크므로 로컬 splice 하지 말고 reload로만 반영
+  if (filterMode || (sortState && sortState.key)) {
+    suppressReloadFor(2500);
+    syncEmitUnifiedUpdate();
+    setRowContextMenu(null);
+    await reload();
+    return;
+  }
 
-      // 로컬에 즉시 반영(체감 속도 향상)
-      suspendScrollLoadBriefly();
+  // ✅ 평상시(필터/정렬 없음)에는 기존처럼 로컬 즉시 반영(단, insertAt은 id로 찾기)
+  suspendScrollLoadBriefly();
 
-      if (insertedRows.length) {
-        setRows((prev) => {
-          const next = [...prev];
-          const insertAt = Math.max(0, Math.min(start, next.length));
-          const blanks: UnifiedRow[] = insertedRows.map((x) => ({
-            id: Number(x.id),
-            sort_key: Number(x.sort_key),
-            data: {},
-          }));
+  if (insertedRows.length) {
+    setRows((prev) => {
+      const next = [...prev];
+      const insertAt =
+        afterId != null ? Math.max(0, next.findIndex((r) => r.id === afterId)) : 0;
 
-          next.splice(insertAt, 0, ...blanks);
+      const blanks: UnifiedRow[] = insertedRows.map((x) => ({
+        id: Number(x.id),
+        sort_key: Number(x.sort_key),
+        data: {},
+      }));
 
-          // 하단 잘라서 DOM 과부하 방지
-          if (next.length > WINDOW_MAX_ROWS) return next.slice(0, WINDOW_MAX_ROWS);
-          return next;
-        });
+      const safeAt = insertAt < 0 ? 0 : Math.min(insertAt, next.length);
+      next.splice(safeAt, 0, ...blanks);
 
-       // ★ 추가: 맨 앞에 삽입하면 rows[0]의 전체 행번호 기준점이 위로 당겨져야 함
-        if (start === 0) setBaseIndex((b) => Math.max(1, b - insertedRows.length));
+      if (next.length > WINDOW_MAX_ROWS) return next.slice(0, WINDOW_MAX_ROWS);
+      return next;
+    });
 
-        setTotalCount((t) => t + insertedRows.length);
-      }
+    // ✅ 맨 앞에 삽입된 경우에만 baseIndex 보정
+if (afterId != null) {
+  setRows((prev) => {
+    const insertAt = prev.findIndex((r) => r.id === afterId);
+    if (insertAt === 0) setBaseIndex((b) => Math.max(1, b - insertedRows.length));
+    return prev;
+  });
+} else {
+  setBaseIndex((b) => Math.max(1, b - insertedRows.length));
+}
 
-       // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
-      suppressReloadFor(2500);
+    setTotalCount((t) => t + insertedRows.length);
+  }
 
-      // 다른 탭에 알림(1번)
-      syncEmitUnifiedUpdate();
-
-      setRowContextMenu(null);         
-    }
+  suppressReloadFor(2500);
+  syncEmitUnifiedUpdate();
+  setRowContextMenu(null);
+}
 
     /* --------------------- 셀 포커스 이동 유틸 --------------------- */
 
@@ -1226,23 +1386,23 @@ await syncPatch(id, key, value);
 
   switch (e.key) {
     case "ArrowDown": {
-      if (rowIndex >= rows.length - 1) return;
-      targetRow = rowIndex + 1;
-      break;
-    }
-    case "ArrowUp": {
-      if (rowIndex <= 0) return;
-      targetRow = rowIndex - 1;
-      break;
-    }
+  if (rowIndex >= displayRows.length - 1) return;
+  targetRow = rowIndex + 1;
+  break;
+}
+case "ArrowUp": {
+  if (rowIndex <= 0) return;
+  targetRow = rowIndex - 1;
+  break;
+}
     case "ArrowRight": {
       if (colIndex < viewColumns.length - 1) {
         targetCol = colIndex + 1;
-      } else {
-        if (rowIndex >= rows.length - 1) return;
-        targetRow = rowIndex + 1;
-        targetCol = 0;
-      }
+     } else {
+  if (rowIndex >= displayRows.length - 1) return;
+  targetRow = rowIndex + 1;
+  targetCol = 0;
+}
       break;
     }
     case "ArrowLeft": {
@@ -1318,43 +1478,48 @@ await syncPatch(id, key, value);
 
         async function handleClearSelectedRows() {
       // 1) 셀 범위가 있으면 셀만 지우기
-      if (selectedCellRange) {
-        const { startRow, endRow, startCol, endCol } = selectedCellRange;
+     if (selectedCellRange) {
+  const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
-        const next = [...rows];
-        const updates: { id: number; patch: Record<string, any> }[] = [];
+  const updates: { id: number; patch: Record<string, any> }[] = [];
 
-        for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
-          const row = next[rIndex];
-          if (!row) continue;
+  // displayRows 기준 선택 → id로 rows를 갱신
+  const selected = displayRows.slice(startRow, endRow + 1);
+  const idSet = new Set(selected.map((r) => r.id));
 
-          const newData: Record<string, any> = { ...row.data };
-          for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-  const colKey = viewColumns[cIndex];
-  if (!colKey) continue;
-  if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
-newData[colKey] = "";
-}
-          next[rIndex] = { ...row, data: newData };
-          updates.push({ id: row.id, patch: newData });
-        }
+  setRows((prev) => {
+    const next = prev.map((r) => {
+      if (!idSet.has(r.id)) return r;
 
-        suspendScrollLoadBriefly();
-        setRows(next);
-
-        await fetch(`/api/unified/bulk-patch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ updates }),
-        });
-
-         // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
-        suppressReloadFor(2500);
-
-        syncEmitUnifiedUpdate();
-        setRowContextMenu(null);
-        return;
+      const newData: Record<string, any> = { ...r.data };
+      for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+        const colKey = viewColumns[cIndex];
+        if (!colKey) continue;
+        if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
+        newData[colKey] = "";
       }
+
+      updates.push({ id: r.id, patch: newData });
+      return { ...r, data: newData };
+    });
+
+    return next;
+  });
+
+  suspendScrollLoadBriefly();
+
+  await fetch(`/api/unified/bulk-patch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
+
+  suppressReloadFor(2500);
+
+  syncEmitUnifiedUpdate();
+  setRowContextMenu(null);
+  return;
+}
 
       // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
       const { start, end, slice } = getSelectedRowRangeInfo();
@@ -1364,24 +1529,25 @@ newData[colKey] = "";
       }
 
       const updates: { id: number; patch: Record<string, any> }[] = [];
-      const next = [...rows];
+const ids = slice.map((r) => r.id);
+const idSet = new Set(ids);
 
-      for (let i = start; i <= end; i++) {
-        const row = next[i];
-        if (!row) continue;
+setRows((prev) =>
+  prev.map((r) => {
+    if (!idSet.has(r.id)) return r;
 
-        const newData: Record<string, any> = { ...row.data };
-        viewColumns.forEach((key) => {
-  if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-  newData[key] = "";
-});
+    const newData: Record<string, any> = { ...r.data };
+    viewColumns.forEach((key) => {
+      if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+      newData[key] = "";
+    });
 
-        next[i] = { ...row, data: newData };
-        updates.push({ id: row.id, patch: newData });
-      }
+    updates.push({ id: r.id, patch: newData });
+    return { ...r, data: newData };
+  })
+);
 
-        suspendScrollLoadBriefly();
-        setRows(next);
+suspendScrollLoadBriefly();
 
         await fetch(`/api/unified/bulk-patch`, {
         method: "POST",
@@ -1405,8 +1571,8 @@ newData[colKey] = "";
 
         const lines: string[] = [];
         for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
-          const row = rows[rIndex];
-          if (!row) continue;
+  const row = displayRows[rIndex];
+  if (!row) continue;
           const cells: string[] = [];
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
             const colKey = viewColumns[cIndex];
@@ -1466,79 +1632,77 @@ cells.push(v);
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
 
     async function pasteTextToSelectedRange(text: string) {
-      let baseRowIndex: number;
-      let baseColIndex: number;
+  let baseRowIndex: number;
+  let baseColIndex: number;
 
-      if (selectedCellRange) {
-        baseRowIndex = selectedCellRange.startRow;
-        baseColIndex = selectedCellRange.startCol;
-      } else {
-        const { start } = getSelectedRowRangeInfo();
-        baseRowIndex = start >= 0 ? start : 0;
-        baseColIndex = 0;
+  if (selectedCellRange) {
+    baseRowIndex = selectedCellRange.startRow;
+    baseColIndex = selectedCellRange.startCol;
+  } else {
+    const { start } = getSelectedRowRangeInfo(); // displayRows 기준
+    baseRowIndex = start >= 0 ? start : 0;
+    baseColIndex = 0;
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0);
+
+  if (!lines.length) {
+    setRowContextMenu(null);
+    return;
+  }
+
+  const parsed = lines.map((line) => line.split("\t"));
+
+  // ✅ displayRows 기준으로만 붙여넣기(필터/정렬 중 인덱스 꼬임 방지)
+  const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
+  if (!targetRows.length) {
+    setRowContextMenu(null);
+    return;
+  }
+
+  const updates: { id: number; patch: Record<string, any> }[] = [];
+  const idSet = new Set(targetRows.map((r) => r.id));
+
+  setRows((prev) =>
+    prev.map((r) => {
+      if (!idSet.has(r.id)) return r;
+
+      const targetIndex = targetRows.findIndex((x) => x.id === r.id);
+      if (targetIndex < 0) return r;
+
+      const srcRow = parsed[targetIndex] ?? [];
+      const newData: Record<string, any> = { ...r.data };
+
+      for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
+        const colIndex = baseColIndex + colOffset;
+        if (colIndex >= viewColumns.length) break;
+
+        const key = viewColumns[colIndex];
+        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
+
+        const v = srcRow[colOffset] ?? "";
+        newData[key] = v;
       }
 
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trimEnd())
-        .filter((l) => l.length > 0);
+      updates.push({ id: r.id, patch: newData });
+      return { ...r, data: newData };
+    })
+  );
 
-      if (!lines.length) {
-        setRowContextMenu(null);
-        return;
-      }
+  await fetch(`/api/unified/bulk-patch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
 
-      const parsed = lines.map((line) => line.split("\t"));
-      const lineCount = parsed.length;
+  suppressReloadFor(2500);
 
-      const requiredRowCount = baseRowIndex + lineCount;
-
-      if (requiredRowCount > rows.length) {
-        const need = requiredRowCount - rows.length;
-        await appendBlankRows(need);
-      }
-
-      const next = [...rows];
-      const updates: { id: number; data: Record<string, any> }[] = [];
-
-      for (let rowOffset = 0; rowOffset < lineCount; rowOffset++) {
-        const rowIndex = baseRowIndex + rowOffset;
-        const row = next[rowIndex];
-        if (!row) continue;
-
-        const srcRow = parsed[rowOffset];
-        const newData: Record<string, any> = { ...row.data };
-
-        for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
-  const colIndex = baseColIndex + colOffset;
-  if (colIndex >= viewColumns.length) break;
-
-  const key = viewColumns[colIndex];
-if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
-const v = srcRow[colOffset] ?? "";
-newData[key] = v;
+  syncEmitUnifiedUpdate();
+  setRowContextMenu(null);
 }
-
-        next[rowIndex] = { ...row, data: newData };
-        updates.push({ id: row.id, data: newData });
-      }
-
-      setRows(next);
-
-      const bulkUpdates = updates.map((u) => ({ id: u.id, patch: u.data }));
-
-      await fetch(`/api/unified/bulk-patch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: bulkUpdates }),
-      });
-
-      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
-      suppressReloadFor(2500);
-
-      syncEmitUnifiedUpdate();
-      setRowContextMenu(null);
-    }
 
     async function handlePasteToSelectedRowsFromClipboard() {
       let text = "";
@@ -1572,15 +1736,17 @@ newData[key] = v;
           // ★ 테이블(셀) 안을 클릭한 건 선택/드래그 동작이므로 여기서 선택 초기화하면 안 됨
           if (target.closest("table")) return;
 
-          if (
-            target.closest('[data-row-header="1"]') ||
-            target.closest('[data-context-menu="1"]')
-          )
-            return;
+         if (
+  target.closest('[data-row-header="1"]') ||
+  target.closest('[data-context-menu="1"]') ||
+  target.closest('[data-filter-popover="1"]')
+)
+  return;
 
-          setSelectedRowRange(null);
-          setSelectedCellRange(null);
-          setRowContextMenu(null);
+setSelectedRowRange(null);
+setSelectedCellRange(null);
+setRowContextMenu(null);
+closeFilterPopover(); 
         }}
       >
          {/* Ctrl+V 붙여넣기 캐처: paste 이벤트를 항상 여기로 받아서 범위 붙여넣기 처리 */}
@@ -1641,7 +1807,7 @@ newData[key] = v;
             const el = e.currentTarget;
 
             // 가상 스크롤 렌더 범위 갱신
-           const r = calcVisibleRange(el, rows.length);
+           const r = calcVisibleRange(el, displayRows.length);
            visibleRangeRef.current = r;
            setVisibleRange(r);
 
@@ -1680,9 +1846,31 @@ newData[key] = v;
                          className="border px-2 py-1 align-top bg-gray-100 sticky top-0 z-30"
                     >
                     <div className="flex flex-col items-center gap-1">
-                      <div className="w-full text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                        {c}
-                      </div>
+                      <div className="w-full flex items-center justify-center gap-1">
+  <span className="text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+    {c}
+  </span>
+
+  {filterMode && (
+    <button
+      type="button"
+      className={`text-[10px] px-1 rounded border ${
+        filterActive ? "bg-white border-slate-300" : "bg-gray-50 border-slate-200"
+      }`}
+      title="필터"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFilterColumnKey(c);
+        setFilterPopoverAnchor({ x: e.clientX, y: e.clientY });
+        setFilterPopoverOpen(true);
+        setRowContextMenu(null);
+      }}
+    >
+      ▼
+    </button>
+  )}
+</div>
 
                       {isColumnEditMode && (
                         <div className="flex flex-col items-center gap-1 mt-1">
@@ -1737,12 +1925,11 @@ newData[key] = v;
                         <tbody>
               {(() => {
                 const start = Math.max(0, visibleRange.start);
-                const end = Math.min(rows.length - 1, visibleRange.end);
-                const visible = rows.slice(start, end + 1);
+const end = Math.min(displayRows.length - 1, visibleRange.end);
+const visible = displayRows.slice(start, end + 1);
 
-                const topH = start * ROW_HEIGHT;
-                const bottomH = Math.max(0, (rows.length - (end + 1)) * ROW_HEIGHT);
-
+const topH = start * ROW_HEIGHT;
+const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
                 return (
                   <>
                     {topH > 0 && (
@@ -1774,144 +1961,149 @@ newData[key] = v;
                             {baseIndex + rowIndex}
                           </td>
 
-                          {viewColumns.map((key, colIndex) => {
-                            const cellSelected = isCellSelected(rowIndex, colIndex);
+    {viewColumns.map((key, colIndex) => {
+  const cellSelected = isCellSelected(rowIndex, colIndex);
 
-                            // ✅ 연장(1~7차) 셀은 MainView에서 mousedown 캡처로 패널을 띄우므로
-                            // 그리드의 "선택(bg-blue-200)"이 안 찍히는 케이스가 있음 → hover로 표시 보완
-                            const isHovered =
-                              !!hoveredCell &&
-                              hoveredCell.row === rowIndex &&
-                              hoveredCell.col === colIndex;
+  const styleInfo = getCellStyleInfo(row.data ?? {}, row.id, key);
+  const bgColor = styleInfo?.bg ? (INLINE_PALETTE[styleInfo.bg]?.bg ?? undefined) : undefined;
+  const textColor = styleInfo?.fg ? (INLINE_PALETTE[styleInfo.fg]?.text ?? undefined) : undefined;
 
-                            const dataCellBase =
-                              "border px-2 py-[3px]" +
-                              (cellSelected
-                                ? " bg-blue-200"
-                                : rowSelected
-                                ? " bg-blue-50"
-                                : isHovered && isExtensionKey(key)
-                                ? " bg-blue-200"
-                                : " bg-white");
+  // ✅ 연장(1~7차) 셀은 MainView에서 mousedown 캡처로 패널을 띄우므로
+  // 그리드의 "선택(bg-blue-200)"이 안 찍히는 케이스가 있음 → hover로 표시 보완
+  const isHovered =
+    !!hoveredCell &&
+    hoveredCell.row === rowIndex &&
+    hoveredCell.col === colIndex;
 
-                            return (
-                             <td
-                                 key={key}
-                                 className={dataCellBase}
-                                 data-row-index={rowIndex}
-                                 data-col-index={colIndex}
-                                 data-col-key={key}
-                                 onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
-                                 onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
-                                 onMouseLeave={() => handleCellMouseLeave(rowIndex, colIndex)}
-                                 onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
-                               >
-                                <input
-  className={`w-full bg-transparent outline-none text-slate-900 ${
-    key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
-  }`}
-  style={
-    key === "상태"
-      ? (() => {
-          const st = getDerivedStatusForRow(row.data ?? {});
-          return st.textColor ? { color: st.textColor } : undefined;
-        })()
-      : undefined
-  }
- readOnly={key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)}
-value={
-  key === "상태"
-    ? getDerivedStatusForRow(row.data ?? {}).status
-    : key === "총연장횟수"
-    ? String(countExtensionRounds(row.data ?? {}))
-    : activeEditCell &&
-      activeEditCell.rowId === row.id &&
-      activeEditCell.key === key
-    ? activeEditValue
-    : (row.data[key] ?? "")
-}
-  data-row={rowIndex}
-  data-col={colIndex}
-  onFocus={(e) => {
-    setSelectedRowRange(null);
+  const dataCellBase =
+    "border px-2 py-[3px]" +
+    (cellSelected
+      ? " bg-blue-200"
+      : rowSelected
+      ? " bg-blue-50"
+      : isHovered && isExtensionKey(key)
+      ? " bg-blue-200"
+      : " bg-white");
 
-  // ✅ 상태/총연장횟수는 표시 전용: 락/편집 흐름 진입 금지
-if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;  
-const initial = String(row.data[key] ?? "");
-    handleFocus(row.id, key, initial, e);
-  }}
-  onChange={(e) => {
-  // ✅ 상태/총연장횟수/안내분류는 표시 전용
-if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+  return (
+    <td
+      key={key}
+      className={dataCellBase}
+      style={bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined}
+      data-row-index={rowIndex}
+      data-col-index={colIndex}
+      data-col-key={key}
+      onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
+      onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
+      onMouseLeave={() => handleCellMouseLeave(rowIndex, colIndex)}
+      onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
+    >
+      <input
+        className={`w-full bg-transparent outline-none text-slate-900 ${
+          key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
+        }`}
+        style={
+          key === "상태"
+            ? (() => {
+                const st = getDerivedStatusForRow(row.data ?? {});
+                return st.textColor ? { color: st.textColor } : undefined;
+              })()
+            : textColor
+            ? ({ color: textColor } as React.CSSProperties)
+            : undefined
+        }
+        readOnly={key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)}
+        value={
+          key === "상태"
+            ? getDerivedStatusForRow(row.data ?? {}).status
+            : key === "총연장횟수"
+            ? String(countExtensionRounds(row.data ?? {}))
+            : activeEditCell &&
+              activeEditCell.rowId === row.id &&
+              activeEditCell.key === key
+            ? activeEditValue
+            : (row.data[key] ?? "")
+        }
+        data-row={rowIndex}
+        data-col={colIndex}
+        onFocus={(e) => {
+          setSelectedRowRange(null);
 
-  if (
-    activeEditCell &&
-    activeEditCell.rowId === row.id &&
-    activeEditCell.key === key
-  ) {
-    setActiveEditValue(e.target.value);
-  }
-  if (myRowLocks[row.id]) {
-    updateLocalCell(row.id, key, e.target.value);
-  }
-}}
-  onPaste={(e) => {
-   // ✅ 상태/총연장횟수는 표시 전용
-if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return; 
-if (skipNextNativePasteRef.current) {
-      skipNextNativePasteRef.current = false;
-    }
+          // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용: 락/편집 흐름 진입 금지
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-    const hasRange = !!selectedCellRange || !!selectedRowRange;
-    if (!hasRange) return;
+          const initial = String(row.data[key] ?? "");
+          handleFocus(row.id, key, initial, e);
+        }}
+        onChange={(e) => {
+          // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    if (!text) return;
+          if (activeEditCell && activeEditCell.rowId === row.id && activeEditCell.key === key) {
+            setActiveEditValue(e.target.value);
+          }
+          if (myRowLocks[row.id]) {
+            updateLocalCell(row.id, key, e.target.value);
+          }
+        }}
+        onPaste={(e) => {
+          // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-    e.preventDefault();
-    e.stopPropagation();
-    void pasteTextToSelectedRange(text);
-  }}
-  onBlur={async (e) => {
-    // ✅ 상태/총연장횟수는 표시 전용(저장/락 흐름 없음)
-if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-const v = e.target.value as string;
+          if (skipNextNativePasteRef.current) {
+            skipNextNativePasteRef.current = false;
+          }
 
-    editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
+          const hasRange = !!selectedCellRange || !!selectedRowRange;
+          if (!hasRange) return;
 
-    if (!myRowLocks[row.id]) {
-      // 편집 중 원격 변경이 들어왔으면, 편집 종료 후 보이는 행만 부분 갱신
-      if (pendingReloadRef.current) {
-        pendingReloadRef.current = false;
-        await refreshVisibleRowsFromServer();
-      }
-      return;
-    }
+          const text = e.clipboardData?.getData("text/plain") ?? "";
+          if (!text) return;
 
-    suppressReloadFor(800);
-    updateLocalCell(row.id, key, v);
+          e.preventDefault();
+          e.stopPropagation();
+          void pasteTextToSelectedRange(text);
+        }}
+        onBlur={async (e) => {
+          // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-    await saveCell(row.id, key, v);
-    await releaseLock("unified", row.id);
+          const v = e.target.value as string;
 
-    setMyRowLocks((prev) => {
-      const copy = { ...prev };
-      delete copy[row.id];
-      return copy;
-    });
+          editingCellRef.current = null;
+          setActiveEditCell(null);
+          setActiveEditValue("");
 
-    if (pendingReloadRef.current) {
-      pendingReloadRef.current = false;
-      await refreshVisibleRowsFromServer();
-    }
-  }}
-  onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
-/>
-                              </td>
-                            );
-                          })}
+          if (!myRowLocks[row.id]) {
+            if (pendingReloadRef.current) {
+              pendingReloadRef.current = false;
+              await refreshVisibleRowsFromServer();
+            }
+            return;
+          }
+
+          suppressReloadFor(800);
+          updateLocalCell(row.id, key, v);
+
+          await saveCell(row.id, key, v);
+          await releaseLock("unified", row.id);
+
+          setMyRowLocks((prev) => {
+            const copy = { ...prev };
+            delete copy[row.id];
+            return copy;
+          });
+
+          if (pendingReloadRef.current) {
+            pendingReloadRef.current = false;
+            await refreshVisibleRowsFromServer();
+          }
+        }}
+        onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+               />
+    </td>
+  );
+})}
                         </tr>
                       );
                     })}
@@ -1926,6 +2118,45 @@ const v = e.target.value as string;
               })()}
             </tbody>
           </table>
+
+<div data-filter-popover="1">
+  <ColumnFilterPopover
+    open={filterPopoverOpen}
+    anchor={filterPopoverAnchor}
+    columnKey={filterColumnKey}
+    values={filterValues}
+    selected={filterSelectedSet}
+    search={filterSearch}
+    onClose={closeFilterPopover}
+    onSearchChange={(q) => {
+      if (!filterColumnKey) return;
+      setFilterSearch(filterColumnKey, q);
+    }}
+    onToggleValue={(v) => {
+      if (!filterColumnKey) return;
+      toggleFilterValue(filterColumnKey, v);
+    }}
+    onSelectAll={() => {
+      if (!filterColumnKey) return;
+      selectAllFilterValues(filterColumnKey);
+    }}
+    onClear={() => {
+      if (!filterColumnKey) return;
+      clearFilterForColumn(filterColumnKey);
+    }}
+    onSortAsc={() => {
+      if (!filterColumnKey || !props.onSortStateChange) return;
+      props.onSortStateChange({ key: filterColumnKey, dir: "asc" });
+      closeFilterPopover();
+    }}
+    onSortDesc={() => {
+      if (!filterColumnKey || !props.onSortStateChange) return;
+      props.onSortStateChange({ key: filterColumnKey, dir: "desc" });
+      closeFilterPopover();
+    }}
+  />
+</div>
+
         </div>
 
         {rowContextMenu && (
