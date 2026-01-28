@@ -284,6 +284,10 @@ function setWidthUnit(key: string, unit: number) {
       col: number;
     } | null>(null);
 
+    // ✅ 연장(1~7차) 같은 "클릭이 그리드 선택을 막는" 셀에서도
+    // 마우스를 올리면 선택처럼 보이도록 하는 hover 표시용 상태
+    const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
+
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const didInitialScrollRef = useRef(false);   
 
@@ -933,14 +937,22 @@ await syncPatch(id, key, value);
       setRowContextMenu(null);
     }
 
-    function handleCellMouseEnter(rowIndex: number, colIndex: number) {
+   function handleCellMouseEnter(rowIndex: number, colIndex: number) {
+      // ✅ hover 표시 갱신(드래그 중이 아니어도 동작)
+      setHoveredCell({ row: rowIndex, col: colIndex });
+
+      // 기존 드래그 범위 선택 로직은 그대로 유지
       if (!isCellDragging || !cellDragAnchor) return;
-      setCellRangeByPoints(
-        cellDragAnchor.row,
-        cellDragAnchor.col,
-        rowIndex,
-        colIndex
-      );
+      setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
+    }
+
+    function handleCellMouseLeave(rowIndex: number, colIndex: number) {
+      // 현재 hover 중인 셀에서 벗어날 때만 해제(불필요한 깜빡임 방지)
+      setHoveredCell((prev) => {
+        if (!prev) return prev;
+        if (prev.row === rowIndex && prev.col === colIndex) return null;
+        return prev;
+      });
     }
 
     function handleCellContextMenu(
@@ -1759,16 +1771,26 @@ newData[key] = v;
 
                           {viewColumns.map((key, colIndex) => {
                             const cellSelected = isCellSelected(rowIndex, colIndex);
+
+                            // ✅ 연장(1~7차) 셀은 MainView에서 mousedown 캡처로 패널을 띄우므로
+                            // 그리드의 "선택(bg-blue-200)"이 안 찍히는 케이스가 있음 → hover로 표시 보완
+                            const isHovered =
+                              !!hoveredCell &&
+                              hoveredCell.row === rowIndex &&
+                              hoveredCell.col === colIndex;
+
                             const dataCellBase =
                               "border px-2 py-[3px]" +
                               (cellSelected
                                 ? " bg-blue-200"
                                 : rowSelected
                                 ? " bg-blue-50"
+                                : isHovered && isExtensionKey(key)
+                                ? " bg-blue-200"
                                 : " bg-white");
 
                             return (
-                              <td
+                             <td
                                  key={key}
                                  className={dataCellBase}
                                  data-row-index={rowIndex}
@@ -1776,6 +1798,7 @@ newData[key] = v;
                                  data-col-key={key}
                                  onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
                                  onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
+                                 onMouseLeave={() => handleCellMouseLeave(rowIndex, colIndex)}
                                  onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
                                >
                                 <input
