@@ -11,8 +11,11 @@ import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/
 import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
 import ExtensionEditPanel from "@/views/unified/extensions/ExtensionEditPanel";
-import { addDaysToEndDate } from "@/views/unified/extensions/extensionDate";
-import type { ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+import { addDaysToEndDate, subDaysFromEndDate } from "@/views/unified/extensions/extensionDate";
+import {
+  parseExtensionCell,
+  type ExtensionCellFields,
+} from "@/views/unified/extensions/extensionFormat";
 
 function normalizeName(v: any) {
   return String(v ?? "").trim();
@@ -498,11 +501,32 @@ export default function UnifiedMainView() {
           const colKey = extPanel.colKey;
           if (!rowId || !colKey) return;
 
-          // 1) 해당 차수 셀 저장(비우기면 "")
+          const isDelete = String(nextCellText ?? "") === "";
+
+          // 1) 해당 차수 셀 저장(비우기면 "" -> syncPatch에서 null 저장)
           await syncPatch(rowId, colKey, nextCellText);
 
-          // 2) 연장일수 있으면 "현재 종료일(서버 최신)"에 +N일 누적 반영
-          //    (삭제/비우기면 fields.days=null이라 종료일 자동 변경 없음)
+          // 2) 종료일 변경은 항상 "현재 종료일(서버 최신)" 기준으로만 처리
+          //    - 저장: +N일
+          //    - 삭제: (삭제 직전 셀값의 days)만큼 -N일 롤백
+          if (isDelete) {
+            const old = parseExtensionCell(extPanel.initialValue);
+            const oldDays = old?.days;
+
+            if (oldDays) {
+              const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
+              if (r.ok) {
+                const j = await r.json().catch(() => null);
+                const endDateRaw = String(j?.data?.["종료일"] ?? "");
+                const nextEnd = subDaysFromEndDate(endDateRaw, oldDays);
+                if (nextEnd) {
+                  await syncPatch(rowId, "종료일", nextEnd);
+                }
+              }
+            }
+            return;
+          }
+
           if (fields?.days) {
             const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
             if (r.ok) {

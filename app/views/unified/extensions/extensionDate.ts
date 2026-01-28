@@ -18,6 +18,24 @@ export function addDaysToEndDate(endDateRaw: string, daysRaw: string): string | 
   return toYMD(next);
 }
 
+/**
+ * 종료일(YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD) - N일 => YYYY-MM-DD
+ * - 종료일이 없거나 파싱 실패면 null
+ * - days가 0/빈값이면 원본 종료일을 유지(= 그대로 반환)
+ */
+export function subDaysFromEndDate(endDateRaw: string, daysRaw: string): string | null {
+  const end = parseYMD(endDateRaw);
+  if (!end) return null;
+
+  const days = Number(String(daysRaw ?? "").trim());
+  if (!Number.isFinite(days)) return toYMD(end);
+  const d = Math.floor(days);
+  if (d <= 0) return toYMD(end);
+
+  const next = new Date(end.getFullYear(), end.getMonth(), end.getDate() - d);
+  return toYMD(next);
+}
+
 function parseYMD(raw: string): Date | null {
   const s = String(raw ?? "").trim();
   if (!s) return null;
