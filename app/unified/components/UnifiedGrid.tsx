@@ -242,10 +242,45 @@ const filterState = props.filterState;
 const sortState = props.sortState;
 
 const displayRows = useMemo(() => {
-  const f = filterState ? applyUnifiedFilter(rows, filterState) : rows;
-  const s = sortState ? applyUnifiedSort(f, sortState) : f;
-  return s;
-}, [rows, filterState, sortState]);
+  function getDisplayText(row: UnifiedRow, key: string) {
+    if (key === "상태") return String(getDerivedStatusForRow(row.data ?? {}).status ?? "");
+    if (key === "총연장횟수") return String(countExtensionRounds(row.data ?? {}));
+    return String(row.data?.[key] ?? "");
+  }
+
+  let out = rows;
+
+  // ✅ filter: 체크된 값들은 "표시값" 기준으로 비교
+  if (filterState?.selectedByKey) {
+    const entries = Object.entries(filterState.selectedByKey);
+    if (entries.length) {
+      out = out.filter((row) => {
+        for (const [key, selectedSet] of entries) {
+          if (!selectedSet || selectedSet.size === 0) continue;
+          const v = getDisplayText(row, key);
+          if (!selectedSet.has(v)) return false;
+        }
+        return true;
+      });
+    }
+  }
+
+  // ✅ sort: "표시값" 기준으로 정렬
+  if (sortState?.key) {
+    const k = sortState.key;
+    const dir = sortState.dir === "desc" ? "desc" : "asc";
+    const copy = [...out];
+    copy.sort((a, b) => {
+      const av = getDisplayText(a, k).trim();
+      const bv = getDisplayText(b, k).trim();
+      const cmp = av.localeCompare(bv, "ko-KR");
+      return dir === "asc" ? cmp : -cmp;
+    });
+    out = copy;
+  }
+
+  return out;
+}, [rows, filterState, sortState, today]);
 
 // ✅ (추가) 필터 팝오버 상태
 const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
@@ -254,8 +289,18 @@ const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
 
 const filterValues = useMemo(() => {
   if (!filterColumnKey) return [];
-  return getUniqueValuesForColumn(rows, filterColumnKey);
-}, [rows, filterColumnKey]);
+
+  function getDisplayText(row: UnifiedRow, key: string) {
+    if (key === "상태") return String(getDerivedStatusForRow(row.data ?? {}).status ?? "");
+    if (key === "총연장횟수") return String(countExtensionRounds(row.data ?? {}));
+    return String(row.data?.[key] ?? "");
+  }
+
+  const set = new Set<string>();
+  for (const r of rows) set.add(getDisplayText(r, filterColumnKey));
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
+}, [rows, filterColumnKey, today]);
 
 const filterSelectedSet = useMemo(() => {
   if (!filterColumnKey) return new Set<string>();
