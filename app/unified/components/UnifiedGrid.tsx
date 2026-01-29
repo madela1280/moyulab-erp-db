@@ -775,10 +775,16 @@ function scrollToTailData() {
   if (!ids.length) return;
 
   const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
-  const fresh: UnifiedRow[] = await r.json();
+const fresh: UnifiedRow[] = await r.json();
 
-  const map = new Map<number, UnifiedRow>();
-  fresh.forEach((x) => map.set(x.id, x));
+// ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
+if (Array.isArray(fresh) && fresh.length !== ids.length) {
+  await reload();
+  return;
+}
+
+const map = new Map<number, UnifiedRow>();
+fresh.forEach((x) => map.set(x.id, x));
 
   // 변경이 "있을 때만" setRows 수행 (불필요 렌더/스페이서 흔들림/점멸 방지)
   setRows((prev) => {
