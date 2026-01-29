@@ -58,6 +58,14 @@ export default function UnifiedMainView() {
   const [filterState, setFilterState] = useState<ColumnFilterState>(() => createEmptyFilterState());
   const [sortState, setSortState] = useState<UnifiedSortState>(() => defaultSortState());
 
+   // ✅ filterMode가 꺼졌을 때는 Grid에 “항상 같은 참조”의 빈 상태를 내려서
+  //    불필요한 재계산/흔들림을 줄임
+  const emptyFilterStateRef = useRef<ColumnFilterState>(createEmptyFilterState());
+  const emptySortStateRef = useRef<UnifiedSortState>(defaultSortState());
+
+  const effectiveFilterState = filterMode ? filterState : emptyFilterStateRef.current;
+  const effectiveSortState = filterMode ? sortState : emptySortStateRef.current;
+
   // ✅ (추가) 칼라
   const [colorOpen, setColorOpen] = useState(false);
   const [colorAnchor, setColorAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -194,14 +202,20 @@ export default function UnifiedMainView() {
   // ✅ (추가) 필터/칼라/다운로드 핸들러 (버튼 위치/모양은 GridHeader 그대로)
   // ---------------------------------------------------------------------------
   function handleToggleFilterMode() {
-    if (filterMode) {
-      setFilterMode(false);
-      setFilterState(createEmptyFilterState());
-      setSortState(defaultSortState());
-      return;
-    }
-    setFilterMode(true);
+  if (filterMode) {
+    setFilterMode(false);
+    setFilterState(createEmptyFilterState());
+    setSortState(defaultSortState());
+
+    // ✅ 필터 OFF 후 “맨 위로 튐” 방지: 마지막 데이터 근처로 복귀
+    requestAnimationFrame(() => {
+      gridRef.current?.scrollToTailData?.();
+    });
+
+    return;
   }
+  setFilterMode(true);
+}
 
   function openColor(anchor: { x: number; y: number }) {
     setColorAnchor(anchor);
@@ -474,16 +488,18 @@ export default function UnifiedMainView() {
         onMouseMoveCapture={onGridMouseMoveCapture}
         onMouseUpCapture={onGridMouseUpCapture}
       >
-        <UnifiedGrid
+                <UnifiedGrid
           ref={gridRef}
           isColumnEditMode={isColumnEditMode}
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}
           onColWidthUnitByKeyChange={setColWidthUnitByKey}
-          // ✅ 필터/정렬/칼라는 다음 단계에서 UnifiedGrid에 props/ref로 연결
-          //    (버튼 위치/형태 유지, 기능만 추가)
-          {...({ filterMode, filterState, onFilterStateChange: setFilterState, sortState, onSortStateChange: setSortState } as any)}
+          filterMode={filterMode}
+          filterState={effectiveFilterState}
+          onFilterStateChange={setFilterState}
+          sortState={effectiveSortState}
+          onSortStateChange={setSortState}
         />
       </div>
 

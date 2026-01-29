@@ -45,6 +45,7 @@ import type { ColorApplyMode } from "@/unified/color/ColorModeToggle";
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
   applyColorToSelection: (color: UnifiedSoftColor, mode: ColorApplyMode) => Promise<void>;
+  scrollToTailData: () => void; // ✅ 필터 토글 후 “마지막 데이터 근처”로 복귀용
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
@@ -352,6 +353,14 @@ const displayRows = useMemo(() => {
 
   return computedDisplayRows;
 }, [displayRowsFrozen, filterMode, filterFrozenIds, rowsById, computedDisplayRows]);
+
+// ✅ “화면에 실제로 보이는 목록” 스냅샷(ref)
+// - visibleRange(인덱스)는 displayRows 기준이므로,
+//   서버 부분 갱신(refreshVisibleRowsFromServer)도 같은 기준을 써야 화면이 안 흔들림
+const displayRowsRef = useRef<UnifiedRow[]>([]);
+useEffect(() => {
+  displayRowsRef.current = displayRows;
+}, [displayRows]);
 
 // ✅ (추가) 필터 팝오버 상태
 const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
@@ -712,7 +721,11 @@ async function refreshCountAndMaybeReload() {
 }
 
    async function refreshVisibleRowsFromServer() {
-  const curRows = rowsRef.current;
+  const curRows =
+    displayRowsRef.current && displayRowsRef.current.length
+      ? displayRowsRef.current
+      : rowsRef.current;
+
   const vr = visibleRangeRef.current;
 
   if (!curRows.length) return;
@@ -758,6 +771,18 @@ async function refreshCountAndMaybeReload() {
 }
     
    async function loadTailPage() {
+ function scrollToTailData() {
+  const el = scrollRef.current;
+  if (!el) return;
+
+  // 기존 초기 스크롤과 동일 컨셉(화면 중간쯤을 마지막 데이터 근처로)
+  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+
+  // visibleRange 즉시 동기화(커서/선택 오차 방지)
+  requestAnimationFrame(() => {
+    updateVisibleRangeNow();
+  });
+}
   await ensureMinRowsInDb();
   const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
     cache: "no-store",
@@ -1027,19 +1052,21 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
   syncEmitUnifiedUpdate();
 }
 
-    useImperativeHandle(
+  useImperativeHandle(
   ref,
   () => ({
     appendBlankRows,
     applyColorToSelection,
+    scrollToTailData,
   }),
   [displayRows, selectedCellRange, viewColumns]
-);
+);  
 
     /* --------------------- 로컬 셀 값 반영 --------------------- */
 function freezeDisplayRowsIfNeeded() {
   if (displayRowsFrozen) return;
-  setDisplayRowsFrozen(computedDisplayRows);
+  // ✅ 현재 화면에 보이는 목록 그대로 고정해야 커서/선택/인덱스가 안 틀어짐
+  setDisplayRowsFrozen(displayRows);
 }
 
 function unfreezeDisplayRows() {
@@ -1372,6 +1399,9 @@ await syncPatch(id, key, value);
           editingCellRef.current = null;
           setActiveEditCell(null);
           setActiveEditValue("");
+
+         // ✅ draft가 남아있으면 “안 지워진 것처럼” 보일 수 있으므로 함께 정리
+          setDraftByCell({});
 
           // 포커스가 input에 있으면 blur로 기본 입력/커서 상태 정리
           const el = document.activeElement as HTMLElement | null;
@@ -1951,34 +1981,38 @@ closeFilterPopover();
       }}
     />
 
-      <div
-          ref={scrollRef}
-          className="border-t border-x bg-white w-full flex-1 overflow-auto"
-          onScroll={(e) => {
-            if (suspendScrollLoadRef.current) return;
+            <div
+        ref={scrollRef}
+        className="border-t border-x bg-white w-full flex-1 overflow-auto"
+        onScroll={(e) => {
+          if (suspendScrollLoadRef.current) return;
 
-            const el = e.currentTarget;
+          const el = e.currentTarget;
 
-            // 가상 스크롤 렌더 범위 갱신
-           const r = calcVisibleRange(el, displayRows.length);
-           visibleRangeRef.current = r;
-           setVisibleRange(r);
+          // 가상 스크롤 렌더 범위 갱신
+          const r = calcVisibleRange(el, displayRows.length);
+          visibleRangeRef.current = r;
+          setVisibleRange(r);
 
-            const threshold = 120;
+          const threshold = 120;
 
-            // 위로 스크롤해서 상단 근처면 이전 페이지 로드
-            if (el.scrollTop <= threshold) {
-              void loadPrevPage();
-              return;
-            }
+          // ✅ 필터/정렬 모드에서는 페이징 로드로 rows가 바뀌면 화면이 흔들리기 쉬움 → 로드 중지
+          const allowPaging = !filterMode && !sortState?.key;
+          if (!allowPaging) return;
 
-            // 아래쪽 근처면 다음 페이지 로드
-            if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
-              void loadNextPage();
-              return;
-            }
-          }}
-        >        
+          // 위로 스크롤해서 상단 근처면 이전 페이지 로드
+          if (el.scrollTop <= threshold) {
+            void loadPrevPage();
+            return;
+          }
+
+          // 아래쪽 근처면 다음 페이지 로드
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
+            void loadNextPage();
+            return;
+          }
+        }}
+      >
           <table
              className="w-full min-w-[2800px] table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800"
              style={{ fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif' }}
