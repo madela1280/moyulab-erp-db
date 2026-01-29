@@ -1425,83 +1425,37 @@ function updateLocalCell(id: number, key: string, value: string) {
       };
     }, []);
 
-        // 선택 영역이 있을 때 Delete 키로 "내용 지우기" 실행 (편집 draft가 화면에 남는 문제 방지)
+          // ✅ Delete는 원래 입력 기본 동작이 잘 되던 기능이었음
+    //    → 우리가 “선택 없을 때도” 가로채면서 망가졌으니,
+    //      선택 범위가 있을 때만 범위 지우기 처리하고,
+    //      선택이 없으면 브라우저 기본 Delete 동작을 그대로 둔다.
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if (e.key !== "Delete") return;
         if ((e as any).isComposing) return;
 
-        // 1) 선택 범위가 있으면: 기존대로 범위 지우기
+        // 선택 범위가 있을 때만: 범위 지우기
         if (selectedCellRange || selectedRowRange) {
           e.preventDefault();
           e.stopPropagation();
 
-          // ★ 현재 편집 draft가 첫 셀에 남아서 "안 지워진 것처럼 보이는" 현상 방지
           editingCellRef.current = null;
           setActiveEditCell(null);
           setActiveEditValue("");
 
-          // ✅ draft가 남아있으면 “안 지워진 것처럼” 보일 수 있으므로 함께 정리
+          // draft 잔상 방지
           setDraftByCell({});
 
-          // 포커스가 input에 있으면 blur로 기본 입력/커서 상태 정리
           const el = document.activeElement as HTMLElement | null;
           if (el && el.tagName === "INPUT") el.blur();
 
           void handleClearSelectedRows();
-          return;
         }
-
-        // 2) 선택 범위가 없으면: 현재 포커스된 셀 1개를 “통째로” 지우기(엑셀 동작)
-        const el = document.activeElement as HTMLElement | null;
-        if (!el || el.tagName !== "INPUT") return;
-
-        const input = el as HTMLInputElement;
-        const rStr = input.getAttribute("data-row");
-        const cStr = input.getAttribute("data-col");
-        if (rStr == null || cStr == null) return;
-
-        const rowIndex = Number(rStr);
-        const colIndex = Number(cStr);
-        if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
-
-        const row = displayRowsRef.current?.[rowIndex];
-        const colKey = viewColumns?.[colIndex];
-        if (!row || !colKey) return;
-
-        // 표시 전용 컬럼은 무시
-        if (
-          colKey === "상태" ||
-          colKey === "총연장횟수" ||
-          colKey === "안내분류" ||
-          isExtensionKey(colKey)
-        )
-          return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        // 현재 셀만 빈 문자열로 만든 뒤, blur로 onBlur 저장 흐름을 확실히 태움
-        const dk = draftKey(row.id, colKey);
-        setDraftByCell((prev) => ({ ...prev, [dk]: "" }));
-        setActiveEditCell({ rowId: row.id, key: colKey });
-        setActiveEditValue("");
-
-        // ✅ 렌더 반영 후 blur로 저장 흐름 태움
-                  requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            try {
-              input.blur();
-            } catch {
-              // ignore
-            }
-          });
-        });
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange, viewColumns, filterMode, filterFrozenIds, sortState]);       
+    }, [selectedCellRange, selectedRowRange]);       
 
    // Ctrl/Cmd+C: 복사만 keydown에서 처리 (V는 paste 이벤트에서 처리)
     useEffect(() => {
@@ -2408,6 +2362,8 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           try {
+            const savedOkRef = { current: false };
+
             // ✅ 저장 직후 소켓 echo/부분재조회가 1~2초 내로 들어오며 점멸하는 케이스 방지
             suppressReloadFor(2500);
 
@@ -2416,6 +2372,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
             // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
             await saveCell(row.id, key, v);
+            savedOkRef.current = true;
                     } finally {
             await releaseLock("unified", row.id);
 
@@ -2431,11 +2388,15 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             setActiveEditCell(null);
             setActiveEditValue("");
 
-            setDraftByCell((prev) => {
-              const copy = { ...prev };
-              delete copy[dk];
-              return copy;
-            });
+             // ✅ 저장 성공했을 때만 draft 제거
+            //    (실패/경쟁/재조회 타이밍에서 “복구처럼 보이는” 현상 최소화)
+            if (savedOkRef.current) {
+              setDraftByCell((prev) => {
+                const copy = { ...prev };
+                delete copy[dk];
+                return copy;
+              });
+            }
 
             if (pendingReloadRef.current) {
               pendingReloadRef.current = false;
