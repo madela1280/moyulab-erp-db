@@ -195,47 +195,47 @@ const remoteSyncInFlightRef = useRef(false);
 const lastFullReloadAtRef = useRef(0);
 const FULL_RELOAD_MIN_INTERVAL_MS = 1200;
 
+const lastLocalUnifiedEmitAtRef = useRef<number>(0);
+const IGNORE_SELF_ECHO_MS = 1200;
+
 function requestApplyRemoteSync() {
+  // ✅ 소켓 echo(내가 저장한 것도 다시 받음) 때문에 즉시 refreshVisibleRowsFromServer가 돌면
+  //    입력/삭제가 “점멸 후 복구”처럼 보일 수 있음 → 유휴(idle)일 때만 반영
   remoteSyncPendingRef.current = true;
+  pendingRemoteUpdateRef.current = true;
 
-  // 이미 예약되어 있으면 추가 예약하지 않음(=1회로 합침)
-  if (remoteSyncTimerRef.current) return;
-
-  remoteSyncTimerRef.current = setTimeout(() => {
+  // 기존 디바운스 타이머는 정리(있다면 취소)
+  if (remoteSyncTimerRef.current) {
+    clearTimeout(remoteSyncTimerRef.current);
     remoteSyncTimerRef.current = null;
-    void applyRemoteSyncOnce();
-  }, 120); // 짧은 디바운스(연속 이벤트 합치기)
+  }
+
+  // ✅ 유휴 상태에서만 applyRemoteSyncOnce 수행(입력 안정성 최우선)
+  scheduleIdleReload(600);
 }
 
 async function applyRemoteSyncOnce() {
   // suppress 기간이면 이번 버스트는 흡수
   if (Date.now() < suppressReloadUntilRef.current) return;
 
-  // 편집 중이면 편집 종료 후 기존 로직(pendingReloadRef)로 흡수
   if (editingCellRef.current) {
     pendingReloadRef.current = true;
     return;
   }
 
-  // 이미 처리 중이면 pending만 올려두고 종료 (처리 루프가 이어서 한번 더 수행)
   if (remoteSyncInFlightRef.current) return;
 
   remoteSyncInFlightRef.current = true;
   try {
-    // pending을 한번에 처리(처리 중 추가로 pending이 들어오면 루프가 1번 더 돌지만 “큰 reload”는 아래에서 제한)
-    while (remoteSyncPendingRef.current) {
-      remoteSyncPendingRef.current = false;
+    if (!remoteSyncPendingRef.current) return;
+    remoteSyncPendingRef.current = false;
 
-      await refreshVisibleRowsFromServer();
-      await refreshCountAndMaybeReload();
-    }
+    await refreshVisibleRowsFromServer();
+    await refreshCountAndMaybeReload();
   } finally {
     remoteSyncInFlightRef.current = false;
   }
 }
-
-    // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
-    const isColumnEditMode = !!props.isColumnEditMode;
 
     // ✅ 내부 기본값(기존 흐름 보존용)
 const [columnOrderState, setColumnOrderState] = useState<string[]>(() => [
@@ -618,9 +618,9 @@ function setWidthUnit(key: string, unit: number) {
           return;
         }
 
-        // 이제 안전하게 reload
+        // 이제 안전하게 “부분 반영” (스크롤/입력 안정성)
         pendingRemoteUpdateRef.current = false;
-        await reload();
+        await applyRemoteSyncOnce(); 
       }, checkDelayMs);
     }
 
@@ -673,6 +673,10 @@ async function ensureMinRowsInDb() {
 }
 
 async function refreshCountAndMaybeReload() {
+  const now = Date.now();
+  if (now - lastCountCheckAtRef.current < COUNT_CHECK_MIN_INTERVAL_MS) return;
+  lastCountCheckAtRef.current = now;
+
   const r = await fetch("/api/unified?meta=count", { cache: "no-store" });
   const j = await r.json();
   const cnt = Number(j?.count ?? 0);
@@ -725,18 +729,28 @@ async function refreshCountAndMaybeReload() {
 }
 
 function scrollToTailData() {
-  const el = scrollRef.current;
-  if (!el) return;
+  // ✅ “스크롤만” 하면 현재 rows가 빈 행 위주일 때 그대로 빈 행 지옥을 보여줌
+  // ✅ tailData를 다시 로드한 뒤, 그 기준으로 스크롤 위치를 잡는다
+  void (async () => {
+    try {
+      await loadTailPage();
+    } catch {
+      // ignore
+    }
 
-  // 기존 초기 스크롤과 동일 컨셉(화면 중간쯤을 마지막 데이터 근처로)
-    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-  // ✅ “맨 아래”가 아니라, 마지막 데이터가 화면 중간~하단에 오도록 약간 위로
-  el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el) return;
 
-  // visibleRange 즉시 동기화(커서/선택 오차 방지)
-  requestAnimationFrame(() => {
-    updateVisibleRangeNow();
-  });
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        // 마지막 데이터가 화면 중간~하단에 오도록 약간 위로
+        el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
+
+        updateVisibleRangeNow();
+      });
+    });
+  })();
 }
 
    async function refreshVisibleRowsFromServer() {
@@ -831,6 +845,11 @@ function scrollToTailData() {
 
      useEffect(() => {
   const stop = syncListen(() => {
+    // ✅ 내가 방금 emit한 이벤트(내 저장/삭제/붙여넣기 echo)는 무시해서
+    //    입력/삭제 직후 화면 덮어쓰기(점멸/복구)를 줄인다
+    const dt = Date.now() - lastLocalUnifiedEmitAtRef.current;
+    if (dt >= 0 && dt < IGNORE_SELF_ECHO_MS) return;
+
     requestApplyRemoteSync();
   });
 
@@ -842,7 +861,7 @@ function scrollToTailData() {
     }
     remoteSyncPendingRef.current = false;
   };
-}, []);  
+}, []);
 
     /* --------------------- 최초 로딩 --------------------- */
 
@@ -1020,6 +1039,7 @@ function scrollToTailData() {
         body: JSON.stringify({ count, beforeId: null, afterId: null }),
       });
 
+            lastLocalUnifiedEmitAtRef.current = Date.now();
       syncEmitUnifiedUpdate();
       await reload();
     }
@@ -1050,12 +1070,13 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     });
   });
 
-  await fetch(`/api/unified/bulk-patch`, {
+    await fetch(`/api/unified/bulk-patch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ updates }),
   });
 
+  lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
 }
 
@@ -1101,12 +1122,16 @@ function updateLocalCell(id: number, key: string, value: string) {
 }
 
     /* --------------------- 셀 저장 --------------------- */
-   async function saveCell(id: number, key: string, value: string) {
+      async function saveCell(id: number, key: string, value: string) {
   // ✅ "상태"는 파생 표시이므로 DB에 저장/수정하지 않음
   // ✅ "총연장횟수"는 파생 표시이므로 DB에 저장/수정하지 않음
   // ✅ "안내분류"는 거래처↔안내분류 매핑(패널)로만 관리하므로 그리드 저장 차단
   if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-await syncPatch(id, key, value);
+
+  // ✅ 내 저장으로 발생하는 unified:update echo 무시용
+  lastLocalUnifiedEmitAtRef.current = Date.now();
+
+  await syncPatch(id, key, value);
 }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
@@ -1399,6 +1424,7 @@ await syncPatch(id, key, value);
         if (e.key !== "Delete") return;
         if ((e as any).isComposing) return;
 
+        // 1) 선택 범위가 있으면: 기존대로 범위 지우기
         if (selectedCellRange || selectedRowRange) {
           e.preventDefault();
           e.stopPropagation();
@@ -1408,7 +1434,7 @@ await syncPatch(id, key, value);
           setActiveEditCell(null);
           setActiveEditValue("");
 
-         // ✅ draft가 남아있으면 “안 지워진 것처럼” 보일 수 있으므로 함께 정리
+          // ✅ draft가 남아있으면 “안 지워진 것처럼” 보일 수 있으므로 함께 정리
           setDraftByCell({});
 
           // 포커스가 input에 있으면 blur로 기본 입력/커서 상태 정리
@@ -1416,12 +1442,59 @@ await syncPatch(id, key, value);
           if (el && el.tagName === "INPUT") el.blur();
 
           void handleClearSelectedRows();
+          return;
         }
+
+        // 2) 선택 범위가 없으면: 현재 포커스된 셀 1개를 “통째로” 지우기(엑셀 동작)
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || el.tagName !== "INPUT") return;
+
+        const input = el as HTMLInputElement;
+        const rStr = input.getAttribute("data-row");
+        const cStr = input.getAttribute("data-col");
+        if (rStr == null || cStr == null) return;
+
+        const rowIndex = Number(rStr);
+        const colIndex = Number(cStr);
+        if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
+
+        const row = displayRowsRef.current?.[rowIndex];
+        const colKey = viewColumns?.[colIndex];
+        if (!row || !colKey) return;
+
+        // 표시 전용 컬럼은 무시
+        if (
+          colKey === "상태" ||
+          colKey === "총연장횟수" ||
+          colKey === "안내분류" ||
+          isExtensionKey(colKey)
+        )
+          return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 현재 셀만 빈 문자열로 만든 뒤, blur로 onBlur 저장 흐름을 확실히 태움
+        const dk = draftKey(row.id, colKey);
+        setDraftByCell((prev) => ({ ...prev, [dk]: "" }));
+        setActiveEditCell({ rowId: row.id, key: colKey });
+        setActiveEditValue("");
+
+        // ✅ 렌더 반영 후 blur로 저장 흐름 태움
+                  requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            try {
+              input.blur();
+            } catch {
+              // ignore
+            }
+          });
+        });
       }
 
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
+    }, [selectedCellRange, selectedRowRange, viewColumns, filterMode, filterFrozenIds, sortState]);       
 
    // Ctrl/Cmd+C: 복사만 keydown에서 처리 (V는 paste 이벤트에서 처리)
     useEffect(() => {
@@ -1505,8 +1578,9 @@ await syncPatch(id, key, value);
   const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
 
   // ✅ 필터/정렬 중에는 인덱스 꼬임 위험이 크므로 로컬 splice 하지 말고 reload로만 반영
-  if (filterMode || (sortState && sortState.key)) {
+    if (filterMode || (sortState && sortState.key)) {
     suppressReloadFor(2500);
+    lastLocalUnifiedEmitAtRef.current = Date.now();
     syncEmitUnifiedUpdate();
     setRowContextMenu(null);
     await reload();
@@ -1550,6 +1624,7 @@ if (afterId != null) {
   }
 
   suppressReloadFor(2500);
+  lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
   setRowContextMenu(null);
 }
@@ -1657,9 +1732,10 @@ case "ArrowUp": {
 
       setTotalCount((t) => Math.max(0, t - ids.length));
 
-       // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
+      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
       suppressReloadFor(2500);
 
+      lastLocalUnifiedEmitAtRef.current = Date.now();
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
       setSelectedRowRange(null);  
@@ -1707,6 +1783,7 @@ case "ArrowUp": {
 
   suppressReloadFor(2500);
 
+  lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
   setRowContextMenu(null);
   return;
@@ -1749,6 +1826,7 @@ suspendScrollLoadBriefly();
       // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
       suppressReloadFor(2500);
 
+      lastLocalUnifiedEmitAtRef.current = Date.now();
       syncEmitUnifiedUpdate();
       setRowContextMenu(null);
     }
@@ -1889,8 +1967,9 @@ cells.push(v);
     body: JSON.stringify({ updates }),
   });
 
-  suppressReloadFor(2500);
+    suppressReloadFor(2500);
 
+  lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
   setRowContextMenu(null);
 }
@@ -2322,7 +2401,8 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           try {
-            suppressReloadFor(800);
+            // ✅ 저장 직후 소켓 echo/부분재조회가 1~2초 내로 들어오며 점멸하는 케이스 방지
+            suppressReloadFor(2500);
 
             // ✅ rows 반영은 “타이핑 중”이 아니라 “blur 1회”에만(입력 누락/잘림 방지)
             updateLocalCell(row.id, key, v);

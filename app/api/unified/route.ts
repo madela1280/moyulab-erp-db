@@ -1,4 +1,4 @@
-// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\route.ts
+// app/api/unified/route.ts
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
@@ -101,41 +101,36 @@ export async function GET(req: Request) {
   const totalR = await query(`SELECT COUNT(*)::int AS total FROM unified_order`);
   const total = Number(totalR.rows[0]?.total ?? 0);
 
-  // 0) 마지막 "데이터가 있는 행" 기준 tail (최적화: 마지막 N개만 스캔)
+  // 0) 마지막 "데이터가 있는 행" 기준 tail
+  // ✅ 기존 구현은 candidates(scanLimit) 안에 데이터가 없으면 last_any로 fallback 되어
+  //    빈 행이 많이 쌓인 경우 “빈 행만 보이는 tail” 문제가 발생할 수 있음.
+  // ✅ 여기서는 “끝에서부터” 실제 데이터가 있는 행을 1개 찾는 쿼리를 사용해,
+  //    빈 행이 매우 많아도 마지막 데이터 행을 안정적으로 찾는다.
   if (tailData) {
-    const scanLimit = Math.min(20000, Math.max(2000, limit * 10));
-
     const cursorR = await query(
       `
-      WITH candidates AS (
-        SELECT u.id, u.data, o.sort_key
-        FROM unified u
-        JOIN unified_order o ON o.unified_id = u.id
-        ORDER BY o.sort_key DESC, u.id DESC
-        LIMIT $1
-      ),
-      last_data AS (
-        SELECT c.sort_key, c.id
-        FROM candidates c
+      WITH last_data AS (
+        SELECT o.sort_key, u.id
+        FROM unified_order o
+        JOIN unified u ON u.id = o.unified_id
         WHERE EXISTS (
           SELECT 1
-          FROM jsonb_each_text(c.data) kv
+          FROM jsonb_each_text(u.data) kv
           WHERE kv.value IS NOT NULL AND kv.value <> ''
         )
-        ORDER BY c.sort_key DESC, c.id DESC
+        ORDER BY o.sort_key DESC, u.id DESC
         LIMIT 1
       ),
       last_any AS (
-        SELECT c.sort_key, c.id
-        FROM candidates c
-        ORDER BY c.sort_key DESC, c.id DESC
+        SELECT o.sort_key, o.unified_id AS id
+        FROM unified_order o
+        ORDER BY o.sort_key DESC, o.unified_id DESC
         LIMIT 1
       )
       SELECT
         COALESCE((SELECT sort_key FROM last_data), (SELECT sort_key FROM last_any), 0) AS sort_key,
         COALESCE((SELECT id FROM last_data), (SELECT id FROM last_any), 0) AS id
-      `,
-      [scanLimit]
+      `
     );
 
     const cursorSortKey = cursorR.rows[0]?.sort_key ?? 0;
@@ -297,7 +292,8 @@ export async function POST(req: Request) {
 
   // ✅ 상태는 파생 표시 컬럼이므로 저장 대상에서 제외(무시)
   // ✅ 거래처분류가 있으면 안내분류를 매핑 기준으로 자동 세팅
-  const data: Record<string, any> = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+  const data: Record<string, any> =
+    body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
 
   delete data["상태"];
 
