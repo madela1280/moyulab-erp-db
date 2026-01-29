@@ -125,6 +125,10 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     const [baseIndex, setBaseIndex] = useState<number>(1); // rows[0]의 "전체 기준" 행번호(1-based)
     const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
 
+    // ✅ myRowLocks(state)는 반영 타이밍이 늦을 수 있어 blur 시점에 false로 읽히는 경우가 있음
+    //    → ref를 “즉시 source of truth”로 사용해서 입력 사라짐 방지
+    const myRowLocksRef = useRef<Record<number, boolean>>({});
+
  // ✅ 상태 컬럼은 DB 저장값이 아니라 "오늘 기준 파생 표시"로 처리
 // - 자정에 자동으로 다시 계산되어 만기 D-5→D-4 같은 변화가 반영됨
 const { today } = useUnifiedStatusTicker();
@@ -725,7 +729,9 @@ function scrollToTailData() {
   if (!el) return;
 
   // 기존 초기 스크롤과 동일 컨셉(화면 중간쯤을 마지막 데이터 근처로)
-  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+  // ✅ “맨 아래”가 아니라, 마지막 데이터가 화면 중간~하단에 오도록 약간 위로
+  el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
 
   // visibleRange 즉시 동기화(커서/선택 오차 방지)
   requestAnimationFrame(() => {
@@ -1139,6 +1145,7 @@ await syncPatch(id, key, value);
       }
 
       if (result.ok) {
+        myRowLocksRef.current[rowId] = true; // ✅ 즉시 기록
         setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
         return;
       }
@@ -2278,7 +2285,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
           
           // ✅ stale 방지: 이 onBlur 실행 시점의 락 보유 여부를 로컬 변수로 확정
-          let hasLock = !!myRowLocks[row.id];
+          let hasLock = !!myRowLocksRef.current[row.id];
 
           // ✅ blur가 먼저 와도 handleFocus의 락 완료를 잠깐 기다려본다
           if (!hasLock) {
@@ -2287,8 +2294,9 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
               const result = await pending.catch(() => null);
               if (result?.ok) {
                 hasLock = true;
+                myRowLocksRef.current[row.id] = true; // ✅ 즉시 기록
                 setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
-              }
+              } 
             }
           }
 
@@ -2297,6 +2305,8 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             editingCellRef.current = null;
             setActiveEditCell(null);
             setActiveEditValue("");
+
+            delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
 
             setDraftByCell((prev) => {
               const copy = { ...prev };
@@ -2321,6 +2331,8 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             await saveCell(row.id, key, v);
                     } finally {
             await releaseLock("unified", row.id);
+
+            delete myRowLocksRef.current[row.id]; // ✅ ref 먼저 정리
 
             setMyRowLocks((prev) => {
               const copy = { ...prev };
