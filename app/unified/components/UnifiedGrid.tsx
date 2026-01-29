@@ -214,8 +214,8 @@ function requestApplyRemoteSync() {
     remoteSyncTimerRef.current = null;
   }
 
-  // ✅ 유휴 상태에서만 applyRemoteSyncOnce 수행(입력 안정성 최우선)
-  scheduleIdleReload(600);
+ // ✅ 유휴 상태에서만 applyRemoteSyncOnce 수행(입력 안정성 최우선)
+scheduleIdleReload(IDLE_RELOAD_CHECK_MS); 
 }
 
 // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
@@ -585,16 +585,20 @@ function setWidthUnit(key: string, unit: number) {
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressReloadUntilRef = useRef<number>(0);
 
-      // 안정화: 다른 PC/탭에서 온 업데이트로 인해 즉시 reload(대량 렌더)로 멈추는 것 방지
-    const lastUserActionAtRef = useRef<number>(Date.now());
-    const pendingRemoteUpdateRef = useRef<boolean>(false);
-    const idleReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+     // 안정화: 다른 PC/탭에서 온 업데이트로 인해 즉시 reload(대량 렌더)로 멈추는 것 방지
+const lastUserActionAtRef = useRef<number>(Date.now());
+const pendingRemoteUpdateRef = useRef<boolean>(false);
+const idleReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    function markUserAction() {
-      lastUserActionAtRef.current = Date.now();
-    }
+// ✅ 원격 반영(부분 reload) 유휴 판단 기준(너무 길면 “실시간”이 느려 보임)
+const IDLE_APPLY_MIN_MS = 700;     // 기존 2500ms → 700ms
+const IDLE_RELOAD_CHECK_MS = 250;  // 기존 600ms → 250ms
 
-    function scheduleIdleReload(checkDelayMs = 600) {
+function markUserAction() {
+  lastUserActionAtRef.current = Date.now();
+}
+
+    function scheduleIdleReload(checkDelayMs = IDLE_RELOAD_CHECK_MS) {
       if (idleReloadTimerRef.current) clearTimeout(idleReloadTimerRef.current);
       idleReloadTimerRef.current = setTimeout(async () => {
         // 아직 반영할 원격 업데이트가 없으면 종료
@@ -614,10 +618,10 @@ function setWidthUnit(key: string, unit: number) {
 
         // 사용자가 최근에 조작했으면 미룸(유휴 상태에서만 reload)
         const idleMs = Date.now() - lastUserActionAtRef.current;
-        if (idleMs < 2500) {
-          scheduleIdleReload(checkDelayMs);
-          return;
-        }
+if (idleMs < IDLE_APPLY_MIN_MS) {
+  scheduleIdleReload(checkDelayMs);
+  return;
+}
 
         // 이제 안전하게 “부분 반영” (스크롤/입력 안정성)
         pendingRemoteUpdateRef.current = false;
@@ -1434,14 +1438,30 @@ function updateLocalCell(id: number, key: string, value: string) {
       selectedCellRange.startCol === selectedCellRange.endCol;
 
     const ae = document.activeElement as HTMLElement | null;
-    const isEditableInput =
-      !!ae &&
-      (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA") &&
-      !(ae as HTMLInputElement).readOnly;
+    const isInput = !!ae && ae.tagName === "INPUT";
+    const input = (isInput ? (ae as HTMLInputElement) : null);
 
-    // ✅ 단일 셀 선택 + 입력중이면 브라우저 기본 Delete(문자 삭제) 허용
-    if (isEditableInput && isSingleCell && !selectedRowRange) return;
+    // ✅ 단일 셀 선택 상태에서 Delete = 셀 전체 지우기(엑셀 동작)
+    if (isSingleCell && input && !input.readOnly) {
+      e.preventDefault();
+      e.stopPropagation();
 
+      input.value = "";
+
+      // blur로 onBlur 저장 흐름 태우기
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            input.blur();
+          } catch {
+            // ignore
+          }
+        });
+      });
+      return;
+    }
+
+    // 범위 선택(여러 셀/행)일 때만 범위 지우기
     if (selectedCellRange || selectedRowRange) {
       e.preventDefault();
       e.stopPropagation();
@@ -1449,7 +1469,7 @@ function updateLocalCell(id: number, key: string, value: string) {
       editingCellRef.current = null;
       setActiveEditCell(null);
       setActiveEditValue("");
-    
+
       const el = document.activeElement as HTMLElement | null;
       if (el && el.tagName === "INPUT") el.blur();
 
@@ -2311,6 +2331,15 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
           // ✅ 날짜 컬럼은 저장 시점에만 YYYYMMDD -> YYYY-MM-DD 정규화
           const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
+         
+         // ✅ uncontrolled input이라 re-render 없이도 화면 값이 바뀌도록 DOM 값을 직접 동기화
+if (DATE_KEYS.has(key) && v !== v0) {
+  try {
+    (e.target as HTMLInputElement).value = v;
+  } catch {
+    // ignore
+  }
+}
           
           // ✅ 저장 성공 여부(try 밖에서 관리 → finally에서 참조 가능)
           let savedOk = false;
