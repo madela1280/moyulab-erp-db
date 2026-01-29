@@ -2258,9 +2258,10 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
       onContextMenu={(e) => handleCellContextMenu(rowIndex, colIndex, e)}
     >
       <input
-        className={`w-full bg-transparent outline-none text-slate-900 ${
-          key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
-        }`}
+  key={`${row.id}:${key}:${String(row.data?.[key] ?? "")}`}
+  className={`w-full bg-transparent outline-none text-slate-900 ${
+    key === "계약자주소" ? "text-[10.8px]" : "text-[11.6px]"
+  }`}
         style={
           key === "상태"
             ? (() => {
