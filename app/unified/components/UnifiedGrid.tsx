@@ -2375,7 +2375,6 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
             await saveCell(row.id, key, v);
             savedOk = true;
-            savedOkRef.current = true;
                     } finally {
             await releaseLock("unified", row.id);
 
