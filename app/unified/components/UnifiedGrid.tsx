@@ -720,6 +720,19 @@ async function refreshCountAndMaybeReload() {
   setVisibleRange(r);
 }
 
+function scrollToTailData() {
+  const el = scrollRef.current;
+  if (!el) return;
+
+  // 기존 초기 스크롤과 동일 컨셉(화면 중간쯤을 마지막 데이터 근처로)
+  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+
+  // visibleRange 즉시 동기화(커서/선택 오차 방지)
+  requestAnimationFrame(() => {
+    updateVisibleRangeNow();
+  });
+}
+
    async function refreshVisibleRowsFromServer() {
   const curRows =
     displayRowsRef.current && displayRowsRef.current.length
@@ -770,19 +783,7 @@ async function refreshCountAndMaybeReload() {
   });
 }
     
-   async function loadTailPage() {
- function scrollToTailData() {
-  const el = scrollRef.current;
-  if (!el) return;
-
-  // 기존 초기 스크롤과 동일 컨셉(화면 중간쯤을 마지막 데이터 근처로)
-  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
-
-  // visibleRange 즉시 동기화(커서/선택 오차 방지)
-  requestAnimationFrame(() => {
-    updateVisibleRangeNow();
-  });
-}
+      async function loadTailPage() {
   await ensureMinRowsInDb();
   const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
     cache: "no-store",
