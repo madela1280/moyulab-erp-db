@@ -218,6 +218,9 @@ function requestApplyRemoteSync() {
   scheduleIdleReload(600);
 }
 
+// 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
+const isColumnEditMode = !!props.isColumnEditMode;
+
 async function applyRemoteSyncOnce() {
   // suppress 기간이면 이번 버스트는 흡수
   if (Date.now() < suppressReloadUntilRef.current) return;
