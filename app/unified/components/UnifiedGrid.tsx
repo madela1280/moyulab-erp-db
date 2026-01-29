@@ -58,6 +58,37 @@ const PAGE_SIZE = 500;
 // 화면에 유지할 최대 행 수(무한 스크롤 시 DOM 과부하 방지)
 const WINDOW_MAX_ROWS = 1500;
 
+// ✅ 날짜 컬럼: 20260101 입력을 2026-01-01로 정규화(저장 시점에만 적용)
+const DATE_KEYS = new Set([
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+  "신청일",
+]);
+
+function normalizeDateInput(raw: string) {
+  const s = String(raw ?? "").trim();
+  if (!s) return s;
+
+  // YYYYMMDD -> YYYY-MM-DD
+  if (/^\d{8}$/.test(s)) {
+    return s.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  }
+
+  // YYYY-M-D / YYYY.MM.DD / YYYY/MM/DD -> pad
+  const m = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+  if (m) {
+    const y = m[1];
+    const mo = String(m[2]).padStart(2, "0");
+    const d = String(m[3]).padStart(2, "0");
+    return `${y}-${mo}-${d}`;
+  }
+
+  return s;
+}
+
 // 삽입용 완전 빈 data 생성
 function createEmptyData(): Record<string, any> {
   const obj: Record<string, any> = {};
@@ -241,22 +272,8 @@ const filterMode = !!props.filterMode;
 const filterState = props.filterState;
 const sortState = props.sortState;
 
-// ✅ 필터 상태에서 편집/저장 직후 행이 사라져 “튕김”처럼 보이는 문제 방지용 핀(잠깐 유지)
-const pinnedRowsRef = useRef<Record<number, number>>({}); // { [rowId]: expiresAtMs }
-
-function pinRow(rowId: number, ms = 8000) {
-  pinnedRowsRef.current[rowId] = Date.now() + ms;
-}
-
-function isPinnedRow(rowId: number) {
-  const exp = pinnedRowsRef.current[rowId];
-  if (!exp) return false;
-  if (exp < Date.now()) {
-    delete pinnedRowsRef.current[rowId];
-    return false;
-  }
-  return true;
-}
+// ✅ 필터 모드에서는 "행 목록"을 고정해서, 편집으로 필터 결과가 즉시 바뀌지 않게 함
+const [filterFrozenIds, setFilterFrozenIds] = useState<number[] | null>(null);
 
 // ✅ 편집 중에는 displayRows를 스냅샷으로 고정(행 튕김/사라짐 방지)
 const [displayRowsFrozen, setDisplayRowsFrozen] = useState<UnifiedRow[] | null>(null);
@@ -275,9 +292,7 @@ const computedDisplayRows = useMemo(() => {
     const entries = Object.entries(filterState.selectedByKey);
     if (entries.length) {
       out = out.filter((row) => {
-        // ✅ 필터 중 편집/저장한 행은 잠깐 유지(사라짐=튕김 체감 방지)
-        if (isPinnedRow(row.id)) return true;
-
+       
         for (const [key, selectedSet] of entries) {
           if (!selectedSet || selectedSet.size === 0) continue;
           const v = getDisplayText(row, key);
@@ -305,7 +320,38 @@ const computedDisplayRows = useMemo(() => {
   return out;
 }, [rows, filterState, sortState, today]);
 
-const displayRows = displayRowsFrozen ?? computedDisplayRows;
+useEffect(() => {
+  if (!filterMode) {
+    setFilterFrozenIds(null);
+    return;
+  }
+  // ✅ 필터/정렬이 바뀌었을 때만(=사용자가 조작했을 때만) 목록 재계산
+  setFilterFrozenIds(computedDisplayRows.map((r) => r.id));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [filterMode, filterState, sortState]);
+
+const rowsById = useMemo(() => {
+  const m = new Map<number, UnifiedRow>();
+  for (const r of rows) m.set(r.id, r);
+  return m;
+}, [rows]);
+
+const displayRows = useMemo(() => {
+  // 편집 중 freeze가 최우선
+  if (displayRowsFrozen) return displayRowsFrozen;
+
+  // 필터 모드면 frozen id 기준으로만 보여줌(값은 rows에서 최신 반영)
+  if (filterMode && filterFrozenIds) {
+    const out: UnifiedRow[] = [];
+    for (const id of filterFrozenIds) {
+      const r = rowsById.get(id);
+      if (r) out.push(r);
+    }
+    return out;
+  }
+
+  return computedDisplayRows;
+}, [displayRowsFrozen, filterMode, filterFrozenIds, rowsById, computedDisplayRows]);
 
 // ✅ (추가) 필터 팝오버 상태
 const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
@@ -498,6 +544,12 @@ function setWidthUnit(key: string, unit: number) {
       key: string;
     } | null>(null);
     const [activeEditValue, setActiveEditValue] = useState<string>("");
+
+    // ✅ 입력 안정성: 타이핑 중에는 row.data를 건드리지 않고, 셀별 draft로만 value를 유지
+    const [draftByCell, setDraftByCell] = useState<Record<string, string>>({});
+    function draftKey(rowId: number, colKey: string) {
+      return `${rowId}:${colKey}`;
+    }
 
         // 포커스 경쟁/이탈 처리용
     const focusSeqRef = useRef(0);
@@ -2114,44 +2166,51 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             : undefined
         }
         readOnly={key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)}
-        value={
+       value={
           key === "상태"
             ? getDerivedStatusForRow(row.data ?? {}).status
             : key === "총연장횟수"
             ? String(countExtensionRounds(row.data ?? {}))
-            : activeEditCell &&
-              activeEditCell.rowId === row.id &&
-              activeEditCell.key === key
-            ? activeEditValue
-            : (row.data[key] ?? "")
+            : (() => {
+                const dk = draftKey(row.id, key);
+                if (Object.prototype.hasOwnProperty.call(draftByCell, dk)) {
+                  return draftByCell[dk] ?? "";
+                }
+                return row.data[key] ?? "";
+              })()
         }
         data-row={rowIndex}
         data-col={colIndex}
-                onFocus={(e) => {
+                         onFocus={(e) => {
   setSelectedRowRange(null);
 
   // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용: 락/편집 흐름 진입 금지
   if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-  // ✅ 편집/저장 직후 필터에서 사라지지 않게 핀
-  pinRow(row.id);
-
   // ✅ 편집 시작 시: displayRows 스냅샷 고정(필터/정렬로 행이 튕기는 것 방지)
   freezeDisplayRowsIfNeeded();
 
   const initial = String(row.data[key] ?? "");
-  handleFocus(row.id, key, initial, e);
-}}
 
-            onChange={(e) => {
+  // ✅ 포커스 순간 draft 초기화(현재 값 기준)
+  setDraftByCell((prev) => ({ ...prev, [draftKey(row.id, key)]: initial }));
+
+  handleFocus(row.id, key, initial, e);
+}}       
+
+                       onChange={(e) => {
   // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
   if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-  // ✅ 타이핑 중에는 rows(setRows)를 건드리지 않고, 오직 activeEditValue로만 화면을 갱신
-  // (activeEditCell 세팅 타이밍 레이스로 입력이 10%만 반영되던 문제 해결)
+  const next = e.target.value;
+
+  // ✅ draft가 진짜 source of truth
+  setDraftByCell((prev) => ({ ...prev, [draftKey(row.id, key)]: next }));
+
+  // (유지) 다른 로직과 호환을 위해 activeEdit도 같이 유지
   setActiveEditCell({ rowId: row.id, key });
-  setActiveEditValue(e.target.value);
-}}      
+  setActiveEditValue(next);
+}}
      
         onPaste={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
@@ -2175,11 +2234,14 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-          const v = e.target.value as string;
+          const dk = draftKey(row.id, key);
+          const v0 = Object.prototype.hasOwnProperty.call(draftByCell, dk)
+            ? (draftByCell[dk] ?? "")
+            : (e.target.value as string);
 
-          // ✅ 편집/저장 직후 필터에서 사라지지 않게 핀(blur 시점에도 연장)
-          pinRow(row.id);
-
+          // ✅ 날짜 컬럼은 저장 시점에만 YYYYMMDD -> YYYY-MM-DD 정규화
+          const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
+          
           // ✅ stale 방지: 이 onBlur 실행 시점의 락 보유 여부를 로컬 변수로 확정
           let hasLock = !!myRowLocks[row.id];
 
@@ -2196,10 +2258,16 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           // ✅ 끝까지 락이 없으면 저장하지 않고 서버값으로 되돌림
-          if (!hasLock) {
+         if (!hasLock) {
             editingCellRef.current = null;
             setActiveEditCell(null);
             setActiveEditValue("");
+
+            setDraftByCell((prev) => {
+              const copy = { ...prev };
+              delete copy[dk];
+              return copy;
+            });
 
             if (pendingReloadRef.current) pendingReloadRef.current = false;
 
@@ -2216,7 +2284,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
             // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
             await saveCell(row.id, key, v);
-          } finally {
+                    } finally {
             await releaseLock("unified", row.id);
 
             setMyRowLocks((prev) => {
@@ -2228,6 +2296,12 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             editingCellRef.current = null;
             setActiveEditCell(null);
             setActiveEditValue("");
+
+            setDraftByCell((prev) => {
+              const copy = { ...prev };
+              delete copy[dk];
+              return copy;
+            });
 
             if (pendingReloadRef.current) {
               pendingReloadRef.current = false;
