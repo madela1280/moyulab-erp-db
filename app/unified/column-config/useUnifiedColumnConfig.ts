@@ -108,6 +108,11 @@ export function useUnifiedColumnConfig() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalChangeAtRef = useRef<number>(0);
 
+   // ✅ unified:update는 통합관리 셀 편집에도 매번 발생함 → 컬럼설정 재로드가 폭주하면
+  //    Grid가 크게 리렌더되어 입력/삭제가 “점멸/복구/50%만 입력”처럼 보일 수 있음
+  const lastRemoteReloadAtRef = useRef<number>(0);
+  const REMOTE_RELOAD_MIN_INTERVAL_MS = 20000; // 20초 스로틀(필요하면 10~30초로 조절)
+
   const canSave = useMemo(() => hydratedRef.current, [hydratedRef.current]);
 
   function setColumnOrder(next: string[]) {
@@ -193,13 +198,26 @@ export function useUnifiedColumnConfig() {
     };
   }, [columnOrder, colWidthUnitByKey, canSave]);
 
-  // 전역 변경(양식추가 등) sync 수신 시 재로딩
+    // 전역 변경(양식추가 등) sync 수신 시 재로딩
   useEffect(() => {
     const stop = syncListen(() => {
-      const idleMs = Date.now() - lastLocalChangeAtRef.current;
-      if (idleMs < 1200) return; // 방금 조작 중이면 덮어쓰기 방지
+      const now = Date.now();
+
+      // 1) 방금 조작 중이면 덮어쓰기 방지
+      const idleMs = now - lastLocalChangeAtRef.current;
+      if (idleMs < 1200) return;
+
+      // 2) ✅ 스로틀: unified:update(셀 편집)로 인한 재로드 폭주 방지
+      if (now - lastRemoteReloadAtRef.current < REMOTE_RELOAD_MIN_INTERVAL_MS) return;
+
+      // 3) ✅ 사용자가 현재 input/textarea 편집 중이면 재로드 금지(입력 튕김 방지)
+      const el = (typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+
+      lastRemoteReloadAtRef.current = now;
       void reloadAllColumnState();
     });
+
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableColumns]);
