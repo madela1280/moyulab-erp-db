@@ -850,11 +850,7 @@ function scrollToTailData() {
 
      useEffect(() => {
   const stop = syncListen(() => {
-    // ✅ 내가 방금 emit한 이벤트(내 저장/삭제/붙여넣기 echo)는 무시해서
-    //    입력/삭제 직후 화면 덮어쓰기(점멸/복구)를 줄인다
-    const dt = Date.now() - lastLocalUnifiedEmitAtRef.current;
-    if (dt >= 0 && dt < IGNORE_SELF_ECHO_MS) return;
-
+    // ✅ echo 무시는 “누락”을 만들 수 있어 제거
     requestApplyRemoteSync();
   });
 
