@@ -565,13 +565,7 @@ function setWidthUnit(key: string, unit: number) {
     } | null>(null);
     const [activeEditValue, setActiveEditValue] = useState<string>("");
 
-    // ✅ 입력 안정성: 타이핑 중에는 row.data를 건드리지 않고, 셀별 draft로만 value를 유지
-    const [draftByCell, setDraftByCell] = useState<Record<string, string>>({});
-    function draftKey(rowId: number, colKey: string) {
-      return `${rowId}:${colKey}`;
-    }
-
-        // 포커스 경쟁/이탈 처리용
+     // 포커스 경쟁/이탈 처리용
     const focusSeqRef = useRef(0);
 
         // ✅ 락 획득이 끝나기 전에 blur가 나가도 저장이 되도록 "락 대기"를 추적
@@ -1455,8 +1449,7 @@ function updateLocalCell(id: number, key: string, value: string) {
       editingCellRef.current = null;
       setActiveEditCell(null);
       setActiveEditValue("");
-      setDraftByCell({});
-
+    
       const el = document.activeElement as HTMLElement | null;
       if (el && el.tagName === "INPUT") el.blur();
 
@@ -2259,19 +2252,22 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             : undefined
         }
         readOnly={key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)}
-       value={
-          key === "상태"
-            ? getDerivedStatusForRow(row.data ?? {}).status
-            : key === "총연장횟수"
-            ? String(countExtensionRounds(row.data ?? {}))
-            : (() => {
-                const dk = draftKey(row.id, key);
-                if (Object.prototype.hasOwnProperty.call(draftByCell, dk)) {
-                  return draftByCell[dk] ?? "";
-                }
-                return row.data[key] ?? "";
-              })()
-        }
+       {...(() => {
+  const isReadOnly =
+    key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key);
+
+  if (isReadOnly) {
+    const roValue =
+      key === "상태"
+        ? getDerivedStatusForRow(row.data ?? {}).status
+        : key === "총연장횟수"
+        ? String(countExtensionRounds(row.data ?? {}))
+        : String(row.data?.[key] ?? "");
+    return { value: roValue };
+  }
+
+  return { defaultValue: String(row.data?.[key] ?? "") };
+})()}
         data-row={rowIndex}
         data-col={colIndex}
                          onFocus={(e) => {
@@ -2285,26 +2281,10 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
   const initial = String(row.data[key] ?? "");
 
-  // ✅ 포커스 순간 draft 초기화(현재 값 기준)
-  setDraftByCell((prev) => ({ ...prev, [draftKey(row.id, key)]: initial }));
-
+  
   handleFocus(row.id, key, initial, e);
 }}       
-
-                       onChange={(e) => {
-  // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
-  if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-
-  const next = e.target.value;
-
-  // ✅ draft가 진짜 source of truth
-  setDraftByCell((prev) => ({ ...prev, [draftKey(row.id, key)]: next }));
-
-  // (유지) 다른 로직과 호환을 위해 activeEdit도 같이 유지
-  setActiveEditCell({ rowId: row.id, key });
-  setActiveEditValue(next);
-}}
-     
+    
         onPaste={(e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
@@ -2327,10 +2307,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
-          const dk = draftKey(row.id, key);
-          const v0 = Object.prototype.hasOwnProperty.call(draftByCell, dk)
-            ? (draftByCell[dk] ?? "")
-            : (e.target.value as string);
+          const v0 = (e.target.value as string) ?? "";
 
           // ✅ 날짜 컬럼은 저장 시점에만 YYYYMMDD -> YYYY-MM-DD 정규화
           const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
@@ -2355,25 +2332,19 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           // ✅ 끝까지 락이 없으면 저장하지 않고 서버값으로 되돌림
-         if (!hasLock) {
-            editingCellRef.current = null;
-            setActiveEditCell(null);
-            setActiveEditValue("");
+if (!hasLock) {
+  editingCellRef.current = null;
+  setActiveEditCell(null);
+  setActiveEditValue("");
 
-            delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
+  delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
 
-            setDraftByCell((prev) => {
-              const copy = { ...prev };
-              delete copy[dk];
-              return copy;
-            });
+  if (pendingReloadRef.current) pendingReloadRef.current = false;
 
-            if (pendingReloadRef.current) pendingReloadRef.current = false;
-
-            await refreshVisibleRowsFromServer();
-            unfreezeDisplayRows();
-            return;
-          }
+  await refreshVisibleRowsFromServer();
+  unfreezeDisplayRows();
+  return;
+}
 
           try {
            
@@ -2400,17 +2371,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             editingCellRef.current = null;
             setActiveEditCell(null);
             setActiveEditValue("");
-
-             // ✅ 저장 성공했을 때만 draft 제거
-            //    (실패/경쟁/재조회 타이밍에서 “복구처럼 보이는” 현상 최소화)
-            if (savedOk) {
-              setDraftByCell((prev) => {
-                const copy = { ...prev };
-                delete copy[dk];
-                return copy;
-              });
-            }
-
+             
             if (pendingReloadRef.current) {
               pendingReloadRef.current = false;
               await refreshVisibleRowsFromServer();
