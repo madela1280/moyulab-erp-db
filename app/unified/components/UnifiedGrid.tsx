@@ -1429,33 +1429,44 @@ function updateLocalCell(id: number, key: string, value: string) {
     //    → 우리가 “선택 없을 때도” 가로채면서 망가졌으니,
     //      선택 범위가 있을 때만 범위 지우기 처리하고,
     //      선택이 없으면 브라우저 기본 Delete 동작을 그대로 둔다.
-    useEffect(() => {
-      function onKeyDown(e: KeyboardEvent) {
-        if (e.key !== "Delete") return;
-        if ((e as any).isComposing) return;
+   useEffect(() => {
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key !== "Delete") return;
+    if ((e as any).isComposing) return;
 
-        // 선택 범위가 있을 때만: 범위 지우기
-        if (selectedCellRange || selectedRowRange) {
-          e.preventDefault();
-          e.stopPropagation();
+    const isSingleCell =
+      !!selectedCellRange &&
+      selectedCellRange.startRow === selectedCellRange.endRow &&
+      selectedCellRange.startCol === selectedCellRange.endCol;
 
-          editingCellRef.current = null;
-          setActiveEditCell(null);
-          setActiveEditValue("");
+    const ae = document.activeElement as HTMLElement | null;
+    const isEditableInput =
+      !!ae &&
+      (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA") &&
+      !(ae as HTMLInputElement).readOnly;
 
-          // draft 잔상 방지
-          setDraftByCell({});
+    // ✅ 단일 셀 선택 + 입력중이면 브라우저 기본 Delete(문자 삭제) 허용
+    if (isEditableInput && isSingleCell && !selectedRowRange) return;
 
-          const el = document.activeElement as HTMLElement | null;
-          if (el && el.tagName === "INPUT") el.blur();
+    if (selectedCellRange || selectedRowRange) {
+      e.preventDefault();
+      e.stopPropagation();
 
-          void handleClearSelectedRows();
-        }
-      }
+      editingCellRef.current = null;
+      setActiveEditCell(null);
+      setActiveEditValue("");
+      setDraftByCell({});
 
-      window.addEventListener("keydown", onKeyDown);
-      return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange]);       
+      const el = document.activeElement as HTMLElement | null;
+      if (el && el.tagName === "INPUT") el.blur();
+
+      void handleClearSelectedRows();
+    }
+  }
+
+  window.addEventListener("keydown", onKeyDown);
+  return () => window.removeEventListener("keydown", onKeyDown);
+}, [selectedCellRange, selectedRowRange]);
 
    // Ctrl/Cmd+C: 복사만 keydown에서 처리 (V는 paste 이벤트에서 처리)
     useEffect(() => {
