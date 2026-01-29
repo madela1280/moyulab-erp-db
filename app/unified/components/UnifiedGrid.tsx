@@ -2324,6 +2324,9 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           // ✅ 날짜 컬럼은 저장 시점에만 YYYYMMDD -> YYYY-MM-DD 정규화
           const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
           
+          // ✅ 저장 성공 여부(try 밖에서 관리 → finally에서 참조 가능)
+          let savedOk = false;
+
           // ✅ stale 방지: 이 onBlur 실행 시점의 락 보유 여부를 로컬 변수로 확정
           let hasLock = !!myRowLocksRef.current[row.id];
 
@@ -2362,8 +2365,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           try {
-            const savedOkRef = { current: false };
-
+           
             // ✅ 저장 직후 소켓 echo/부분재조회가 1~2초 내로 들어오며 점멸하는 케이스 방지
             suppressReloadFor(2500);
 
@@ -2372,6 +2374,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
             // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
             await saveCell(row.id, key, v);
+            savedOk = true;
             savedOkRef.current = true;
                     } finally {
             await releaseLock("unified", row.id);
@@ -2390,7 +2393,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
              // ✅ 저장 성공했을 때만 draft 제거
             //    (실패/경쟁/재조회 타이밍에서 “복구처럼 보이는” 현상 최소화)
-            if (savedOkRef.current) {
+            if (savedOk) {
               setDraftByCell((prev) => {
                 const copy = { ...prev };
                 delete copy[dk];
