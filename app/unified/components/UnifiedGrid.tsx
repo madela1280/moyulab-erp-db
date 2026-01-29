@@ -198,6 +198,10 @@ const FULL_RELOAD_MIN_INTERVAL_MS = 1200;
 const lastLocalUnifiedEmitAtRef = useRef<number>(0);
 const IGNORE_SELF_ECHO_MS = 1200;
 
+// ✅ meta=count는 비용/렌더 영향이 커서 너무 자주 치면 입력/스크롤이 불안정해질 수 있음
+const lastCountCheckAtRef = useRef<number>(0);
+const COUNT_CHECK_MIN_INTERVAL_MS = 2500;
+
 function requestApplyRemoteSync() {
   // ✅ 소켓 echo(내가 저장한 것도 다시 받음) 때문에 즉시 refreshVisibleRowsFromServer가 돌면
   //    입력/삭제가 “점멸 후 복구”처럼 보일 수 있음 → 유휴(idle)일 때만 반영
