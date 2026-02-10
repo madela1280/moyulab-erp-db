@@ -1687,46 +1687,71 @@ case "ArrowUp": {
     /* --------------------- 행 삭제 --------------------- */
       
    async function handleDeleteSelectedRows() {
-      const { slice } = getSelectedRowRangeInfo();
-      if (!slice.length) {
-        setRowContextMenu(null);
-        return;
-      }
+  const { slice } = getSelectedRowRangeInfo();
+  if (!slice.length) {
+    setRowContextMenu(null);
+    return;
+  }
 
-      const ids = slice.map((r) => r.id);
+  const ids = slice.map((r) => r.id);
 
-      await fetch(`/api/unified/bulk-delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
+  // 1) 서버 삭제 먼저 + 성공 여부 확인(실패하면 로컬삭제 금지)
+  try {
+    const res = await fetch(`/api/unified/bulk-delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
 
-           // 로컬에 즉시 반영(체감 속도 향상) + 점프 방지
-      suspendScrollLoadBriefly();
-
-      const idSet = new Set(ids);
-
-      setRows((prev) => {
-        // 화면의 "맨 위"부터 연속해서 삭제된 개수만큼 baseIndex를 앞으로 당겨야 행번호가 맞음
-        let removedFromTop = 0;
-        while (removedFromTop < prev.length && idSet.has(prev[removedFromTop].id)) {
-          removedFromTop++;
-        }
-        if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
-
-        return prev.filter((r) => !idSet.has(r.id));
-      });
-
-      setTotalCount((t) => Math.max(0, t - ids.length));
-
-      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
-      suppressReloadFor(2500);
-
-      lastLocalUnifiedEmitAtRef.current = Date.now();
-      syncEmitUnifiedUpdate();
+    if (!res.ok) {
+      // 실패면 화면/정합성 복구를 위해 강제 reload
+      await reload();
       setRowContextMenu(null);
-      setSelectedRowRange(null);  
+      setSelectedRowRange(null);
+      return;
     }
+  } catch (e) {
+    // 네트워크/일시 오류도 동일 처리
+    await reload();
+    setRowContextMenu(null);
+    setSelectedRowRange(null);
+    return;
+  }
+
+  // 2) 여기부터는 "서버 삭제 성공"이 확정된 경우만 로컬 반영
+  suspendScrollLoadBriefly();
+
+  const idSet = new Set(ids);
+
+  setRows((prev) => {
+    let removedFromTop = 0;
+    while (removedFromTop < prev.length && idSet.has(prev[removedFromTop].id)) {
+      removedFromTop++;
+    }
+    if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
+
+    return prev.filter((r) => !idSet.has(r.id));
+  });
+
+  setTotalCount((t) => Math.max(0, t - ids.length));
+
+  suppressReloadFor(2500);
+
+  lastLocalUnifiedEmitAtRef.current = Date.now();
+  syncEmitUnifiedUpdate();
+
+  // ✅ 드물게 이벤트 누락되는 케이스 완화(삭제에만 1회 추가 emit)
+  setTimeout(() => {
+    try {
+      syncEmitUnifiedUpdate();
+    } catch {
+      // ignore
+    }
+  }, 250);
+
+  setRowContextMenu(null);
+  setSelectedRowRange(null);
+}
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
