@@ -231,9 +231,15 @@ scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
 const isColumnEditMode = !!props.isColumnEditMode;
 
 async function applyRemoteSyncOnce() {
+  // ✅ 쓰기 작업이 진행 중이면, 원격 적용(fetch)이 먼저 돌아 옛 값으로 덮일 수 있으므로 보류
+  if (writeInFlightRef.current > 0) {
+    remoteSyncPendingRef.current = true;
+    pendingRemoteUpdateRef.current = true;
+    scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
+    return;
+  }
+
   // ✅ suppress 기간이면 "흡수"가 아니라 "보류"해야 함
-  // (그렇지 않으면 scheduleIdleReload 쪽에서 pendingRemoteUpdateRef가 false가 된 상태로 끝나
-  //  다음 원격 이벤트가 오기 전까지 반영이 멈춰 “마지막 1개 누락”처럼 보일 수 있음)
   if (Date.now() < suppressReloadUntilRef.current) {
     remoteSyncPendingRef.current = true;
     pendingRemoteUpdateRef.current = true;
@@ -613,6 +619,19 @@ function setWidthUnit(key: string, unit: number) {
     // unified:update 연타/중복 reload로 인한 점멸 완화(디바운스 + suppress)
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressReloadUntilRef = useRef<number>(0);
+
+    // ✅ 쓰기 작업(bulk-patch/insert/delete 등) 진행 중에는
+    //    원격 sync 적용(fetch)이 먼저 돌아서 “옛 값으로 덮이는” 현상이 생길 수 있음
+    //    → write-in-flight 동안은 원격 apply를 보류한다.
+    const writeInFlightRef = useRef<number>(0);
+
+    function beginWrite() {
+      writeInFlightRef.current += 1;
+    }
+
+    function endWrite() {
+      writeInFlightRef.current = Math.max(0, writeInFlightRef.current - 1);
+    }
 
      // 안정화: 다른 PC/탭에서 온 업데이트로 인해 즉시 reload(대량 렌더)로 멈추는 것 방지
 const lastUserActionAtRef = useRef<number>(Date.now());
@@ -1298,6 +1317,56 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
     return false;
   }
   return true;
+}
+
+// ✅ bulk-patch는 “로컬 즉시 반영” 후에도, 서버가 연쇄 업데이트(기기번호/거래처 등)를 할 수 있음.
+//    그리고 write 중 원격 apply가 끼면 값이 되돌아가는 체감이 생길 수 있음.
+//    → 서버 응답(rows)을 다시 merge해서 DB truth로 맞춘다.
+async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string, any> }[]) {
+  if (!updates.length) return;
+
+  beginWrite();
+  try {
+    // bulk 작업은 중간에 원격 apply가 끼지 않게 suppress도 같이
+    suppressReloadFor(2500);
+
+    const res = await fetch(`/api/unified/bulk-patch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates }),
+    });
+
+    if (!res.ok) {
+      await reload();
+      return;
+    }
+
+    const j = await res.json().catch(() => null);
+    const serverRows = Array.isArray(j?.rows) ? (j.rows as UnifiedRow[]) : null;
+
+    // ✅ 서버 truth를 rows에 재주입(연쇄 업데이트/정규화 반영 + 사라짐 방지)
+    if (serverRows && serverRows.length) {
+      const map = new Map<number, UnifiedRow>();
+      for (const r of serverRows) map.set(Number(r.id), r);
+
+      setRows((prev) =>
+        prev.map((row) => {
+          const s = map.get(row.id);
+          if (!s) return row;
+          return {
+            ...row,
+            sort_key: s.sort_key ?? row.sort_key,
+            data: (s.data ?? row.data) as any,
+          };
+        })
+      );
+    }
+
+    lastLocalUnifiedEmitAtRef.current = Date.now();
+    syncEmitUnifiedUpdate();
+  } finally {
+    endWrite();
+  }
 }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
@@ -2013,106 +2082,69 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
-     async function handleClearSelectedRows() {
-  // 1) 셀 범위가 있으면 셀만 지우기
+     async function pasteTextToSelectedRange(text: string) {
+  let baseRowIndex: number;
+  let baseColIndex: number;
+
   if (selectedCellRange) {
-    const { startRow, endRow, startCol, endCol } = selectedCellRange;
+    baseRowIndex = selectedCellRange.startRow;
+    baseColIndex = selectedCellRange.startCol;
+  } else {
+    const { start } = getSelectedRowRangeInfo(); // displayRows 기준
+    baseRowIndex = start >= 0 ? start : 0;
+    baseColIndex = 0;
+  }
 
-    const updates: { id: number; patch: Record<string, any> }[] = [];
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0);
 
-    // displayRows 기준 선택 → id로 rows를 갱신
-    const selected = displayRows.slice(startRow, endRow + 1);
-    const idSet = new Set(selected.map((r) => r.id));
-
-    setRows((prev) => {
-      const next = prev.map((r) => {
-        if (!idSet.has(r.id)) return r;
-
-        const newData: Record<string, any> = { ...r.data };
-        for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-          const colKey = viewColumns[cIndex];
-          if (!colKey) continue;
-          if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
-          newData[colKey] = "";
-        }
-
-        updates.push({ id: r.id, patch: newData });
-        return { ...r, data: newData };
-      });
-
-      return next;
-    });
-
-    suspendScrollLoadBriefly();
-
-    const res = await fetch(`/api/unified/bulk-patch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ updates }),
-    });
-
-    // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
-    if (!res.ok) {
-      await reload();
-      setRowContextMenu(null);
-      return;
-    }
-
-    suppressReloadFor(2500);
-
-    lastLocalUnifiedEmitAtRef.current = Date.now();
-    syncEmitUnifiedUpdate();
+  if (!lines.length) {
     setRowContextMenu(null);
     return;
   }
 
-  // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
-  const { slice } = getSelectedRowRangeInfo();
-  if (!slice.length) {
+  const parsed = lines.map((line) => line.split("\t"));
+
+  const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
+  if (!targetRows.length) {
     setRowContextMenu(null);
     return;
   }
 
   const updates: { id: number; patch: Record<string, any> }[] = [];
-  const ids = slice.map((r) => r.id);
-  const idSet = new Set(ids);
+  const idSet = new Set(targetRows.map((r) => r.id));
 
   setRows((prev) =>
     prev.map((r) => {
       if (!idSet.has(r.id)) return r;
 
+      const targetIndex = targetRows.findIndex((x) => x.id === r.id);
+      if (targetIndex < 0) return r;
+
+      const srcRow = parsed[targetIndex] ?? [];
       const newData: Record<string, any> = { ...r.data };
-      viewColumns.forEach((key) => {
-        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-        newData[key] = "";
-      });
+
+      for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
+        const colIndex = baseColIndex + colOffset;
+        if (colIndex >= viewColumns.length) break;
+
+        const key = viewColumns[colIndex];
+        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
+
+        const v = srcRow[colOffset] ?? "";
+        newData[key] = v;
+      }
 
       updates.push({ id: r.id, patch: newData });
       return { ...r, data: newData };
     })
   );
 
-  suspendScrollLoadBriefly();
-
-  const res = await fetch(`/api/unified/bulk-patch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates }),
-  });
-
-  // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
-  if (!res.ok) {
-    await reload();
-    setRowContextMenu(null);
-    return;
-  }
-
-  suppressReloadFor(2500);
-
-  lastLocalUnifiedEmitAtRef.current = Date.now();
-  syncEmitUnifiedUpdate();
+  await bulkPatchAndReconcile(updates);
   setRowContextMenu(null);
-} 
+}
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
 
@@ -2244,25 +2276,8 @@ cells.push(v);
     })
   );
 
-  const res = await fetch(`/api/unified/bulk-patch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates }),
-  });
-
-  // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
-  if (!res.ok) {
-    await reload();
-    setRowContextMenu(null);
-    return;
-  }
-
-  suppressReloadFor(2500);
-
-  lastLocalUnifiedEmitAtRef.current = Date.now();
-  syncEmitUnifiedUpdate();
+  await bulkPatchAndReconcile(updates);
   setRowContextMenu(null);
-}
 
     async function handlePasteToSelectedRowsFromClipboard() {
       let text = "";
