@@ -365,8 +365,16 @@ const rowsById = useMemo(() => {
 }, [rows]);
 
 const displayRows = useMemo(() => {
-  // 편집 중 freeze가 최우선
-  if (displayRowsFrozen) return displayRowsFrozen;
+  // ✅ 편집 중 freeze는 “목록/순서”만 고정하고, “값”은 최신 rows를 따라간다.
+  // 그래야 B탭에서 포커스만 남아도 원격값이 안 보이는 문제가 사라진다.
+  if (displayRowsFrozen) {
+    const out: UnifiedRow[] = [];
+    for (const frozenRow of displayRowsFrozen) {
+      const latest = rowsById.get(frozenRow.id);
+      out.push(latest ?? frozenRow);
+    }
+    return out;
+  }
 
   // 필터 모드면 frozen id 기준으로만 보여줌(값은 rows에서 최신 반영)
   if (filterMode && filterFrozenIds) {
@@ -1196,6 +1204,11 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     /* --------------------- 로컬 셀 값 반영 --------------------- */
 function freezeDisplayRowsIfNeeded() {
   if (displayRowsFrozen) return;
+
+  // ✅ freeze는 “필터/정렬 중 편집”에서만 필요
+  // 평상시에는 포커스만 남아도 원격 반영이 안 보이는 부작용이 커서 freeze 하지 않는다.
+  if (!filterMode && !sortState?.key) return;
+
   // ✅ 현재 화면에 보이는 목록 그대로 고정해야 커서/선택/인덱스가 안 틀어짐
   setDisplayRowsFrozen(displayRows);
 }
