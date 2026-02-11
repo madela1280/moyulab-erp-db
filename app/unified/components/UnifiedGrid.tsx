@@ -1038,18 +1038,24 @@ fresh.forEach((x) => map.set(x.id, x));
     
     /* --------------------- 외부에서 행 추가 호출 --------------------- */
    async function appendBlankRows(count: number) {
-      if (count <= 0) return;
+  if (count <= 0) return;
 
-      await fetch("/api/unified/insert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count, beforeId: null, afterId: null }),
-      });
+  const res = await fetch("/api/unified/insert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count, beforeId: null, afterId: null }),
+  });
 
-            lastLocalUnifiedEmitAtRef.current = Date.now();
-      syncEmitUnifiedUpdate();
-      await reload();
-    }
+  // ✅ API 성공 전 emit/로컬반영 금지 + 실패면 reload로 복구
+  if (!res.ok) {
+    await reload();
+    return;
+  }
+
+  lastLocalUnifiedEmitAtRef.current = Date.now();
+  syncEmitUnifiedUpdate();
+  await reload();
+}
 
 // ✅ (추가) 칼라 적용: 선택 셀 범위 기준으로 __cellStyle 저장(bulk-patch)
 async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMode) {
@@ -1065,7 +1071,7 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
 
   if (!updates.length) return;
 
-  // 로컬 반영(rows는 원본, id 기준으로 갱신)
+  // 로컬 반영(즉시 체감). 실패 시 reload로 복구.
   setRows((prev) => {
     const styleById = new Map<number, any>();
     for (const u of updates) styleById.set(u.id, (u.patch as any).__cellStyle);
@@ -1077,11 +1083,17 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     });
   });
 
-    await fetch(`/api/unified/bulk-patch`, {
+  const res = await fetch(`/api/unified/bulk-patch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ updates }),
   });
+
+  // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
+  if (!res.ok) {
+    await reload();
+    return;
+  }
 
   lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
@@ -1139,6 +1151,56 @@ function updateLocalCell(id: number, key: string, value: string) {
   lastLocalUnifiedEmitAtRef.current = Date.now();
 
   await syncPatch(id, key, value);
+}
+
+// ✅ 저장 후 서버값 검증(간헐적 저장 누락/삭제 부활/마지막 1개 미반영 체감 방지)
+// - syncPatch는 내부에서 res.ok 체크를 안 하므로, UI/DB 불일치가 나면 “복구”가 필요함
+// - 모든 셀에 매번 검증하면 네트워크가 무거울 수 있어, 문제 빈도가 높은 케이스만 검증한다.
+function normalizeCellTextFromServer(v: any) {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+function isSameCellValue(expectedText: string, serverValue: any) {
+  const expected = String(expectedText ?? "");
+  const sv = serverValue;
+
+  // expected="" (삭제) 인 경우: 서버는 null로 저장되므로 null/"" 모두 동일로 본다
+  if (expected === "") {
+    return sv === null || sv === undefined || String(sv) === "";
+  }
+
+  return normalizeCellTextFromServer(sv) === expected;
+}
+
+async function fetchRowNoStore(id: number): Promise<UnifiedRow | null> {
+  try {
+    const r = await fetch(`/api/unified/${id}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    if (!j || typeof j !== "object") return null;
+    return j as UnifiedRow;
+  } catch {
+    return null;
+  }
+}
+
+// ✅ 필요한 경우에만 “서버 저장값”을 확인하고, 다르면 로컬을 서버값으로 되돌린다.
+async function verifyCellSavedOrRevert(args: { id: number; key: string; expected: string }) {
+  const { id, key, expected } = args;
+
+  const row = await fetchRowNoStore(id);
+  const serverValue = (row as any)?.data?.[key];
+
+  if (!isSameCellValue(expected, serverValue)) {
+    // 서버값 기준으로 즉시 복구
+    const nextText = normalizeCellTextFromServer(serverValue);
+    updateLocalCell(id, key, nextText);
+    // 서버가 다른 필드도 같이 바꿨을 수 있으니(예: 거래처→안내분류/기기번호 매칭) 부분재조회 예약
+    pendingReloadRef.current = true;
+    return false;
+  }
+  return true;
 }
 
     /* --------------------- 포커스 시 락 획득 --------------------- */
@@ -1434,6 +1496,9 @@ function updateLocalCell(id: number, key: string, value: string) {
     if (e.key !== "Delete") return;
     if ((e as any).isComposing) return;
 
+    const hasCellRange = !!selectedCellRange;
+    const hasRowRange = !!selectedRowRange;
+
     const isSingleCell =
       !!selectedCellRange &&
       selectedCellRange.startRow === selectedCellRange.endRow &&
@@ -1441,16 +1506,15 @@ function updateLocalCell(id: number, key: string, value: string) {
 
     const ae = document.activeElement as HTMLElement | null;
     const isInput = !!ae && ae.tagName === "INPUT";
-    const input = (isInput ? (ae as HTMLInputElement) : null);
+    const input = isInput ? (ae as HTMLInputElement) : null;
 
-    // ✅ 단일 셀 선택 상태에서 Delete = 셀 전체 지우기(엑셀 동작)
+    // ✅ 단일 셀 선택 + input 포커스면: 셀 값 지우기 후 blur(onBlur 저장)
     if (isSingleCell && input && !input.readOnly) {
       e.preventDefault();
       e.stopPropagation();
 
       input.value = "";
 
-      // blur로 onBlur 저장 흐름 태우기
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
@@ -1463,20 +1527,28 @@ function updateLocalCell(id: number, key: string, value: string) {
       return;
     }
 
-    // 범위 선택(여러 셀/행)일 때만 범위 지우기
-    if (selectedCellRange || selectedRowRange) {
-      e.preventDefault();
-      e.stopPropagation();
+    // ✅ 선택이 없으면 기본 Delete 동작을 건드리지 않음
+    if (!hasCellRange && !hasRowRange) return;
 
-      editingCellRef.current = null;
-      setActiveEditCell(null);
-      setActiveEditValue("");
+    // ✅ 범위 선택(여러 셀/행)일 때만 가로챔
+    e.preventDefault();
+    e.stopPropagation();
 
-      const el = document.activeElement as HTMLElement | null;
-      if (el && el.tagName === "INPUT") el.blur();
+    editingCellRef.current = null;
+    setActiveEditCell(null);
+    setActiveEditValue("");
 
-      void handleClearSelectedRows();
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
+
+    // ✅ 행 선택(셀 선택 없음) = 행 삭제
+    if (hasRowRange && !hasCellRange) {
+      void handleDeleteSelectedRows();
+      return;
     }
+
+    // ✅ 셀 범위 선택 = 내용 지우기
+    void handleClearSelectedRows();
   }
 
   window.addEventListener("keydown", onKeyDown);
@@ -1561,11 +1633,18 @@ function updateLocalCell(id: number, key: string, value: string) {
     body: JSON.stringify({ count: N, beforeId, afterId }),
   });
 
+  // ✅ 실패면 로컬 반영/emit 금지 + reload로 복구
+  if (!insRes.ok) {
+    await reload();
+    setRowContextMenu(null);
+    return;
+  }
+
   const insJson = await insRes.json();
   const insertedRows = (insJson?.insertedRows ?? []) as { id: number; sort_key: number }[];
 
   // ✅ 필터/정렬 중에는 인덱스 꼬임 위험이 크므로 로컬 splice 하지 말고 reload로만 반영
-    if (filterMode || (sortState && sortState.key)) {
+  if (filterMode || (sortState && sortState.key)) {
     suppressReloadFor(2500);
     lastLocalUnifiedEmitAtRef.current = Date.now();
     syncEmitUnifiedUpdate();
@@ -1597,15 +1676,15 @@ function updateLocalCell(id: number, key: string, value: string) {
     });
 
     // ✅ 맨 앞에 삽입된 경우에만 baseIndex 보정
-if (afterId != null) {
-  setRows((prev) => {
-    const insertAt = prev.findIndex((r) => r.id === afterId);
-    if (insertAt === 0) setBaseIndex((b) => Math.max(1, b - insertedRows.length));
-    return prev;
-  });
-} else {
-  setBaseIndex((b) => Math.max(1, b - insertedRows.length));
-}
+    if (afterId != null) {
+      setRows((prev) => {
+        const insertAt = prev.findIndex((r) => r.id === afterId);
+        if (insertAt === 0) setBaseIndex((b) => Math.max(1, b - insertedRows.length));
+        return prev;
+      });
+    } else {
+      setBaseIndex((b) => Math.max(1, b - insertedRows.length));
+    }
 
     setTotalCount((t) => t + insertedRows.length);
   }
@@ -1629,7 +1708,7 @@ if (afterId != null) {
       return false;
     }
 
-    function handleCellKeyDown(
+   function handleCellKeyDown(
   e: React.KeyboardEvent<HTMLInputElement>,
   rowIndex: number,
   colIndex: number
@@ -1639,23 +1718,23 @@ if (afterId != null) {
 
   switch (e.key) {
     case "ArrowDown": {
-  if (rowIndex >= displayRows.length - 1) return;
-  targetRow = rowIndex + 1;
-  break;
-}
-case "ArrowUp": {
-  if (rowIndex <= 0) return;
-  targetRow = rowIndex - 1;
-  break;
-}
+      if (rowIndex >= displayRows.length - 1) return;
+      targetRow = rowIndex + 1;
+      break;
+    }
+    case "ArrowUp": {
+      if (rowIndex <= 0) return;
+      targetRow = rowIndex - 1;
+      break;
+    }
     case "ArrowRight": {
       if (colIndex < viewColumns.length - 1) {
         targetCol = colIndex + 1;
-     } else {
-  if (rowIndex >= displayRows.length - 1) return;
-  targetRow = rowIndex + 1;
-  targetCol = 0;
-}
+      } else {
+        if (rowIndex >= displayRows.length - 1) return;
+        targetRow = rowIndex + 1;
+        targetCol = 0;
+      }
       break;
     }
     case "ArrowLeft": {
@@ -1672,16 +1751,41 @@ case "ArrowUp": {
       return;
   }
 
-  if (focusCell(targetRow, targetCol)) {
-    e.preventDefault();
+  // ✅ 가상스크롤로 인해 target 셀이 아직 DOM에 없더라도
+  //    브라우저 기본 스크롤로 빠지지 않게 먼저 막는다.
+  e.preventDefault();
+  e.stopPropagation();
 
-    // ✅ 키보드 이동 시 하늘색 선택 표시도 커서 따라가게 동기화
-    setSelectedRowRange(null);
-    setCellRangeByPoints(targetRow, targetCol, targetRow, targetCol);
+  // ✅ 키보드 이동 시 하늘색 선택 표시도 커서 따라가게 동기화
+  setSelectedRowRange(null);
+  setCellRangeByPoints(targetRow, targetCol, targetRow, targetCol);
+  lastFocusForPasteRef.current = { rowIndex: targetRow, colIndex: targetCol };
 
-    // (선택) 붙여넣기 후 포커스 복귀 기준도 최신으로 갱신
-    lastFocusForPasteRef.current = { rowIndex: targetRow, colIndex: targetCol };
+  // 1) 이미 렌더되어 있으면 바로 포커스
+  if (focusCell(targetRow, targetCol)) return;
+
+  // 2) 아직 렌더되어 있지 않으면: 해당 row가 보이도록 스크롤 → 렌더 → 포커스
+  const el = scrollRef.current;
+  if (el) {
+    const rowTop = targetRow * ROW_HEIGHT;
+    const rowBottom = rowTop + ROW_HEIGHT;
+
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight;
+
+    if (rowTop < viewTop) {
+      el.scrollTop = Math.max(0, rowTop - Math.floor(el.clientHeight * 0.2));
+    } else if (rowBottom > viewBottom) {
+      el.scrollTop = Math.max(0, rowBottom - Math.floor(el.clientHeight * 0.8));
+    }
   }
+
+  requestAnimationFrame(() => {
+    updateVisibleRangeNow();
+    requestAnimationFrame(() => {
+      focusCell(targetRow, targetCol);
+    });
+  });
 }
 
     /* --------------------- 행 삭제 --------------------- */
@@ -1755,93 +1859,106 @@ case "ArrowUp": {
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
-        async function handleClearSelectedRows() {
-      // 1) 셀 범위가 있으면 셀만 지우기
-     if (selectedCellRange) {
-  const { startRow, endRow, startCol, endCol } = selectedCellRange;
+     async function handleClearSelectedRows() {
+  // 1) 셀 범위가 있으면 셀만 지우기
+  if (selectedCellRange) {
+    const { startRow, endRow, startCol, endCol } = selectedCellRange;
+
+    const updates: { id: number; patch: Record<string, any> }[] = [];
+
+    // displayRows 기준 선택 → id로 rows를 갱신
+    const selected = displayRows.slice(startRow, endRow + 1);
+    const idSet = new Set(selected.map((r) => r.id));
+
+    setRows((prev) => {
+      const next = prev.map((r) => {
+        if (!idSet.has(r.id)) return r;
+
+        const newData: Record<string, any> = { ...r.data };
+        for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+          const colKey = viewColumns[cIndex];
+          if (!colKey) continue;
+          if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
+          newData[colKey] = "";
+        }
+
+        updates.push({ id: r.id, patch: newData });
+        return { ...r, data: newData };
+      });
+
+      return next;
+    });
+
+    suspendScrollLoadBriefly();
+
+    const res = await fetch(`/api/unified/bulk-patch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates }),
+    });
+
+    // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
+    if (!res.ok) {
+      await reload();
+      setRowContextMenu(null);
+      return;
+    }
+
+    suppressReloadFor(2500);
+
+    lastLocalUnifiedEmitAtRef.current = Date.now();
+    syncEmitUnifiedUpdate();
+    setRowContextMenu(null);
+    return;
+  }
+
+  // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+  const { slice } = getSelectedRowRangeInfo();
+  if (!slice.length) {
+    setRowContextMenu(null);
+    return;
+  }
 
   const updates: { id: number; patch: Record<string, any> }[] = [];
+  const ids = slice.map((r) => r.id);
+  const idSet = new Set(ids);
 
-  // displayRows 기준 선택 → id로 rows를 갱신
-  const selected = displayRows.slice(startRow, endRow + 1);
-  const idSet = new Set(selected.map((r) => r.id));
-
-  setRows((prev) => {
-    const next = prev.map((r) => {
+  setRows((prev) =>
+    prev.map((r) => {
       if (!idSet.has(r.id)) return r;
 
       const newData: Record<string, any> = { ...r.data };
-      for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-        const colKey = viewColumns[cIndex];
-        if (!colKey) continue;
-        if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
-        newData[colKey] = "";
-      }
+      viewColumns.forEach((key) => {
+        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+        newData[key] = "";
+      });
 
       updates.push({ id: r.id, patch: newData });
       return { ...r, data: newData };
-    });
-
-    return next;
-  });
+    })
+  );
 
   suspendScrollLoadBriefly();
 
-  await fetch(`/api/unified/bulk-patch`, {
+  const res = await fetch(`/api/unified/bulk-patch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ updates }),
   });
+
+  // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
+  if (!res.ok) {
+    await reload();
+    setRowContextMenu(null);
+    return;
+  }
 
   suppressReloadFor(2500);
 
   lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
   setRowContextMenu(null);
-  return;
-}
-
-      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
-      const { start, end, slice } = getSelectedRowRangeInfo();
-      if (!slice.length) {
-        setRowContextMenu(null);
-        return;
-      }
-
-      const updates: { id: number; patch: Record<string, any> }[] = [];
-const ids = slice.map((r) => r.id);
-const idSet = new Set(ids);
-
-setRows((prev) =>
-  prev.map((r) => {
-    if (!idSet.has(r.id)) return r;
-
-    const newData: Record<string, any> = { ...r.data };
-    viewColumns.forEach((key) => {
-      if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-      newData[key] = "";
-    });
-
-    updates.push({ id: r.id, patch: newData });
-    return { ...r, data: newData };
-  })
-);
-
-suspendScrollLoadBriefly();
-
-        await fetch(`/api/unified/bulk-patch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates }),
-      });
-
-      // 내 탭이 곧바로 tailData reload 하면서 멈추는 것 방지
-      suppressReloadFor(2500);
-
-      lastLocalUnifiedEmitAtRef.current = Date.now();
-      syncEmitUnifiedUpdate();
-      setRowContextMenu(null);
-    }
+} 
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
 
@@ -1912,7 +2029,7 @@ cells.push(v);
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
 
-    async function pasteTextToSelectedRange(text: string) {
+   async function pasteTextToSelectedRange(text: string) {
   let baseRowIndex: number;
   let baseColIndex: number;
 
@@ -1973,13 +2090,20 @@ cells.push(v);
     })
   );
 
-  await fetch(`/api/unified/bulk-patch`, {
+  const res = await fetch(`/api/unified/bulk-patch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ updates }),
   });
 
-    suppressReloadFor(2500);
+  // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
+  if (!res.ok) {
+    await reload();
+    setRowContextMenu(null);
+    return;
+  }
+
+  suppressReloadFor(2500);
 
   lastLocalUnifiedEmitAtRef.current = Date.now();
   syncEmitUnifiedUpdate();
@@ -2351,7 +2475,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           e.stopPropagation();
           void pasteTextToSelectedRange(text);
         }}
-                   onBlur={async (e) => {
+                             onBlur={async (e) => {
           // ✅ 상태/총연장횟수/안내분류/연장은 표시 전용(저장/락 흐름 없음)
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
 
@@ -2359,16 +2483,16 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
 
           // ✅ 날짜 컬럼은 저장 시점에만 YYYYMMDD -> YYYY-MM-DD 정규화
           const v = DATE_KEYS.has(key) ? normalizeDateInput(v0) : String(v0 ?? "");
-         
-         // ✅ uncontrolled input이라 re-render 없이도 화면 값이 바뀌도록 DOM 값을 직접 동기화
-if (DATE_KEYS.has(key) && v !== v0) {
-  try {
-    (e.target as HTMLInputElement).value = v;
-  } catch {
-    // ignore
-  }
-}
-          
+
+          // ✅ uncontrolled input이라 re-render 없이도 화면 값이 바뀌도록 DOM 값을 직접 동기화
+          if (DATE_KEYS.has(key) && v !== v0) {
+            try {
+              (e.target as HTMLInputElement).value = v;
+            } catch {
+              // ignore
+            }
+          }
+
           // ✅ 저장 성공 여부(try 밖에서 관리 → finally에서 참조 가능)
           let savedOk = false;
 
@@ -2384,37 +2508,58 @@ if (DATE_KEYS.has(key) && v !== v0) {
                 hasLock = true;
                 myRowLocksRef.current[row.id] = true; // ✅ 즉시 기록
                 setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
-              } 
+              }
             }
           }
 
           // ✅ 끝까지 락이 없으면 저장하지 않고 서버값으로 되돌림
-if (!hasLock) {
-  editingCellRef.current = null;
-  setActiveEditCell(null);
-  setActiveEditValue("");
+          if (!hasLock) {
+            editingCellRef.current = null;
+            setActiveEditCell(null);
+            setActiveEditValue("");
 
-  delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
+            delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
 
-  if (pendingReloadRef.current) pendingReloadRef.current = false;
+            if (pendingReloadRef.current) pendingReloadRef.current = false;
 
-  await refreshVisibleRowsFromServer();
-  unfreezeDisplayRows();
-  return;
-}
+            await refreshVisibleRowsFromServer();
+            unfreezeDisplayRows();
+            return;
+          }
 
           try {
-           
             // ✅ 저장 직후 소켓 echo/부분재조회가 1~2초 내로 들어오며 점멸하는 케이스 방지
             suppressReloadFor(2500);
 
-            // ✅ rows 반영은 “타이핑 중”이 아니라 “blur 1회”에만(입력 누락/잘림 방지)
+            // ✅ blur 1회에만 로컬 반영 (입력 누락/잘림 방지)
             updateLocalCell(row.id, key, v);
 
             // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
+            //    (단, syncPatch는 res.ok 체크가 없으므로 아래에서 서버값 검증/복구 수행)
             await saveCell(row.id, key, v);
-            savedOk = true;
-                    } finally {
+
+            // ✅ 서버가 연쇄 업데이트를 하는 키(거래처→안내분류, 기기번호→기종/제품...)는
+            //    부분 재조회로 화면 정합성 유지(현재 탭 + 다른 탭 반영 체감 개선)
+            if (key === "거래처분류" || key === "기기번호") {
+              pendingReloadRef.current = true;
+            }
+
+            // ✅ 문제가 자주 나는 케이스만 서버값 확인:
+            // - 삭제(빈값)
+            // - 날짜(정규화/표시 변경)
+            const shouldVerify = v === "" || DATE_KEYS.has(key);
+
+            if (shouldVerify) {
+              const ok = await verifyCellSavedOrRevert({ id: row.id, key, expected: v });
+              savedOk = ok;
+            } else {
+              savedOk = true;
+            }
+          } catch {
+            // 네트워크/예외 시: 서버 기준으로 복구하도록 부분 재조회 예약
+            pendingReloadRef.current = true;
+            savedOk = false;
+          } finally {
             await releaseLock("unified", row.id);
 
             delete myRowLocksRef.current[row.id]; // ✅ ref 먼저 정리
@@ -2428,7 +2573,10 @@ if (!hasLock) {
             editingCellRef.current = null;
             setActiveEditCell(null);
             setActiveEditValue("");
-             
+
+            // ✅ 저장이 실패했거나, 연쇄필드/불일치 복구가 필요하면 부분 재조회
+            if (!savedOk) pendingReloadRef.current = true;
+
             if (pendingReloadRef.current) {
               pendingReloadRef.current = false;
               await refreshVisibleRowsFromServer();
@@ -2436,7 +2584,7 @@ if (!hasLock) {
 
             unfreezeDisplayRows();
           }
-        }}     
+        }}              
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                />
     </td>

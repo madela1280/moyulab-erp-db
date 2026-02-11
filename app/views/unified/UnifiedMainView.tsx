@@ -1,3 +1,5 @@
+// app/views/unified/UnifiedMainView.tsx
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -58,7 +60,7 @@ export default function UnifiedMainView() {
   const [filterState, setFilterState] = useState<ColumnFilterState>(() => createEmptyFilterState());
   const [sortState, setSortState] = useState<UnifiedSortState>(() => defaultSortState());
 
-   // ✅ filterMode가 꺼졌을 때는 Grid에 “항상 같은 참조”의 빈 상태를 내려서
+  // ✅ filterMode가 꺼졌을 때는 Grid에 “항상 같은 참조”의 빈 상태를 내려서
   //    불필요한 재계산/흔들림을 줄임
   const emptyFilterStateRef = useRef<ColumnFilterState>(createEmptyFilterState());
   const emptySortStateRef = useRef<UnifiedSortState>(defaultSortState());
@@ -202,20 +204,20 @@ export default function UnifiedMainView() {
   // ✅ (추가) 필터/칼라/다운로드 핸들러 (버튼 위치/모양은 GridHeader 그대로)
   // ---------------------------------------------------------------------------
   function handleToggleFilterMode() {
-  if (filterMode) {
-    setFilterMode(false);
-    setFilterState(createEmptyFilterState());
-    setSortState(defaultSortState());
+    if (filterMode) {
+      setFilterMode(false);
+      setFilterState(createEmptyFilterState());
+      setSortState(defaultSortState());
 
-    // ✅ 필터 OFF 후 “맨 위로 튐” 방지: 마지막 데이터 근처로 복귀
-    requestAnimationFrame(() => {
-      gridRef.current?.scrollToTailData?.();
-    });
+      // ✅ 필터 OFF 후 “맨 위로 튐” 방지: 마지막 데이터 근처로 복귀
+      requestAnimationFrame(() => {
+        gridRef.current?.scrollToTailData?.();
+      });
 
-    return;
+      return;
+    }
+    setFilterMode(true);
   }
-  setFilterMode(true);
-}
 
   function openColor(anchor: { x: number; y: number }) {
     setColorAnchor(anchor);
@@ -223,7 +225,7 @@ export default function UnifiedMainView() {
   }
 
   async function applyColor(color: UnifiedSoftColor, mode: ColorApplyMode) {
-    // UnifiedGrid에 핸들러가 연결되면 동작(다음 단계에서 UnifiedGrid에 메서드 추가 예정)
+    // UnifiedGrid에 핸들러가 연결되면 동작
     const anyRef = gridRef.current as any;
     await anyRef?.applyColorToSelection?.(color, mode);
   }
@@ -364,8 +366,8 @@ export default function UnifiedMainView() {
 
     const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
-      e.preventDefault();
-      e.stopPropagation();
+      // ✅ 여기서 preventDefault/stopPropagation을 하면 UnifiedGrid의 선택/드래그가 막힘
+      //    → mousedown에서는 “클릭 후보”만 기록하고, mouseup에서 확정 시 팝오버 오픈
       partnerDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -378,8 +380,7 @@ export default function UnifiedMainView() {
 
     const guideInfo = findGuideCellInfoFromTarget(t);
     if (guideInfo) {
-      e.preventDefault();
-      e.stopPropagation();
+      // ✅ 동일: 선택/드래그를 막지 않기 위해 mousedown에서는 차단하지 않음
       guideDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -391,8 +392,7 @@ export default function UnifiedMainView() {
 
     const extInfo = findExtCellInfoFromTarget(t);
     if (extInfo) {
-      e.preventDefault();
-      e.stopPropagation();
+      // ✅ 동일
       extDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -432,6 +432,20 @@ export default function UnifiedMainView() {
     const st1 = partnerDownRef.current;
     partnerDownRef.current = null;
     if (st1?.pending) {
+      // ✅ 팝오버 오픈 직전에 현재 포커스를 정리(커서/입력 잔상 방지)
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && typeof (ae as any).blur === "function") {
+        try {
+          (ae as any).blur();
+        } catch {
+          // ignore
+        }
+      }
+
+      // ✅ “클릭 확정” 케이스에서만 팝오버를 열어야 하므로 여기서 stopPropagation
+      e.preventDefault();
+      e.stopPropagation();
+
       setPartnerPopover({
         open: true,
         x: e.clientX,
@@ -445,6 +459,18 @@ export default function UnifiedMainView() {
     const st2 = guideDownRef.current;
     guideDownRef.current = null;
     if (st2?.pending) {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && typeof (ae as any).blur === "function") {
+        try {
+          (ae as any).blur();
+        } catch {
+          // ignore
+        }
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
       setGuidePanelInitialPartner(normalizeName(st2.partnerName));
       setIsPartnerGuideOpen(true);
       return;
@@ -453,6 +479,18 @@ export default function UnifiedMainView() {
     const st3 = extDownRef.current;
     extDownRef.current = null;
     if (st3?.pending) {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && typeof (ae as any).blur === "function") {
+        try {
+          (ae as any).blur();
+        } catch {
+          // ignore
+        }
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
       setExtPanel({
         open: true,
         x: e.clientX,
@@ -488,7 +526,7 @@ export default function UnifiedMainView() {
         onMouseMoveCapture={onGridMouseMoveCapture}
         onMouseUpCapture={onGridMouseUpCapture}
       >
-                <UnifiedGrid
+        <UnifiedGrid
           ref={gridRef}
           isColumnEditMode={isColumnEditMode}
           columnOrder={columnOrder}

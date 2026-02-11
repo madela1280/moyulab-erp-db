@@ -1,4 +1,4 @@
-// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\[id]\route.ts
+// app/api/unified/[id]/route.ts
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
@@ -217,7 +217,20 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const id = getId(req);
 
-  await query(`DELETE FROM unified WHERE id=$1`, [id]);
+  // ✅ unified 삭제 시 unified_order도 함께 정리(카운트/페이징/유령 데이터 방지)
+  // - 기존 응답 형태({ ok:true })는 유지
+  await query(
+    `
+    WITH del_order AS (
+      DELETE FROM unified_order
+      WHERE unified_id = $1
+      RETURNING unified_id
+    )
+    DELETE FROM unified
+    WHERE id = $1
+    `,
+    [id]
+  );
 
   // 삭제 성공
   return NextResponse.json({ ok: true });
