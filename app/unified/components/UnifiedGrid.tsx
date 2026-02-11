@@ -222,8 +222,15 @@ scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
 const isColumnEditMode = !!props.isColumnEditMode;
 
 async function applyRemoteSyncOnce() {
-  // suppress 기간이면 이번 버스트는 흡수
-  if (Date.now() < suppressReloadUntilRef.current) return;
+  // ✅ suppress 기간이면 "흡수"가 아니라 "보류"해야 함
+  // (그렇지 않으면 scheduleIdleReload 쪽에서 pendingRemoteUpdateRef가 false가 된 상태로 끝나
+  //  다음 원격 이벤트가 오기 전까지 반영이 멈춰 “마지막 1개 누락”처럼 보일 수 있음)
+  if (Date.now() < suppressReloadUntilRef.current) {
+    remoteSyncPendingRef.current = true;
+    pendingRemoteUpdateRef.current = true;
+    scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
+    return;
+  }
 
   if (editingCellRef.current) {
     pendingReloadRef.current = true;
@@ -547,6 +554,11 @@ function setWidthUnit(key: string, unit: number) {
       col: number;
     } | null>(null);
 
+    // ✅ 드래그 민감도 완화: 클릭/미세 움직임으로 범위가 커지는 것을 방지
+    const CELL_DRAG_THRESHOLD_PX = 6;
+    const cellDragStartPosRef = useRef<{ x: number; y: number } | null>(null);
+    const cellDragMovedRef = useRef(false);
+
     // ✅ 연장(1~7차) 같은 "클릭이 그리드 선택을 막는" 셀에서도
     // 마우스를 올리면 선택처럼 보이도록 하는 hover 표시용 상태
     const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
@@ -636,10 +648,11 @@ if (idleMs < IDLE_APPLY_MIN_MS) {
       }, delayMs);
     }
 
-   function suppressReloadFor(ms: number) {
+      function suppressReloadFor(ms: number) {
       // row 작업(삽입/삭제/지우기) 후에는 tailData reload가 무거워서
-      // 2.5초로는 부족 → 자동으로 8초로 늘려 사용자 다음 동작을 막지 않게 함
-      const effectiveMs = ms >= 2500 ? 8000 : ms;
+      // 너무 짧으면 입력/스크롤이 끊기지만, 너무 길면 “실시간 반영” 체감이 떨어짐
+      // ✅ 8초는 체감상 너무 길 수 있어 상한을 낮춤
+      const effectiveMs = ms >= 2500 ? 3500 : ms;
 
       suppressReloadUntilRef.current = Date.now() + effectiveMs;
 
@@ -758,15 +771,18 @@ function scrollToTailData() {
   })();
 }
 
-   async function refreshVisibleRowsFromServer() {
+      async function refreshVisibleRowsFromServer() {
   const curRows =
     displayRowsRef.current && displayRowsRef.current.length
       ? displayRowsRef.current
       : rowsRef.current;
 
-  const vr = visibleRangeRef.current;
-
   if (!curRows.length) return;
+
+  // ✅ visibleRangeRef가 스테일일 수 있으므로, 실제 스크롤 위치 기준으로 매번 재계산
+  const el = scrollRef.current;
+  const vr = el ? calcVisibleRange(el, curRows.length) : visibleRangeRef.current;
+  visibleRangeRef.current = vr;
 
   const start = Math.max(0, vr.start);
   const end = Math.min(curRows.length - 1, vr.end);
@@ -775,16 +791,16 @@ function scrollToTailData() {
   if (!ids.length) return;
 
   const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
-const fresh: UnifiedRow[] = await r.json();
+  const fresh: UnifiedRow[] = await r.json();
 
-// ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
-if (Array.isArray(fresh) && fresh.length !== ids.length) {
-  await reload();
-  return;
-}
+  // ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
+  if (Array.isArray(fresh) && fresh.length !== ids.length) {
+    await reload();
+    return;
+  }
 
-const map = new Map<number, UnifiedRow>();
-fresh.forEach((x) => map.set(x.id, x));
+  const map = new Map<number, UnifiedRow>();
+  fresh.forEach((x) => map.set(x.id, x));
 
   // 변경이 "있을 때만" setRows 수행 (불필요 렌더/스페이서 흔들림/점멸 방지)
   setRows((prev) => {
@@ -813,7 +829,7 @@ fresh.forEach((x) => map.set(x.id, x));
     return changed ? next : prev;
   });
 }
-    
+
       async function loadTailPage() {
   await ensureMinRowsInDb();
   const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
@@ -889,18 +905,26 @@ fresh.forEach((x) => map.set(x.id, x));
       })();
     }, []);
 
-        useEffect(() => {
+             useEffect(() => {
       if (!rows.length) return;
       if (didInitialScrollRef.current) return;
 
       didInitialScrollRef.current = true;
 
+      // ✅ 첫 진입 시 "마지막 데이터 근처"가 화면 중간~하단에 오도록 고정
+      // (scrollToTailData()는 loadTailPage를 다시 타므로 여기서는 스크롤만)
       requestAnimationFrame(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight / 2);
+        requestAnimationFrame(() => {
+          const el = scrollRef.current;
+          if (!el) return;
+
+          const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+          el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
+
+          updateVisibleRangeNow();
+        });
       });
-    }, [rows.length]);
+    }, [rows.length]); 
 
       // 가상스크롤: rows가 로드되면 현재 뷰포트에 맞게 visibleRange를 즉시 계산
     useEffect(() => {
@@ -1336,16 +1360,55 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
       return () => window.removeEventListener("mousemove", handleMouseMove);
     }, [isRowDragging, rowDragAnchor]);
 
-    useEffect(() => {
-      function handleWindowMouseUp() {
+        useEffect(() => {
+      function endAllDragging() {
         setIsRowDragging(false);
         setRowDragAnchor(null);
+
         setIsCellDragging(false);
         setCellDragAnchor(null);
+
+        // ✅ 드래그 민감도 완화용 ref도 같이 초기화(남아있으면 다음 hover에서 오작동 가능)
+        cellDragStartPosRef.current = null;
+        cellDragMovedRef.current = false;
       }
-      window.addEventListener("mouseup", handleWindowMouseUp);
-      return () => window.removeEventListener("mouseup", handleWindowMouseUp);
+
+      function onVisibilityChange() {
+        // 탭 전환/최소화 등으로 mouseup이 누락되는 케이스가 있어 강제 종료
+        if (document.hidden) endAllDragging();
+      }
+
+      window.addEventListener("mouseup", endAllDragging);
+      window.addEventListener("blur", endAllDragging);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+
+      return () => {
+        window.removeEventListener("mouseup", endAllDragging);
+        window.removeEventListener("blur", endAllDragging);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      };
     }, []);
+
+      // ✅ 셀 드래그 민감도 완화: threshold 넘기 전에는 moved=false 유지
+    useEffect(() => {
+      function onMove(e: MouseEvent) {
+        if (!isCellDragging) return;
+        if (cellDragMovedRef.current) return;
+
+        const start = cellDragStartPosRef.current;
+        if (!start) return;
+
+        const dx = Math.abs(e.clientX - start.x);
+        const dy = Math.abs(e.clientY - start.y);
+
+        if (dx >= CELL_DRAG_THRESHOLD_PX || dy >= CELL_DRAG_THRESHOLD_PX) {
+          cellDragMovedRef.current = true;
+        }
+      }
+
+      window.addEventListener("mousemove", onMove, true);
+      return () => window.removeEventListener("mousemove", onMove, true);
+    }, [isCellDragging]);
 
     function isRowSelected(rowIndex: number) {
       if (!selectedRowRange) return false;
@@ -1366,14 +1429,18 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
     }
 
-    function handleCellMouseDown(
+        function handleCellMouseDown(
       rowIndex: number,
       colIndex: number,
       e: React.MouseEvent<HTMLTableCellElement>
     ) {
       if (e.button !== 0) return; // 좌클릭만
 
-            setIsCellDragging(true);
+      // ✅ 드래그 시작점 기록 + moved 플래그 초기화
+      cellDragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      cellDragMovedRef.current = false;
+
+      setIsCellDragging(true);
       setCellDragAnchor({ row: rowIndex, col: colIndex });
       setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
 
@@ -1383,12 +1450,14 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
       setRowContextMenu(null);
     }
 
-   function handleCellMouseEnter(rowIndex: number, colIndex: number) {
+      function handleCellMouseEnter(rowIndex: number, colIndex: number) {
       // ✅ hover 표시 갱신(드래그 중이 아니어도 동작)
       setHoveredCell({ row: rowIndex, col: colIndex });
 
-      // 기존 드래그 범위 선택 로직은 그대로 유지
+      // ✅ 클릭/미세 움직임에는 범위 확장 금지 (threshold 넘은 뒤에만)
       if (!isCellDragging || !cellDragAnchor) return;
+      if (!cellDragMovedRef.current) return;
+
       setCellRangeByPoints(cellDragAnchor.row, cellDragAnchor.col, rowIndex, colIndex);
     }
 
@@ -1708,53 +1777,65 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
       return false;
     }
 
-   function handleCellKeyDown(
+      function handleCellKeyDown(
   e: React.KeyboardEvent<HTMLInputElement>,
   rowIndex: number,
   colIndex: number
 ) {
+  const key = e.key;
+
+  // ✅ Arrow 계열은 "경계에서 return" 해버리면 preventDefault가 안 걸려서 화면이 스크롤됨
+  //    → 먼저 Arrow인지 확인되면 무조건 preventDefault/stopPropagation부터 걸고 분기한다.
+  const isArrow =
+    key === "ArrowDown" || key === "ArrowUp" || key === "ArrowLeft" || key === "ArrowRight";
+  if (!isArrow) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
   let targetRow = rowIndex;
   let targetCol = colIndex;
 
-  switch (e.key) {
-    case "ArrowDown": {
-      if (rowIndex >= displayRows.length - 1) return;
-      targetRow = rowIndex + 1;
-      break;
-    }
-    case "ArrowUp": {
-      if (rowIndex <= 0) return;
-      targetRow = rowIndex - 1;
-      break;
-    }
-    case "ArrowRight": {
-      if (colIndex < viewColumns.length - 1) {
-        targetCol = colIndex + 1;
-      } else {
-        if (rowIndex >= displayRows.length - 1) return;
-        targetRow = rowIndex + 1;
-        targetCol = 0;
-      }
-      break;
-    }
-    case "ArrowLeft": {
-      if (colIndex > 0) {
-        targetCol = colIndex - 1;
-      } else {
-        if (rowIndex <= 0) return;
-        targetRow = rowIndex - 1;
-        targetCol = viewColumns.length - 1;
-      }
-      break;
-    }
-    default:
+  if (key === "ArrowDown") {
+    // 마지막 행이면 우선 스크롤 방지만 하고(=화면 전체 이동 방지) 다음 페이지 로드를 시도
+    if (rowIndex >= displayRows.length - 1) {
+      const allowPaging = !filterMode && !sortState?.key;
+      if (allowPaging) void loadNextPage();
       return;
+    }
+    targetRow = rowIndex + 1;
+  } else if (key === "ArrowUp") {
+    if (rowIndex <= 0) {
+      const allowPaging = !filterMode && !sortState?.key;
+      if (allowPaging) void loadPrevPage();
+      return;
+    }
+    targetRow = rowIndex - 1;
+  } else if (key === "ArrowRight") {
+    if (colIndex < viewColumns.length - 1) {
+      targetCol = colIndex + 1;
+    } else {
+      if (rowIndex >= displayRows.length - 1) {
+        const allowPaging = !filterMode && !sortState?.key;
+        if (allowPaging) void loadNextPage();
+        return;
+      }
+      targetRow = rowIndex + 1;
+      targetCol = 0;
+    }
+  } else if (key === "ArrowLeft") {
+    if (colIndex > 0) {
+      targetCol = colIndex - 1;
+    } else {
+      if (rowIndex <= 0) {
+        const allowPaging = !filterMode && !sortState?.key;
+        if (allowPaging) void loadPrevPage();
+        return;
+      }
+      targetRow = rowIndex - 1;
+      targetCol = viewColumns.length - 1;
+    }
   }
-
-  // ✅ 가상스크롤로 인해 target 셀이 아직 DOM에 없더라도
-  //    브라우저 기본 스크롤로 빠지지 않게 먼저 막는다.
-  e.preventDefault();
-  e.stopPropagation();
 
   // ✅ 키보드 이동 시 하늘색 선택 표시도 커서 따라가게 동기화
   setSelectedRowRange(null);

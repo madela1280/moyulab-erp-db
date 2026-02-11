@@ -1,4 +1,5 @@
-// C:\Users\USER\Desktop\moyulab-erp-db\app\api\unified\bulk-patch\route.ts
+// app/api/unified/bulk-patch/route.ts
+
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
@@ -117,7 +118,7 @@ async function buildPartnerGuideMap(partners: string[]): Promise<Map<string, str
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
 
   const updatesRaw = body?.updates;
   if (!Array.isArray(updatesRaw) || updatesRaw.length === 0) {
