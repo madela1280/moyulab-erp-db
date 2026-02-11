@@ -191,6 +191,15 @@ const remoteSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 const remoteSyncPendingRef = useRef(false);
 const remoteSyncInFlightRef = useRef(false);
 
+// ✅ fetch 레이스 방지(최신 요청만 반영)
+// - B탭에서 unified:update가 연속으로 오면 /api/unified?ids=... 재조회가 겹칠 수 있음
+// - 늦게 도착한 “이전 응답”이 최신 상태를 덮어써서 일부 셀이 안 바뀐 것처럼 보이는 문제를 막는다.
+const visibleRefreshSeqRef = useRef(0);
+const visibleRefreshAbortRef = useRef<AbortController | null>(null);
+
+const tailLoadSeqRef = useRef(0);
+const tailLoadAbortRef = useRef<AbortController | null>(null);
+
 // full reload(큰 점멸)는 “버스트당 1회”로 제한
 const lastFullReloadAtRef = useRef(0);
 const FULL_RELOAD_MIN_INTERVAL_MS = 1200;
@@ -771,7 +780,7 @@ function scrollToTailData() {
   })();
 }
 
-      async function refreshVisibleRowsFromServer() {
+         async function refreshVisibleRowsFromServer() {
   const curRows =
     displayRowsRef.current && displayRowsRef.current.length
       ? displayRowsRef.current
@@ -790,8 +799,33 @@ function scrollToTailData() {
   const ids = curRows.slice(start, end + 1).map((r) => r.id);
   if (!ids.length) return;
 
-  const r = await fetch(`/api/unified?ids=${ids.join(",")}`, { cache: "no-store" });
-  const fresh: UnifiedRow[] = await r.json();
+  // ✅ 레이스 방지: 이전 요청 취소 + 최신 요청만 반영
+  const mySeq = ++visibleRefreshSeqRef.current;
+  if (visibleRefreshAbortRef.current) {
+    try {
+      visibleRefreshAbortRef.current.abort();
+    } catch {
+      // ignore
+    }
+  }
+  const ac = new AbortController();
+  visibleRefreshAbortRef.current = ac;
+
+  let fresh: UnifiedRow[] = [];
+  try {
+    const r = await fetch(`/api/unified?ids=${ids.join(",")}`, {
+      cache: "no-store",
+      signal: ac.signal,
+    });
+    fresh = (await r.json()) as UnifiedRow[];
+  } catch (e: any) {
+    // abort면 조용히 종료
+    if (ac.signal.aborted) return;
+    throw e;
+  }
+
+  // ✅ 더 최신 요청이 이미 시작되었으면(=mySeq가 최신이 아니면) 이번 응답은 버린다.
+  if (mySeq !== visibleRefreshSeqRef.current) return;
 
   // ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
   if (Array.isArray(fresh) && fresh.length !== ids.length) {
@@ -800,10 +834,13 @@ function scrollToTailData() {
   }
 
   const map = new Map<number, UnifiedRow>();
-  fresh.forEach((x) => map.set(x.id, x));
+  (fresh || []).forEach((x) => map.set(x.id, x));
 
-  // 변경이 "있을 때만" setRows 수행 (불필요 렌더/스페이서 흔들림/점멸 방지)
+  // ✅ 최신 응답만 setRows 허용
   setRows((prev) => {
+    // setRows가 실행될 때도 “내 응답이 최신인지” 재확인(중간에 tail reload가 끼어드는 경우 방지)
+    if (mySeq !== visibleRefreshSeqRef.current) return prev;
+
     let changed = false;
 
     const next = prev.map((row) => {
@@ -828,14 +865,37 @@ function scrollToTailData() {
 
     return changed ? next : prev;
   });
-}
+}  
 
-      async function loadTailPage() {
+           async function loadTailPage() {
   await ensureMinRowsInDb();
-  const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
-    cache: "no-store",
-  });
-  const j = await r.json();
+
+  // ✅ 레이스 방지: tail 요청도 겹칠 수 있음(reload 연타/카운트변화/폴백 reload)
+  const mySeq = ++tailLoadSeqRef.current;
+  if (tailLoadAbortRef.current) {
+    try {
+      tailLoadAbortRef.current.abort();
+    } catch {
+      // ignore
+    }
+  }
+  const ac = new AbortController();
+  tailLoadAbortRef.current = ac;
+
+  let j: any = null;
+  try {
+    const r = await fetch(`/api/unified?tailData=1&limit=${PAGE_SIZE}`, {
+      cache: "no-store",
+      signal: ac.signal,
+    });
+    j = await r.json();
+  } catch (e: any) {
+    if (ac.signal.aborted) return;
+    throw e;
+  }
+
+  // ✅ 더 최신 tail 요청이 이미 시작되었으면 이번 응답은 버린다.
+  if (mySeq !== tailLoadSeqRef.current) return;
 
   const data: UnifiedRow[] = j?.rows ?? [];
   const nextTotal = Number(j?.total ?? data.length);
@@ -849,7 +909,7 @@ function scrollToTailData() {
   rowsRef.current = data;
   totalCountRef.current = nextTotal;
   baseIndexRef.current = nextBase;
-} 
+}  
 
     /* --------------------- 소켓 연결 --------------------- */
 
