@@ -2082,69 +2082,74 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
     
     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
-     async function pasteTextToSelectedRange(text: string) {
-  let baseRowIndex: number;
-  let baseColIndex: number;
+    async function handleClearSelectedRows() {
+      // 1) 셀 범위가 있으면 셀만 지우기
+      if (selectedCellRange) {
+        const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
-  if (selectedCellRange) {
-    baseRowIndex = selectedCellRange.startRow;
-    baseColIndex = selectedCellRange.startCol;
-  } else {
-    const { start } = getSelectedRowRangeInfo(); // displayRows 기준
-    baseRowIndex = start >= 0 ? start : 0;
-    baseColIndex = 0;
-  }
+        const updates: { id: number; patch: Record<string, any> }[] = [];
 
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trimEnd())
-    .filter((l) => l.length > 0);
+        // displayRows 기준 선택 → id로 rows를 갱신
+        const selected = displayRows.slice(startRow, endRow + 1);
+        const idSet = new Set(selected.map((r) => r.id));
 
-  if (!lines.length) {
-    setRowContextMenu(null);
-    return;
-  }
+        setRows((prev) => {
+          const next = prev.map((r) => {
+            if (!idSet.has(r.id)) return r;
 
-  const parsed = lines.map((line) => line.split("\t"));
+            const newData: Record<string, any> = { ...r.data };
+            for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+              const colKey = viewColumns[cIndex];
+              if (!colKey) continue;
+              if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
+              newData[colKey] = "";
+            }
 
-  const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
-  if (!targetRows.length) {
-    setRowContextMenu(null);
-    return;
-  }
+            updates.push({ id: r.id, patch: newData });
+            return { ...r, data: newData };
+          });
 
-  const updates: { id: number; patch: Record<string, any> }[] = [];
-  const idSet = new Set(targetRows.map((r) => r.id));
+          return next;
+        });
 
-  setRows((prev) =>
-    prev.map((r) => {
-      if (!idSet.has(r.id)) return r;
+        suspendScrollLoadBriefly();
 
-      const targetIndex = targetRows.findIndex((x) => x.id === r.id);
-      if (targetIndex < 0) return r;
-
-      const srcRow = parsed[targetIndex] ?? [];
-      const newData: Record<string, any> = { ...r.data };
-
-      for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
-        const colIndex = baseColIndex + colOffset;
-        if (colIndex >= viewColumns.length) break;
-
-        const key = viewColumns[colIndex];
-        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
-
-        const v = srcRow[colOffset] ?? "";
-        newData[key] = v;
+        await bulkPatchAndReconcile(updates);
+        setRowContextMenu(null);
+        return;
       }
 
-      updates.push({ id: r.id, patch: newData });
-      return { ...r, data: newData };
-    })
-  );
+      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+      const { slice } = getSelectedRowRangeInfo();
+      if (!slice.length) {
+        setRowContextMenu(null);
+        return;
+      }
 
-  await bulkPatchAndReconcile(updates);
-  setRowContextMenu(null);
-}
+      const updates: { id: number; patch: Record<string, any> }[] = [];
+      const ids = slice.map((r) => r.id);
+      const idSet = new Set(ids);
+
+      setRows((prev) =>
+        prev.map((r) => {
+          if (!idSet.has(r.id)) return r;
+
+          const newData: Record<string, any> = { ...r.data };
+          viewColumns.forEach((key) => {
+            if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+            newData[key] = "";
+          });
+
+          updates.push({ id: r.id, patch: newData });
+          return { ...r, data: newData };
+        })
+      );
+
+      suspendScrollLoadBriefly();
+
+      await bulkPatchAndReconcile(updates);
+      setRowContextMenu(null);
+    }
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
 
@@ -2155,19 +2160,19 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
 
         const lines: string[] = [];
         for (let rIndex = startRow; rIndex <= endRow; rIndex++) {
-  const row = displayRows[rIndex];
-  if (!row) continue;
+          const row = displayRows[rIndex];
+          if (!row) continue;
+
           const cells: string[] = [];
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
             const colKey = viewColumns[cIndex];
-        const v =
-  colKey === "상태"
-    ? getDerivedStatusForRow(row.data ?? {}).status
-    : colKey === "총연장횟수"
-    ? String(countExtensionRounds(row.data ?? {}))
-    : ((row.data[colKey] ?? "") as string);
-
-cells.push(v);
+            const v =
+              colKey === "상태"
+                ? getDerivedStatusForRow(row.data ?? {}).status
+                : colKey === "총연장횟수"
+                ? String(countExtensionRounds(row.data ?? {}))
+                : String(row.data?.[colKey] ?? "");
+            cells.push(v);
           }
           lines.push(cells.join("\t"));
         }
@@ -2192,16 +2197,17 @@ cells.push(v);
       }
 
       const lines = slice.map((row) =>
-  viewColumns
-    .map((key) =>
-      key === "상태"
-        ? getDerivedStatusForRow(row.data ?? {}).status
-        : key === "총연장횟수"
-        ? String(countExtensionRounds(row.data ?? {}))
-        : ((row.data[key] ?? "") as string)
-    )
-    .join("\t")
-);
+        viewColumns
+          .map((key) =>
+            key === "상태"
+              ? getDerivedStatusForRow(row.data ?? {}).status
+              : key === "총연장횟수"
+              ? String(countExtensionRounds(row.data ?? {}))
+              : String(row.data?.[key] ?? "")
+          )
+          .join("\t")
+      );
+
       const text = lines.join("\n");
 
       try {
@@ -2215,69 +2221,70 @@ cells.push(v);
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
 
-   async function pasteTextToSelectedRange(text: string) {
-  let baseRowIndex: number;
-  let baseColIndex: number;
+    async function pasteTextToSelectedRange(text: string) {
+      let baseRowIndex: number;
+      let baseColIndex: number;
 
-  if (selectedCellRange) {
-    baseRowIndex = selectedCellRange.startRow;
-    baseColIndex = selectedCellRange.startCol;
-  } else {
-    const { start } = getSelectedRowRangeInfo(); // displayRows 기준
-    baseRowIndex = start >= 0 ? start : 0;
-    baseColIndex = 0;
-  }
-
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trimEnd())
-    .filter((l) => l.length > 0);
-
-  if (!lines.length) {
-    setRowContextMenu(null);
-    return;
-  }
-
-  const parsed = lines.map((line) => line.split("\t"));
-
-  // ✅ displayRows 기준으로만 붙여넣기(필터/정렬 중 인덱스 꼬임 방지)
-  const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
-  if (!targetRows.length) {
-    setRowContextMenu(null);
-    return;
-  }
-
-  const updates: { id: number; patch: Record<string, any> }[] = [];
-  const idSet = new Set(targetRows.map((r) => r.id));
-
-  setRows((prev) =>
-    prev.map((r) => {
-      if (!idSet.has(r.id)) return r;
-
-      const targetIndex = targetRows.findIndex((x) => x.id === r.id);
-      if (targetIndex < 0) return r;
-
-      const srcRow = parsed[targetIndex] ?? [];
-      const newData: Record<string, any> = { ...r.data };
-
-      for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
-        const colIndex = baseColIndex + colOffset;
-        if (colIndex >= viewColumns.length) break;
-
-        const key = viewColumns[colIndex];
-        if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
-
-        const v = srcRow[colOffset] ?? "";
-        newData[key] = v;
+      if (selectedCellRange) {
+        baseRowIndex = selectedCellRange.startRow;
+        baseColIndex = selectedCellRange.startCol;
+      } else {
+        const { start } = getSelectedRowRangeInfo(); // displayRows 기준
+        baseRowIndex = start >= 0 ? start : 0;
+        baseColIndex = 0;
       }
 
-      updates.push({ id: r.id, patch: newData });
-      return { ...r, data: newData };
-    })
-  );
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trimEnd())
+        .filter((l) => l.length > 0);
 
-  await bulkPatchAndReconcile(updates);
-  setRowContextMenu(null);
+      if (!lines.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      const parsed = lines.map((line) => line.split("\t"));
+
+      // ✅ displayRows 기준으로만 붙여넣기
+      const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
+      if (!targetRows.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      const updates: { id: number; patch: Record<string, any> }[] = [];
+      const idSet = new Set(targetRows.map((r) => r.id));
+
+      setRows((prev) =>
+        prev.map((r) => {
+          if (!idSet.has(r.id)) return r;
+
+          const targetIndex = targetRows.findIndex((x) => x.id === r.id);
+          if (targetIndex < 0) return r;
+
+          const srcRow = parsed[targetIndex] ?? [];
+          const newData: Record<string, any> = { ...r.data };
+
+          for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
+            const colIndex = baseColIndex + colOffset;
+            if (colIndex >= viewColumns.length) break;
+
+            const key = viewColumns[colIndex];
+            if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
+
+            const v = srcRow[colOffset] ?? "";
+            newData[key] = v;
+          }
+
+          updates.push({ id: r.id, patch: newData });
+          return { ...r, data: newData };
+        })
+      );
+
+      await bulkPatchAndReconcile(updates);
+      setRowContextMenu(null);
+    }
 
     async function handlePasteToSelectedRowsFromClipboard() {
       let text = "";
