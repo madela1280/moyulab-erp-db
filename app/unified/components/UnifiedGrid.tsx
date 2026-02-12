@@ -863,8 +863,8 @@ function scrollToTailData() {
   // ✅ 더 최신 요청이 이미 시작되었으면(=mySeq가 최신이 아니면) 이번 응답은 버린다.
   if (mySeq !== visibleRefreshSeqRef.current) return;
 
-  // ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
-    if (Array.isArray(fresh) && fresh.length !== ids.length) {
+    // ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) full reload 대신 “사라진 id만 제거”
+  if (Array.isArray(fresh) && fresh.length !== ids.length) {
     const got = new Set<number>((fresh || []).map((x) => Number((x as any)?.id)));
     const missing = ids.filter((id) => !got.has(id));
 
@@ -881,6 +881,10 @@ function scrollToTailData() {
 
         return prev.filter((r) => !missingSet.has(r.id));
       });
+
+      // ✅ totalCount도 같이 보정(원격 화면 흔들림 완화에 도움)
+      setTotalCount((t) => Math.max(0, t - missing.length));
+      totalCountRef.current = Math.max(0, totalCountRef.current - missing.length);
     }
 
     return;
@@ -1366,15 +1370,27 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
       body: JSON.stringify({ updates }),
     });
 
-       if (!res.ok) {
+          if (!res.ok) {
       let msg = "";
       try {
         msg = await res.text();
       } catch {
         // ignore
       }
+
       console.error("bulk-patch failed:", res.status, msg);
-      alert(`붙여넣기 저장 실패 (${res.status}).\n개발자도구 Network에서 /api/unified/bulk-patch 응답 확인 필요`);
+
+      // ✅ 실패했으면 “몇 초 뒤 사라짐”이 아니라 즉시 서버 truth로 복구(스크롤 튐 최소)
+      try {
+        await refreshVisibleRowsFromServer();
+      } catch {
+        // ignore
+      }
+
+      alert(
+        `붙여넣기 저장 실패 (${res.status}).\n` +
+          `개발자도구 Network에서 /api/unified/bulk-patch 응답 확인 필요`
+      );
       return;
     } 
 
