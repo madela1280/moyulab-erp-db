@@ -500,6 +500,25 @@ function cellStyleKey(rowId: number, colKey: string) {
   return `${rowId}:${colKey}`;
 }
 
+function getActiveUnifiedRowId(): number | null {
+  try {
+    const ae = document.activeElement as HTMLElement | null;
+    if (!ae) return null;
+
+    // input 포커스가 아닌 경우는 행 이동으로 간주
+    if (ae.tagName !== "INPUT") return null;
+
+    const tr = ae.closest("tr[data-unified-id]");
+    const idAttr = tr?.getAttribute("data-unified-id");
+    if (!idAttr) return null;
+
+    const n = Number(idAttr);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 // ✅ Tailwind 스캔 이슈 없이 항상 동작하도록 inline 색으로 렌더
 const INLINE_PALETTE: Record<string, { bg: string; text: string }> = {
   red: { bg: "#FECACA", text: "#991B1B" },
@@ -2735,30 +2754,43 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             // 네트워크/예외 시: 서버 기준으로 복구하도록 부분 재조회 예약
             pendingReloadRef.current = true;
             savedOk = false;
-          } finally {
-            await releaseLock("unified", row.id);
+            } finally {
+            const nextFocusedRowId = getActiveUnifiedRowId();
+            const keepRowLock = nextFocusedRowId === row.id;
 
-            delete myRowLocksRef.current[row.id]; // ✅ ref 먼저 정리
+            // ✅ 같은 행 내에서 다른 셀로 이동하는 blur라면:
+            // - 락 해제/락 플래그 삭제/언프리즈/부분재조회 를 하지 않는다(레이스 방지)
+            if (!keepRowLock) {
+              await releaseLock("unified", row.id);
 
-            setMyRowLocks((prev) => {
-              const copy = { ...prev };
-              delete copy[row.id];
-              return copy;
-            });
+              delete myRowLocksRef.current[row.id]; // ✅ ref 먼저 정리
 
-            editingCellRef.current = null;
-            setActiveEditCell(null);
-            setActiveEditValue("");
+              setMyRowLocks((prev) => {
+                const copy = { ...prev };
+                delete copy[row.id];
+                return copy;
+              });
+            }
+
+            // ✅ 편집 상태 정리는 "행을 떠날 때"만
+            if (!keepRowLock) {
+              editingCellRef.current = null;
+              setActiveEditCell(null);
+              setActiveEditValue("");
+            }
 
             // ✅ 저장이 실패했거나, 연쇄필드/불일치 복구가 필요하면 부분 재조회
             if (!savedOk) pendingReloadRef.current = true;
 
-            if (pendingReloadRef.current) {
+            // ✅ 같은 행에서 셀 이동 중이면 재조회/언프리즈는 보류(포커스/입력 안정성)
+            if (!keepRowLock && pendingReloadRef.current) {
               pendingReloadRef.current = false;
               await refreshVisibleRowsFromServer();
             }
 
-            unfreezeDisplayRows();
+            if (!keepRowLock) {
+              unfreezeDisplayRows();
+            }
           }
         }}              
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
