@@ -2149,30 +2149,44 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
       if (selectedCellRange) {
         const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
-        const updates: { id: number; patch: Record<string, any> }[] = [];
+                const updates: { id: number; patch: Record<string, any> }[] = [];
 
-        // displayRows 기준 선택 → id로 rows를 갱신
+        // displayRows 기준 선택
         const selected = displayRows.slice(startRow, endRow + 1);
-        const idSet = new Set(selected.map((r) => r.id));
 
-        setRows((prev) => {
-          const next = prev.map((r) => {
-            if (!idSet.has(r.id)) return r;
+        for (const row of selected) {
+          const patch: Record<string, any> = {};
 
-            const newData: Record<string, any> = { ...r.data };
-            for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
-              const colKey = viewColumns[cIndex];
-              if (!colKey) continue;
-              if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
-              newData[colKey] = "";
-            }
+          for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
+            const colKey = viewColumns[cIndex];
+            if (!colKey) continue;
+            if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
 
-            updates.push({ id: r.id, patch: newData });
-            return { ...r, data: newData };
-          });
+            // ✅ 삭제는 null로 저장(단건 syncPatch와 의미 통일)
+            patch[colKey] = null;
+          }
 
-          return next;
-        });
+          if (Object.keys(patch).length) {
+            updates.push({ id: row.id, patch });
+          }
+        }
+
+        if (!updates.length) {
+          setRowContextMenu(null);
+          return;
+        }
+
+        // ✅ 로컬 즉시 반영
+        const patchById = new Map<number, Record<string, any>>();
+        for (const u of updates) patchById.set(u.id, u.patch);
+
+        setRows((prev) =>
+          prev.map((r) => {
+            const p = patchById.get(r.id);
+            if (!p) return r;
+            return { ...r, data: { ...(r.data ?? {}), ...p } };
+          })
+        );
 
         suspendScrollLoadBriefly();
 
@@ -2188,29 +2202,41 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
         return;
       }
 
-      const updates: { id: number; patch: Record<string, any> }[] = [];
-      const ids = slice.map((r) => r.id);
-      const idSet = new Set(ids);
+          const updates: { id: number; patch: Record<string, any> }[] = [];
+
+      for (const row of slice) {
+        const patch: Record<string, any> = {};
+        viewColumns.forEach((key) => {
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
+          patch[key] = null; // ✅ 행 전체 삭제도 null로 통일
+        });
+
+        if (Object.keys(patch).length) {
+          updates.push({ id: row.id, patch });
+        }
+      }
+
+      if (!updates.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      // ✅ 로컬 즉시 반영
+      const patchById = new Map<number, Record<string, any>>();
+      for (const u of updates) patchById.set(u.id, u.patch);
 
       setRows((prev) =>
         prev.map((r) => {
-          if (!idSet.has(r.id)) return r;
-
-          const newData: Record<string, any> = { ...r.data };
-          viewColumns.forEach((key) => {
-            if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-            newData[key] = "";
-          });
-
-          updates.push({ id: r.id, patch: newData });
-          return { ...r, data: newData };
+          const p = patchById.get(r.id);
+          if (!p) return r;
+          return { ...r, data: { ...(r.data ?? {}), ...p } };
         })
       );
 
       suspendScrollLoadBriefly();
 
       await bulkPatchAndReconcile(updates);
-      setRowContextMenu(null);
+      setRowContextMenu(null);  
     }
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
@@ -2315,37 +2341,49 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
         return;
       }
 
-      const updates: { id: number; patch: Record<string, any> }[] = [];
-      const idSet = new Set(targetRows.map((r) => r.id));
+          const updates: { id: number; patch: Record<string, any> }[] = [];
+
+      for (let i = 0; i < targetRows.length; i++) {
+        const row = targetRows[i];
+        const srcRow = parsed[i] ?? [];
+
+        const patch: Record<string, any> = {};
+
+        for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
+          const colIndex = baseColIndex + colOffset;
+          if (colIndex >= viewColumns.length) break;
+
+          const key = viewColumns[colIndex];
+          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
+
+          const v = srcRow[colOffset] ?? "";
+          patch[key] = v;
+        }
+
+        if (Object.keys(patch).length) {
+          updates.push({ id: row.id, patch });
+        }
+      }
+
+      if (!updates.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      // ✅ 로컬 즉시 반영(선택된 id만 patch merge)
+      const patchById = new Map<number, Record<string, any>>();
+      for (const u of updates) patchById.set(u.id, u.patch);
 
       setRows((prev) =>
         prev.map((r) => {
-          if (!idSet.has(r.id)) return r;
-
-          const targetIndex = targetRows.findIndex((x) => x.id === r.id);
-          if (targetIndex < 0) return r;
-
-          const srcRow = parsed[targetIndex] ?? [];
-          const newData: Record<string, any> = { ...r.data };
-
-          for (let colOffset = 0; colOffset < srcRow.length; colOffset++) {
-            const colIndex = baseColIndex + colOffset;
-            if (colIndex >= viewColumns.length) break;
-
-            const key = viewColumns[colIndex];
-            if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
-
-            const v = srcRow[colOffset] ?? "";
-            newData[key] = v;
-          }
-
-          updates.push({ id: r.id, patch: newData });
-          return { ...r, data: newData };
+          const p = patchById.get(r.id);
+          if (!p) return r;
+          return { ...r, data: { ...(r.data ?? {}), ...p } };
         })
       );
 
       await bulkPatchAndReconcile(updates);
-      setRowContextMenu(null);
+      setRowContextMenu(null);  
     }
 
     async function handlePasteToSelectedRowsFromClipboard() {
