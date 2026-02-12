@@ -247,10 +247,8 @@ async function applyRemoteSyncOnce() {
     return;
   }
 
-  if (editingCellRef.current) {
-    pendingReloadRef.current = true;
-    return;
-  }
+   // ✅ 편집 중이라도 원격 반영은 허용한다.
+  //    대신 refreshVisibleRowsFromServer()에서 "현재 편집 중인 행"은 덮어쓰지 않도록 처리한다. 
 
   if (remoteSyncInFlightRef.current) return;
 
@@ -677,11 +675,8 @@ function markUserAction() {
           return;
         }
 
-        // 편집 중이면 미룸 (편집 종료 시점에 즉시 reload하지 않고, 유휴 상태에서만 reload)
-        if (editingCellRef.current) {
-          scheduleIdleReload(checkDelayMs);
-          return;
-        }
+         // ✅ 편집 중 여부로 무한 보류하지 않는다.
+        //    키보드/마우스 입력은 lastUserActionAtRef로 잡히므로 idleMs 조건으로만 제어한다.
 
         // 사용자가 최근에 조작했으면 미룸(유휴 상태에서만 reload)
         const idleMs = Date.now() - lastUserActionAtRef.current;
@@ -881,6 +876,7 @@ function scrollToTailData() {
 
   const map = new Map<number, UnifiedRow>();
   (fresh || []).forEach((x) => map.set(x.id, x));
+  const editingRowId = editingCellRef.current?.rowId ?? null;
 
   // ✅ 최신 응답만 setRows 허용
   setRows((prev) => {
@@ -889,7 +885,10 @@ function scrollToTailData() {
 
     let changed = false;
 
-    const next = prev.map((row) => {
+   const next = prev.map((row) => {
+      // ✅ 현재 편집 중인 행은 원격 반영으로 덮어쓰지 않음(입력 튕김/되돌림 방지)
+      if (editingRowId != null && row.id === editingRowId) return row;
+
       const f = map.get(row.id);
       if (!f) return row;
 
