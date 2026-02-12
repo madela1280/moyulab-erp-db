@@ -864,8 +864,25 @@ function scrollToTailData() {
   if (mySeq !== visibleRefreshSeqRef.current) return;
 
   // ✅ 요청한 id가 서버 응답에서 빠지면(삭제/삽입 등) 부분 갱신으로는 정합성 유지가 어려움 → full reload
-  if (Array.isArray(fresh) && fresh.length !== ids.length) {
-    await reload();
+    if (Array.isArray(fresh) && fresh.length !== ids.length) {
+    const got = new Set<number>((fresh || []).map((x) => Number((x as any)?.id)));
+    const missing = ids.filter((id) => !got.has(id));
+
+    if (missing.length) {
+      const missingSet = new Set<number>(missing);
+
+      setRows((prev) => {
+        // 상단에서 빠진 개수만큼 baseIndex 보정(스크롤 튐 완화)
+        let removedFromTop = 0;
+        while (removedFromTop < prev.length && missingSet.has(prev[removedFromTop].id)) {
+          removedFromTop++;
+        }
+        if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
+
+        return prev.filter((r) => !missingSet.has(r.id));
+      });
+    }
+
     return;
   }
 
@@ -1349,10 +1366,17 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
       body: JSON.stringify({ updates }),
     });
 
-    if (!res.ok) {
-      await reload();
+       if (!res.ok) {
+      let msg = "";
+      try {
+        msg = await res.text();
+      } catch {
+        // ignore
+      }
+      console.error("bulk-patch failed:", res.status, msg);
+      alert(`붙여넣기 저장 실패 (${res.status}).\n개발자도구 Network에서 /api/unified/bulk-patch 응답 확인 필요`);
       return;
-    }
+    } 
 
     const j = await res.json().catch(() => null);
     const serverRows = Array.isArray(j?.rows) ? (j.rows as UnifiedRow[]) : null;
