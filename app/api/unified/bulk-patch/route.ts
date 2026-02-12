@@ -122,7 +122,10 @@ export async function POST(req: Request) {
 
   const updatesRaw = body?.updates;
   if (!Array.isArray(updatesRaw) || updatesRaw.length === 0) {
-    return NextResponse.json({ error: "INVALID_BODY", message: "updates array is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "INVALID_BODY", message: "updates array is required" },
+      { status: 400 }
+    );
   }
 
   // 정규화 (patch / data 둘 다 허용)
@@ -131,24 +134,29 @@ export async function POST(req: Request) {
     const patchRaw = u?.patch ?? u?.data;
 
     // ✅ "상태"는 파생 표시 컬럼이므로 bulk 저장 대상에서 제외(무시)
-    const patch =
-      isPlainObject(patchRaw)
-        ? (() => {
-            const copy: Record<string, any> = { ...(patchRaw as any) };
-            delete copy["상태"];
-            return copy;
-          })()
-        : patchRaw;
+    const patch = isPlainObject(patchRaw)
+      ? (() => {
+          const copy: Record<string, any> = { ...(patchRaw as any) };
+          delete copy["상태"];
+          return copy;
+        })()
+      : patchRaw;
 
     return { id, patch };
   });
 
   for (const u of updates) {
     if (!Number.isFinite(u.id) || u.id <= 0) {
-      return NextResponse.json({ error: "INVALID_ID", message: "Invalid id in updates" }, { status: 400 });
+      return NextResponse.json(
+        { error: "INVALID_ID", message: "Invalid id in updates" },
+        { status: 400 }
+      );
     }
     if (!u.patch || typeof u.patch !== "object" || Array.isArray(u.patch)) {
-      return NextResponse.json({ error: "INVALID_PATCH", message: "patch/data object is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "INVALID_PATCH", message: "patch/data object is required" },
+        { status: 400 }
+      );
     }
   }
 
@@ -247,8 +255,9 @@ export async function POST(req: Request) {
     p["안내분류"] = guide;
   }
 
-  // jsonb merge: data = data || patch
-  // patch에 null이 들어오면 해당 key를 null로 저장 (기존 PATCH와 동일)
+  // ✅ jsonb merge(원자적):
+  // - u.data가 NULL인 행에서도 merge가 정상 동작하도록 COALESCE 적용(중요)
+  // - patch에 null이 들어오면 해당 key를 null로 저장 (기존 PATCH와 동일)
   const sql = `
     WITH v AS (
       SELECT
@@ -257,7 +266,7 @@ export async function POST(req: Request) {
       FROM jsonb_array_elements($1::jsonb) AS x
     )
     UPDATE unified u
-    SET data = u.data || v.patch
+    SET data = COALESCE(u.data, '{}'::jsonb) || COALESCE(v.patch, '{}'::jsonb)
     FROM v
     WHERE u.id = v.id
     RETURNING u.id, u.data
