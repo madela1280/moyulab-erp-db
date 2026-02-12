@@ -753,13 +753,23 @@ async function refreshCountAndMaybeReload() {
 
   const prevTotal = totalCountRef.current;
 
-    // ✅ count 변화(=삽입/삭제) 시에도 원격 화면 점멸/스크롤 튐이 크므로 full reload는 하지 않는다.
-  //    정합성은 refreshVisibleRowsFromServer()에서 ids mismatch 시 reload()로 보정된다.
+     // ✅ count 변화 처리
+  // - 삭제(cnt 감소): full reload 금지(점멸 방지) + total만 갱신
+  // - 삽입(cnt 증가): 새 id를 화면에 끼우려면 reload가 필요 → 삽입일 때만 제한적으로 reload 허용
   if (cnt !== prevTotal && cnt > 0) {
     totalCountRef.current = cnt;
     setTotalCount(cnt);
-    return;
-  }
+
+    // 삭제(감소)면 여기서 끝 (rows는 refreshVisibleRowsFromServer의 missing 제거로 처리)
+    if (cnt < prevTotal) return;
+
+    // 삽입(증가)면 full reload 1회 허용(과도한 점멸 방지용 throttle 유지)
+    const now = Date.now();
+    if (now - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
+    lastFullReloadAtRef.current = now;
+
+    await reload();
+  } 
 }
 
     const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
