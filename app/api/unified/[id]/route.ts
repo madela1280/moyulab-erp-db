@@ -122,6 +122,22 @@ async function findDeviceInfoBySystemNo(deviceNo: string): Promise<DeviceInfo | 
   };
 }
 
+async function mergeUnifiedJsonbById(id: string, patch: Record<string, any>) {
+  // ✅ 핵심: SELECT→통째 UPDATE가 아니라, DB에서 jsonb merge(원자적)로 반영
+  //    data = data || patch  (patch의 null은 null로 저장됨)
+  const r = await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
+    WHERE id = $2
+    RETURNING id, data
+    `,
+    [JSON.stringify(patch ?? {}), id]
+  );
+
+  return r.rows?.[0] ?? null;
+}
+
 export async function GET(req: Request) {
   const id = getId(req);
   const r = await query(`SELECT id, data FROM unified WHERE id=$1`, [id]);
@@ -137,81 +153,104 @@ export async function PATCH(req: Request) {
   const id = getId(req);
   const body = await req.json();
 
-  // 기존 데이터 읽기
-  const old = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
-  const source = old.rows[0]?.data || {};
-
-  // ⭐ null 값도 정확하게 merge (삭제 반영)
-  // ✅ "상태" 컬럼은 파생 표시용이므로, 서버 저장 대상에서 제외(무시)
-  const merged: Record<string, any> = { ...source };
-  for (const key in body) {
-    if (key === "상태") continue; // ✅ 상태 저장 차단
-    merged[key] = (body as any)[key]; // body[key] === null → null 저장
+  // 존재 확인(404 유지)
+  const exists = await query(`SELECT 1 FROM unified WHERE id=$1`, [id]);
+  if (!exists.rows?.length) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
 
-  // ✅ 0차연장 규칙(최초 1회 기록):
-  // - body에 "0차연장"이 직접 들어온 경우(업로드/수기입력)는 그대로 저장(자동계산 없음)
-  // - "시작일" 또는 "종료일"이 이번 PATCH에서 변경되었고,
-  //   현재 DB의 0차연장이 비어있다면(=null/""), 종료일-시작일을 계산하여 1회만 기록
-  if (
-    body &&
-    typeof body === "object" &&
-    !Object.prototype.hasOwnProperty.call(body, "0차연장") &&
-    (Object.prototype.hasOwnProperty.call(body, "시작일") || Object.prototype.hasOwnProperty.call(body, "종료일"))
-  ) {
-    const zeroRaw = normalizeString(merged["0차연장"]);
-    const startRaw = normalizeString(merged["시작일"]);
-    const endRaw = normalizeString(merged["종료일"]);
+  // ✅ body가 객체가 아니면 거부
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
 
-    if (!zeroRaw) {
-      const computed = computeZeroExtensionDaysFromDates(startRaw, endRaw);
-      if (computed != null) {
-        merged["0차연장"] = computed;
-      }
-    }
+  // ✅ patch 정리: null도 그대로 저장(삭제 반영)
+  // ✅ "상태" 컬럼은 파생 표시용이므로, 서버 저장 대상에서 제외(무시)
+  const patch: Record<string, any> = {};
+  for (const key in body) {
+    if (key === "상태") continue; // ✅ 상태 저장 차단
+    patch[key] = (body as any)[key]; // null 포함
   }
 
   // ✅ 거래처분류가 "이번 PATCH에서 변경되었을 때" 안내분류 자동 세팅
   // - 매핑이 없으면 안내분류는 비움(null)
-  if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "거래처분류")) {
-    const partnerName = normalizeString(merged["거래처분류"]);
+  if (Object.prototype.hasOwnProperty.call(body, "거래처분류")) {
+    const partnerName = normalizeString(patch["거래처분류"]);
     if (!partnerName) {
-      merged["안내분류"] = null;
+      patch["안내분류"] = null;
     } else {
       const guide = await findGuideByPartnerName(partnerName);
-      merged["안내분류"] = guide ? guide : null;
+      patch["안내분류"] = guide ? guide : null;
     }
   }
 
   // ✅ 기기번호가 "이번 PATCH에서 변경되었을 때"만 자동 매칭 반영
-  // - 수기 입력/수정(syncPatch) 대응
-  // - 붙여넣기/대량수정은 bulk-patch에서 별도로 처리 예정
-  if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "기기번호")) {
-    const deviceNo = normalizeString(merged["기기번호"]);
+  if (Object.prototype.hasOwnProperty.call(body, "기기번호")) {
+    const deviceNo = normalizeString(patch["기기번호"]);
 
     if (deviceNo) {
       const info = await findDeviceInfoBySystemNo(deviceNo);
 
       if (info) {
-        // 통합관리 컬럼 키에 맞춰 저장
-        merged["기종"] = info.기종;
-        merged["구매/렌탈"] = info.구매렌탈;
-        merged["에러횟수"] = info.에러횟수;
-        merged["제품"] = info.제품명;
+        patch["기종"] = info.기종;
+        patch["구매/렌탈"] = info.구매렌탈;
+        patch["에러횟수"] = info.에러횟수;
+        patch["제품"] = info.제품명;
       } else {
         // 매칭 실패 시: 잘못된 잔상 방지(빈값 표시)
-        merged["기종"] = null;
-        merged["구매/렌탈"] = null;
-        merged["에러횟수"] = null;
-        merged["제품"] = null;
+        patch["기종"] = null;
+        patch["구매/렌탈"] = null;
+        patch["에러횟수"] = null;
+        patch["제품"] = null;
       }
     }
   }
 
-  // 저장
-  const r = await query(`UPDATE unified SET data=$1 WHERE id=$2 RETURNING id, data`, [merged, id]);
+  // 1) 우선 jsonb merge로 저장(동시 PATCH 덮어쓰기 방지)
+  let saved = await mergeUnifiedJsonbById(String(id), patch);
+  if (!saved) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
 
-  return NextResponse.json(r.rows[0]);
+  // 2) ✅ 0차연장 규칙(최초 1회 기록):
+  // - body에 "0차연장"이 직접 들어온 경우(업로드/수기입력)는 그대로 저장(자동계산 없음)
+  // - "시작일" 또는 "종료일"이 이번 PATCH에서 변경되었고,
+  //   현재 DB의 0차연장이 비어있다면(=null/"") 종료일-시작일을 계산하여 1회만 기록
+  // - ✅ 동시 요청 안전: "0차연장"이 비어 있을 때만 조건부 UPDATE
+  const shouldAutoZeroExtension =
+    !Object.prototype.hasOwnProperty.call(body, "0차연장") &&
+    (Object.prototype.hasOwnProperty.call(body, "시작일") ||
+      Object.prototype.hasOwnProperty.call(body, "종료일"));
+
+  if (shouldAutoZeroExtension) {
+    const current = saved?.data && typeof saved.data === "object" ? (saved.data as any) : {};
+    const zeroRaw = normalizeString(current?.["0차연장"]);
+    const startRaw = normalizeString(current?.["시작일"]);
+    const endRaw = normalizeString(current?.["종료일"]);
+
+    if (!zeroRaw) {
+      const computed = computeZeroExtensionDaysFromDates(startRaw, endRaw);
+      if (computed != null) {
+        // ✅ 0차연장이 "여전히 비어 있을 때만" 기록 (동시성 안전)
+        const r2 = await query(
+          `
+          UPDATE unified
+          SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
+          WHERE id = $2
+            AND COALESCE(data->>'0차연장','') = ''
+          RETURNING id, data
+          `,
+          [JSON.stringify({ "0차연장": computed }), id]
+        );
+
+        if (r2.rows?.[0]) {
+          saved = r2.rows[0];
+        }
+      }
+    }
+  }
+
+  return NextResponse.json(saved);
 }
 
 export async function DELETE(req: Request) {
