@@ -753,17 +753,12 @@ async function refreshCountAndMaybeReload() {
 
   const prevTotal = totalCountRef.current;
 
-  // count 변화(=삽입/삭제)일 때만 full reload
+    // ✅ count 변화(=삽입/삭제) 시에도 원격 화면 점멸/스크롤 튐이 크므로 full reload는 하지 않는다.
+  //    정합성은 refreshVisibleRowsFromServer()에서 ids mismatch 시 reload()로 보정된다.
   if (cnt !== prevTotal && cnt > 0) {
     totalCountRef.current = cnt;
     setTotalCount(cnt);
-
-    // ✅ 말 그대로 “큰 점멸”은 버스트당 1회로 제한
-    const now = Date.now();
-    if (now - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
-    lastFullReloadAtRef.current = now;
-
-    await reload();
+    return;
   }
 }
 
@@ -1784,7 +1779,7 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
   return () => window.removeEventListener("keydown", onKeyDown);
 }, [selectedCellRange, selectedRowRange]);
 
-   // Ctrl/Cmd+C: 복사만 keydown에서 처리 (V는 paste 이벤트에서 처리)
+       // Ctrl/Cmd+C: 복사, Ctrl/Cmd+V: pasteCatcher로 포커스 유도(붙여넣기 안정화)
     useEffect(() => {
       function onKeyDown(e: KeyboardEvent) {
         if ((e as any).isComposing) return;
@@ -1803,12 +1798,21 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
           return;
         }
 
-        // key === "v" 는 여기서 막지 않는다(막으면 아예 paste가 취소될 수 있음)
+        if (key === "v") {
+          // ✅ paste 이벤트가 확실히 발생하도록 textarea로 포커스 이동
+          // (preventDefault 하지 않는다 → 이어지는 paste 이벤트가 textarea로 들어온다)
+          try {
+            pasteCatcherRef.current?.focus();
+          } catch {
+            // ignore
+          }
+          return;
+        }
       }
 
-      window.addEventListener("keydown", onKeyDown);
-      return () => window.removeEventListener("keydown", onKeyDown);
-    }, [selectedCellRange, selectedRowRange]); 
+      window.addEventListener("keydown", onKeyDown, true);
+      return () => window.removeEventListener("keydown", onKeyDown, true);
+    }, [selectedCellRange, selectedRowRange]);
 
       // Ctrl+V/우클릭 붙여넣기 등 모든 paste를 캡처 단계에서 가로채서
     // 선택 범위 기준 TSV 분배 입력 (native paste 한 셀 몰빵 방지)
