@@ -1,4 +1,20 @@
 // app/unified/components/UnifiedGrid.tsx
+/*
+⚠️ 수정주의 (UnifiedGrid.tsx)
+
+이 파일은 “통합관리 코어”로 UI + 행락 + 저장 + 실시간반영 + 가상스크롤이 결합됨.
+작은 변경도 저장누락/실시간 끊김/점멸/붙여넣기 실패로 이어질 수 있음.
+
+- 락/저장 레이스: 같은 행 A셀→B셀 이동 시 blur가 락/플래그를 지우면 “한칸건너 저장” 재발.
+  → getActiveUnifiedRowId() 기반 “같은 행 이동이면 lock 해제/refresh/unfreeze 보류” 로직 유지 필수.
+- 실시간 반영 3종 세트: scheduleIdleReload ↔ applyRemoteSyncOnce ↔ refreshVisibleRowsFromServer
+  → 편집 중에도 apply는 하되, refreshVisibleRowsFromServer에서 editingRowId 행 덮어쓰기 금지 유지.
+- count 변화: 삭제는 reload 금지(점멸 방지), 삽입은 count 증가 시에만 제한적 reload 허용(원격 행삽입 반영).
+- 대량작업(붙여넣기/지우기): updates 생성은 setRows 콜백 “밖”에서 계산(콜백 안 push 부작용 금지).
+
+수정 후 최소 테스트: A↔B 실시간, 같은 행 연속입력, Ctrl+V bulk-patch 발생, 행삭제 점멸, 행삽입 동기화.
+*/
+
 "use client";
 
 import type React from "react";
@@ -753,9 +769,10 @@ async function refreshCountAndMaybeReload() {
 
   const prevTotal = totalCountRef.current;
 
-     // ✅ count 변화 처리
+  // ✅ count 변화 처리
   // - 삭제(cnt 감소): full reload 금지(점멸 방지) + total만 갱신
-  // - 삽입(cnt 증가): 새 id를 화면에 끼우려면 reload가 필요 → 삽입일 때만 제한적으로 reload 허용
+  // - 삽입(cnt 증가): "reload()로 tail 강제 이동"이 원격 탭 점멸/점프 원인 → full reload 금지
+  //   대신, 가능한 경우에만 loadNextPage()로 자연스럽게 추가 로드(스크롤/화면 안정)
   if (cnt !== prevTotal && cnt > 0) {
     totalCountRef.current = cnt;
     setTotalCount(cnt);
@@ -763,13 +780,25 @@ async function refreshCountAndMaybeReload() {
     // 삭제(감소)면 여기서 끝 (rows는 refreshVisibleRowsFromServer의 missing 제거로 처리)
     if (cnt < prevTotal) return;
 
-    // 삽입(증가)면 full reload 1회 허용(과도한 점멸 방지용 throttle 유지)
-    const now = Date.now();
-    if (now - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
-    lastFullReloadAtRef.current = now;
+    const allowPaging = !filterMode && !sortState?.key;
+    if (!allowPaging) return;
 
-    await reload();
-  } 
+    // throttle: count 증가 이벤트가 연속으로 올 때 과도 로드 방지
+    const t = Date.now();
+    if (t - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
+    lastFullReloadAtRef.current = t;
+
+    const lastGlobalIndex = baseIndexRef.current + rowsRef.current.length - 1;
+    const nearTail = prevTotal > 0 && lastGlobalIndex >= Math.max(1, prevTotal - 5);
+
+    const el = scrollRef.current;
+    const nearBottom =
+      !!el && el.scrollTop + el.clientHeight >= el.scrollHeight - 140;
+
+    if (nearTail || nearBottom) {
+      void loadNextPage();
+    }
+  }
 }
 
     const ROW_HEIGHT = 24;      // 테이블 1행 높이(대략)
@@ -1828,6 +1857,107 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
   window.addEventListener("keydown", onKeyDown);
   return () => window.removeEventListener("keydown", onKeyDown);
 }, [selectedCellRange, selectedRowRange]);
+
+// ✅ (Fix #4) Delete 등으로 INPUT 포커스가 사라진 상태에서도
+// 선택된 셀 범위가 있으면 방향키로 셀 이동이 되게 한다(화면 스크롤 방지)
+useEffect(() => {
+  function onArrowKeyDown(e: KeyboardEvent) {
+    const key = e.key;
+    const isArrow =
+      key === "ArrowDown" || key === "ArrowUp" || key === "ArrowLeft" || key === "ArrowRight";
+    if (!isArrow) return;
+    if ((e as any).isComposing) return;
+
+    // INPUT이 포커스면 기존 input onKeyDown(handleCellKeyDown)에게 맡김
+    const ae = document.activeElement as HTMLElement | null;
+    const tag = (ae?.tagName || "").toUpperCase();
+    const isEditable =
+      tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!ae?.isContentEditable;
+    if (isEditable) return;
+
+    if (!selectedCellRange) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rowCount = displayRowsRef.current?.length ?? 0;
+    const colCount = viewColumns.length;
+
+    if (rowCount <= 0 || colCount <= 0) return;
+
+    let targetRow = selectedCellRange.startRow;
+    let targetCol = selectedCellRange.startCol;
+
+    const allowPaging = !filterMode && !sortState?.key;
+
+    if (key === "ArrowDown") {
+      if (targetRow >= rowCount - 1) {
+        if (allowPaging) void loadNextPage();
+        return;
+      }
+      targetRow += 1;
+    } else if (key === "ArrowUp") {
+      if (targetRow <= 0) {
+        if (allowPaging) void loadPrevPage();
+        return;
+      }
+      targetRow -= 1;
+    } else if (key === "ArrowRight") {
+      if (targetCol < colCount - 1) {
+        targetCol += 1;
+      } else {
+        if (targetRow >= rowCount - 1) {
+          if (allowPaging) void loadNextPage();
+          return;
+        }
+        targetRow += 1;
+        targetCol = 0;
+      }
+    } else if (key === "ArrowLeft") {
+      if (targetCol > 0) {
+        targetCol -= 1;
+      } else {
+        if (targetRow <= 0) {
+          if (allowPaging) void loadPrevPage();
+          return;
+        }
+        targetRow -= 1;
+        targetCol = colCount - 1;
+      }
+    }
+
+    setSelectedRowRange(null);
+    setCellRangeByPoints(targetRow, targetCol, targetRow, targetCol);
+    lastFocusForPasteRef.current = { rowIndex: targetRow, colIndex: targetCol };
+
+    if (focusCell(targetRow, targetCol)) return;
+
+    const el = scrollRef.current;
+    if (el) {
+      const rowTop = targetRow * ROW_HEIGHT;
+      const rowBottom = rowTop + ROW_HEIGHT;
+
+      const viewTop = el.scrollTop;
+      const viewBottom = viewTop + el.clientHeight;
+
+      if (rowTop < viewTop) {
+        el.scrollTop = Math.max(0, rowTop - Math.floor(el.clientHeight * 0.2));
+      } else if (rowBottom > viewBottom) {
+        el.scrollTop = Math.max(0, rowBottom - Math.floor(el.clientHeight * 0.8));
+      }
+    }
+
+    requestAnimationFrame(() => {
+      updateVisibleRangeNow();
+      requestAnimationFrame(() => {
+        focusCell(targetRow, targetCol);
+      });
+    });
+  }
+
+  window.addEventListener("keydown", onArrowKeyDown, true);
+  return () => window.removeEventListener("keydown", onArrowKeyDown, true);
+}, [selectedCellRange, filterMode, sortState?.key, viewColumns.length]);
 
        // Ctrl/Cmd+C: 복사, Ctrl/Cmd+V: pasteCatcher로 포커스 유도(붙여넣기 안정화)
     useEffect(() => {
