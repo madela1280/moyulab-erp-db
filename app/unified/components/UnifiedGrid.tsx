@@ -1939,8 +1939,16 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
     const isInput = !!ae && ae.tagName === "INPUT";
     const input = isInput ? (ae as HTMLInputElement) : null;
 
-    // ✅ 단일 셀 선택 + input 포커스면: 셀 값 지우기 후 blur(onBlur 저장)
-    if (isSingleCell && input && !input.readOnly) {
+    // ✅ input 포커스 상태에서 "전체 선택 상태"로 Delete를 누르면
+    // 셀 범위 선택이 없어도 강제로 blur → onBlur 저장까지 타게 한다(저장 누락 방지)
+    const isAllSelected =
+      !!input &&
+      typeof input.selectionStart === "number" &&
+      typeof input.selectionEnd === "number" &&
+      input.selectionStart === 0 &&
+      input.selectionEnd === (input.value ?? "").length;
+
+    if (input && !input.readOnly && (isSingleCell || isAllSelected)) {
       e.preventDefault();
       e.stopPropagation();
 
