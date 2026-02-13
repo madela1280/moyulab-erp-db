@@ -1188,8 +1188,13 @@ function scrollToTailData() {
       if (!cur) return;
 
       // 현재 window가 전체의 끝에 도달했는지 대략 체크
-      const lastGlobalIndex = baseIndex + rows.length - 1;
-      if (totalCount > 0 && lastGlobalIndex >= totalCount) return;
+      // ✅ count 증가 직후에는 setTotalCount(cnt)가 아직 반영되기 전이라(totalCount state 스테일)
+      //    기존 로직이 "이미 끝"으로 오판해서 loadNextPage가 막히는 케이스가 생김
+      //    → ref를 truth로 사용
+      const lastGlobalIndex = baseIndexRef.current + rowsRef.current.length - 1;
+      const total = totalCountRef.current;
+
+      if (total > 0 && lastGlobalIndex >= total) return;
 
       isPagingRef.current = true;
       try {
@@ -2971,6 +2976,17 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             } else {
               savedOk = true;
             }
+        
+           if (savedOk && v === "") {
+              setTimeout(() => {
+                try {
+                  syncEmitUnifiedUpdate();
+                } catch {
+                  // ignore
+                }
+              }, 250);
+            }
+
           } catch {
             // 네트워크/예외 시: 서버 기준으로 복구하도록 부분 재조회 예약
             pendingReloadRef.current = true;
