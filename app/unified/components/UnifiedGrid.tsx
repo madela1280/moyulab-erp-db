@@ -771,33 +771,21 @@ async function refreshCountAndMaybeReload() {
 
   // ✅ count 변화 처리
   // - 삭제(cnt 감소): full reload 금지(점멸 방지) + total만 갱신
-  // - 삽입(cnt 증가): "reload()로 tail 강제 이동"이 원격 탭 점멸/점프 원인 → full reload 금지
-  //   대신, 가능한 경우에만 loadNextPage()로 자연스럽게 추가 로드(스크롤/화면 안정)
+  // - 삽입(cnt 증가): 원격 탭이 새 행을 "발견"하려면 reload 계열이 필요
+  //   다만 점멸/점프를 줄이기 위해 reloadPreserveScroll() 사용
   if (cnt !== prevTotal && cnt > 0) {
     totalCountRef.current = cnt;
     setTotalCount(cnt);
 
-    // 삭제(감소)면 여기서 끝 (rows는 refreshVisibleRowsFromServer의 missing 제거로 처리)
+    // 삭제(감소)면 여기서 끝
     if (cnt < prevTotal) return;
 
-    const allowPaging = !filterMode && !sortState?.key;
-    if (!allowPaging) return;
-
-    // throttle: count 증가 이벤트가 연속으로 올 때 과도 로드 방지
+    // 삽입(증가): throttle + preserve scroll reload
     const t = Date.now();
     if (t - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
     lastFullReloadAtRef.current = t;
 
-    const lastGlobalIndex = baseIndexRef.current + rowsRef.current.length - 1;
-    const nearTail = prevTotal > 0 && lastGlobalIndex >= Math.max(1, prevTotal - 5);
-
-    const el = scrollRef.current;
-    const nearBottom =
-      !!el && el.scrollTop + el.clientHeight >= el.scrollHeight - 140;
-
-    if (nearTail || nearBottom) {
-      void loadNextPage();
-    }
+    await reloadPreserveScroll();
   }
 }
 
@@ -1099,6 +1087,38 @@ function scrollToTailData() {
       await loadTailPage();
     }
 
+  // ✅ (Fix #1) count 증가(삽입) 동기화는 필요하지만, 원격 탭에서 tail reload가 점멸/점프를 유발함
+// → reload 자체는 하되, 스크롤 로드 트리거(onScroll 페이징)와 스크롤 점프를 최대한 억제
+async function reloadPreserveScroll() {
+  const el = scrollRef.current;
+  const prevTop = el?.scrollTop ?? 0;
+
+  // reload 중 onScroll 페이징이 연쇄로 터지면서 화면이 크게 흔들리는 것을 방지
+  suspendScrollLoadRef.current = true;
+
+  try {
+    await loadTailPage();
+  } finally {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el2 = scrollRef.current;
+        if (el2) {
+          const maxTop = Math.max(0, el2.scrollHeight - el2.clientHeight);
+          el2.scrollTop = Math.max(0, Math.min(prevTop, maxTop));
+        }
+        updateVisibleRangeNow();
+
+        // 2프레임 뒤 해제(스크롤 복원 직후 연쇄 로드 방지)
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            suspendScrollLoadRef.current = false;
+          });
+        });
+      });
+    });
+  }
+}
+
         const isPagingRef = useRef(false);
         const suspendScrollLoadRef = useRef(false);
 
@@ -1384,13 +1404,19 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
   const { id, key, expected } = args;
 
   const row = await fetchRowNoStore(id);
+
+  // ✅ (Fix) 서버 재조회가 실패(null)면 "저장 성공"으로 오판하면 안 됨
+  // 특히 expected==""(삭제)일 때 undefined를 성공으로 취급하면 저장 누락이 그대로 묻힘
+  if (!row) {
+    pendingReloadRef.current = true;
+    return false;
+  }
+
   const serverValue = (row as any)?.data?.[key];
 
   if (!isSameCellValue(expected, serverValue)) {
-    // 서버값 기준으로 즉시 복구
     const nextText = normalizeCellTextFromServer(serverValue);
     updateLocalCell(id, key, nextText);
-    // 서버가 다른 필드도 같이 바꿨을 수 있으니(예: 거래처→안내분류/기기번호 매칭) 부분재조회 예약
     pendingReloadRef.current = true;
     return false;
   }
