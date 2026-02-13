@@ -3065,18 +3065,28 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
           }
 
           // ✅ 끝까지 락이 없으면 저장하지 않고 서버값으로 되돌림
+          // ✅ (Fix) 간헐적으로 락 플래그/대기 타이밍이 어긋나 저장이 스킵될 수 있어
+          //    onBlur에서 1회 락 재시도 후에만 포기한다.
           if (!hasLock) {
-            editingCellRef.current = null;
-            setActiveEditCell(null);
-            setActiveEditValue("");
+            const retry = await acquireLock("unified", row.id).catch(() => null);
 
-            delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
+            if (retry?.ok) {
+              hasLock = true;
+              myRowLocksRef.current[row.id] = true; // ✅ 즉시 기록
+              setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+            } else {
+              editingCellRef.current = null;
+              setActiveEditCell(null);
+              setActiveEditValue("");
 
-            if (pendingReloadRef.current) pendingReloadRef.current = false;
+              delete myRowLocksRef.current[row.id]; // ✅ ref도 정리
 
-            await refreshVisibleRowsFromServer();
-            unfreezeDisplayRows();
-            return;
+              if (pendingReloadRef.current) pendingReloadRef.current = false;
+
+              await refreshVisibleRowsFromServer();
+              unfreezeDisplayRows();
+              return;
+            }
           }
 
           try {
