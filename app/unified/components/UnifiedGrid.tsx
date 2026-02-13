@@ -228,19 +228,35 @@ const lastCountCheckAtRef = useRef<number>(0);
 const COUNT_CHECK_MIN_INTERVAL_MS = 2500;
 
 function requestApplyRemoteSync() {
-  // ✅ 소켓 echo(내가 저장한 것도 다시 받음) 때문에 즉시 refreshVisibleRowsFromServer가 돌면
-  //    입력/삭제가 “점멸 후 복구”처럼 보일 수 있음 → 유휴(idle)일 때만 반영
   remoteSyncPendingRef.current = true;
   pendingRemoteUpdateRef.current = true;
 
-  // 기존 디바운스 타이머는 정리(있다면 취소)
   if (remoteSyncTimerRef.current) {
     clearTimeout(remoteSyncTimerRef.current);
     remoteSyncTimerRef.current = null;
   }
 
- // ✅ 유휴 상태에서만 applyRemoteSyncOnce 수행(입력 안정성 최우선)
-scheduleIdleReload(IDLE_RELOAD_CHECK_MS); 
+  // ✅ (Fix) 거래처분류 같은 “클릭 선택(외부 UI 저장)”은
+  // A탭이 사용자 조작 직후라 idle 판정에 걸려 화면 반영이 늦고,
+  // B탭은 idle이라 먼저 반영되는 역전이 생길 수 있음.
+  // → 편집 중이 아니고(safe), suppress/write 중이 아니면 즉시 부분 반영을 1회 시도.
+  const isEditing = !!editingCellRef.current;
+  const canApplyNow =
+    !isEditing &&
+    writeInFlightRef.current === 0 &&
+    Date.now() >= suppressReloadUntilRef.current;
+
+  if (canApplyNow) {
+    // 즉시 1회 시도(부분 반영). 실패/보류 조건은 applyRemoteSyncOnce 내부에서 재판단됨.
+    remoteSyncTimerRef.current = setTimeout(() => {
+      remoteSyncTimerRef.current = null;
+      void applyRemoteSyncOnce();
+    }, 0);
+    return;
+  }
+
+  // 나머지는 기존처럼 idle 기반 반영
+  scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
 }
 
 // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
