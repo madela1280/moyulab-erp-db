@@ -1093,21 +1093,44 @@ function scrollToTailData() {
       })();
     }, []);
 
-             useEffect(() => {
+                        useEffect(() => {
       if (!rows.length) return;
       if (didInitialScrollRef.current) return;
 
       didInitialScrollRef.current = true;
 
-      // ✅ 첫 진입 시 "마지막 데이터 근처"가 화면 중간~하단에 오도록 고정
-      // (scrollToTailData()는 loadTailPage를 다시 타므로 여기서는 스크롤만)
+      // ✅ 첫 진입 시: "진짜 마지막 데이터(빈 행 제외)"가 화면 하단 근처에 오도록 스크롤
+      // - tailData에는 빈 행이 섞일 수 있어 maxTop 기준 스크롤만 하면 마지막 입력줄이 위로 밀릴 수 있음
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const el = scrollRef.current;
           if (!el) return;
 
+          // 마지막 "의미있는 값"이 있는 행 찾기(스타일/메타 제외)
+          let lastDataIndex = -1;
+          for (let i = rows.length - 1; i >= 0; i--) {
+            const d = rows[i]?.data ?? {};
+            let hasValue = false;
+            for (const k of Object.keys(d)) {
+              if (k.startsWith("__")) continue; // __cellStyle 등 메타 제외
+              const v = (d as any)[k];
+              if (v === null || v === undefined) continue;
+              if (String(v).trim() === "") continue;
+              hasValue = true;
+              break;
+            }
+            if (hasValue) {
+              lastDataIndex = i;
+              break;
+            }
+          }
+
+          const targetIndex = lastDataIndex >= 0 ? lastDataIndex : rows.length - 1;
+
+          // target row가 화면 하단(약 80%) 쪽에 오도록
+          const desiredTop = Math.max(0, targetIndex * ROW_HEIGHT - Math.floor(el.clientHeight * 0.8));
           const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-          el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
+          el.scrollTop = Math.max(0, Math.min(desiredTop, maxTop));
 
           updateVisibleRangeNow();
         });
