@@ -771,8 +771,8 @@ async function refreshCountAndMaybeReload() {
 
   // ✅ count 변화 처리
   // - 삭제(cnt 감소): full reload 금지(점멸 방지) + total만 갱신
-  // - 삽입(cnt 증가): 원격 탭이 새 행을 "발견"하려면 reload 계열이 필요
-  //   다만 점멸/점프를 줄이기 위해 reloadPreserveScroll() 사용
+  // - 삽입(cnt 증가): 원격에서 새 행을 발견해야 함
+  //   → tail reload 대신 "현재 보이는 anchor 기준 window 재구성" 우선(점멸/멈춤 완화)
   if (cnt !== prevTotal && cnt > 0) {
     totalCountRef.current = cnt;
     setTotalCount(cnt);
@@ -780,11 +780,14 @@ async function refreshCountAndMaybeReload() {
     // 삭제(감소)면 여기서 끝
     if (cnt < prevTotal) return;
 
-    // 삽입(증가): throttle + preserve scroll reload
     const t = Date.now();
     if (t - lastFullReloadAtRef.current < FULL_RELOAD_MIN_INTERVAL_MS) return;
     lastFullReloadAtRef.current = t;
 
+    const rebuilt = await rebuildWindowAroundVisibleAnchor();
+    if (rebuilt) return;
+
+    // fallback (필터/정렬 등으로 rebuild 불가 시)
     await reloadPreserveScroll();
   }
 }
@@ -1114,6 +1117,100 @@ async function reloadPreserveScroll() {
             suspendScrollLoadRef.current = false;
           });
         });
+      });
+    });
+  }
+}
+
+// ✅ (Fix #1-2) 삽입(=count 증가) 원격 반영 시 tail reload는 점멸/멈춤이 큼
+// → 현재 화면의 "보이는 anchor" 기준으로 앞/뒤만 재구성해서 끼워넣기(스크롤 점프 최소)
+async function rebuildWindowAroundVisibleAnchor(): Promise<boolean> {
+  // 필터/정렬 모드에서는 window 재구성 시 화면 흔들림이 커서 보류
+  if (filterMode || !!sortState?.key) return false;
+
+  const cur = rowsRef.current;
+  if (!cur.length) return false;
+
+  const el = scrollRef.current;
+  const vr = el ? calcVisibleRange(el, cur.length) : visibleRangeRef.current;
+
+  const anchorIndex = Math.max(0, Math.min(cur.length - 1, vr.start));
+  const anchor = cur[anchorIndex];
+  if (!anchor) return false;
+
+  const sortKey = Number(anchor.sort_key ?? NaN);
+  const id = Number(anchor.id ?? NaN);
+  if (!Number.isFinite(sortKey) || !Number.isFinite(id)) return false;
+
+  const half = Math.max(50, Math.floor(PAGE_SIZE / 2));
+
+  // 페이징 연쇄 로드 방지
+  suspendScrollLoadRef.current = true;
+
+  const prevTop = el?.scrollTop ?? 0;
+
+  try {
+    const [prevR, nextR, anchorR] = await Promise.all([
+      fetch(`/api/unified?beforeSortKey=${sortKey}&beforeId=${id}&limit=${half}`, { cache: "no-store" }),
+      fetch(`/api/unified?afterSortKey=${sortKey}&afterId=${id}&limit=${half}`, { cache: "no-store" }),
+      fetch(`/api/unified?ids=${id}`, { cache: "no-store" }),
+    ]);
+
+    const prevJ = await prevR.json().catch(() => null);
+    const nextJ = await nextR.json().catch(() => null);
+    const anchorJ = await anchorR.json().catch(() => null);
+
+    const prevRows: UnifiedRow[] = Array.isArray(prevJ?.rows) ? prevJ.rows : [];
+    const nextRows: UnifiedRow[] = Array.isArray(nextJ?.rows) ? nextJ.rows : [];
+
+    const anchorArr: UnifiedRow[] = Array.isArray(anchorJ) ? anchorJ : [];
+    const anchorFresh = anchorArr[0] ?? anchor;
+
+    const combined = [...prevRows, anchorFresh, ...nextRows];
+
+    const anchorGlobalIndex = baseIndexRef.current + anchorIndex;
+    const prevLen = prevRows.length;
+
+    const baseFromApi = Number(prevJ?.baseIndex ?? NaN);
+    const nextBase =
+      Number.isFinite(baseFromApi) ? baseFromApi : Math.max(1, anchorGlobalIndex - prevLen);
+
+    const nextTotal =
+      Number(prevJ?.total ?? nextJ?.total ?? totalCountRef.current ?? combined.length);
+
+    setRows(combined);
+    setBaseIndex(nextBase);
+    setTotalCount(nextTotal);
+
+    // ref 즉시 동기화
+    rowsRef.current = combined;
+    baseIndexRef.current = nextBase;
+    totalCountRef.current = nextTotal;
+
+    // anchor가 화면에서 같은 위치에 있도록 scrollTop 보정
+    // 기존 anchorIndex -> 새 anchorIndex(prevLen)
+    const deltaIndex = prevLen - anchorIndex;
+    const deltaPx = deltaIndex * ROW_HEIGHT;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el2 = scrollRef.current;
+        if (el2) {
+          const maxTop = Math.max(0, el2.scrollHeight - el2.clientHeight);
+          const nextTop = Math.max(0, Math.min(prevTop + deltaPx, maxTop));
+          el2.scrollTop = nextTop;
+        }
+        updateVisibleRangeNow();
+      });
+    });
+
+    return true;
+  } catch {
+    return false;
+  } finally {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        suspendScrollLoadRef.current = false;
       });
     });
   }
@@ -2981,9 +3078,13 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             // ✅ blur 1회에만 로컬 반영 (입력 누락/잘림 방지)
             updateLocalCell(row.id, key, v);
 
-            // ✅ 저장(=syncPatch) -> 소켓 emit 포함(실시간 동기화 유지)
-            //    (단, syncPatch는 res.ok 체크가 없으므로 아래에서 서버값 검증/복구 수행)
-            await saveCell(row.id, key, v);
+            // ✅ 삭제(v==="")는 syncPatch가 res.ok 체크가 없어 저장 누락이 묻히는 케이스가 있음
+            // → 안정화된 bulkPatchAndReconcile 경로로 저장 확정
+            if (v === "") {
+              await bulkPatchAndReconcile([{ id: row.id, patch: { [key]: null } }]);
+            } else {
+              await saveCell(row.id, key, v);
+            }
 
             // ✅ 서버가 연쇄 업데이트를 하는 키(거래처→안내분류, 기기번호→기종/제품...)는
             //    부분 재조회로 화면 정합성 유지(현재 탭 + 다른 탭 반영 체감 개선)
