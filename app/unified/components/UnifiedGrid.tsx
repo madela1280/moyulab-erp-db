@@ -271,16 +271,8 @@ async function applyRemoteSyncOnce() {
     return;
   }
 
-  // ✅ suppress 기간이면 "흡수"가 아니라 "보류"해야 함
-  if (Date.now() < suppressReloadUntilRef.current) {
-    remoteSyncPendingRef.current = true;
-    pendingRemoteUpdateRef.current = true;
-    scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
-    return;
-  }
-
-   // ✅ 편집 중이라도 원격 반영은 허용한다.
-  //    대신 refreshVisibleRowsFromServer()에서 "현재 편집 중인 행"은 덮어쓰지 않도록 처리한다. 
+  // ✅ 편집 중이라도 원격 반영은 허용한다.
+  //    대신 refreshVisibleRowsFromServer()에서 "현재 편집 중인 행"은 덮어쓰지 않도록 처리한다.
 
   if (remoteSyncInFlightRef.current) return;
 
@@ -289,7 +281,18 @@ async function applyRemoteSyncOnce() {
     if (!remoteSyncPendingRef.current) return;
     remoteSyncPendingRef.current = false;
 
+    // ✅ (Fix) suppress 기간에도 "가벼운 부분 반영(visible refresh)"은 허용
+    // - 거래처분류 같은 외부 클릭 저장은 suppress에 걸려 A탭 표시가 늦어질 수 있음
+    // - 대신 count/삽입정합성(rebuild/reload 유발)은 suppress가 끝난 뒤에만 수행
     await refreshVisibleRowsFromServer();
+
+    if (Date.now() < suppressReloadUntilRef.current) {
+      remoteSyncPendingRef.current = true;
+      pendingRemoteUpdateRef.current = true;
+      scheduleIdleReload(IDLE_RELOAD_CHECK_MS);
+      return;
+    }
+
     await refreshCountAndMaybeReload();
   } finally {
     remoteSyncInFlightRef.current = false;
