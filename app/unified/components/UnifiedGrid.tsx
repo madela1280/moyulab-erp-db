@@ -947,15 +947,33 @@ function scrollToTailData() {
 
     let changed = false;
 
-   const next = prev.map((row) => {
-      // ✅ 현재 편집 중인 행은 원격 반영으로 덮어쓰지 않음(입력 튕김/되돌림 방지)
-      if (editingRowId != null && row.id === editingRowId) return row;
-
+      const next = prev.map((row) => {
       const f = map.get(row.id);
       if (!f) return row;
 
       const nextSortKey = f.sort_key ?? row.sort_key;
-      const nextData = (f.data ?? row.data) as Record<string, any>;
+
+      // ✅ 편집 중 행도 "전체 skip" 하지 말고,
+      // 편집 중인 셀의 값만 보존하고 나머지 필드는 서버값을 반영한다.
+      // (거래처분류/안내분류 선택은 편집 중에도 A탭 즉시 보이게 하는 목적)
+      const editing = editingCellRef.current;
+      const editingKey = editing?.key ?? null;
+
+      const allowOverwriteWhileEditing = new Set(["거래처분류", "안내분류", "기기번호"]);
+
+      let nextData = (f.data ?? row.data) as Record<string, any>;
+
+      if (
+        editingRowId != null &&
+        row.id === editingRowId &&
+        editingKey &&
+        !allowOverwriteWhileEditing.has(editingKey)
+      ) {
+        nextData = {
+          ...(nextData ?? {}),
+          [editingKey]: (row.data ?? {})[editingKey],
+        };
+      }
 
       const sortKeySame = (row.sort_key ?? null) === (nextSortKey ?? null);
       const dataSame = shallowEqualRecord(row.data ?? {}, nextData ?? {});
