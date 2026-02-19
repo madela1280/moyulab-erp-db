@@ -48,6 +48,25 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
     return rows.filter((r) => set.has(r.id));
   }, [rows, selectedIds, selectedCount]);
 
+  async function runIncrementalAggregateThenRefresh() {
+    // ✅ 새로고침 = (증분 집계 1회) + (목록 다시조회)
+    // - UI에 에러를 노출하지 않는 정책(요구사항)이라, 실패 시 콘솔만 찍고 refresh는 수행
+    try {
+      await fetch("/api/sms/aggregate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseDate: baseDate || undefined,
+          mode: "incremental",
+        }),
+      });
+    } catch (e) {
+      console.error("incremental aggregate failed:", e);
+    } finally {
+      await refresh();
+    }
+  }
+
   return (
     <div className="w-full h-full flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -56,9 +75,11 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
         <div className="flex items-center gap-2">
           <button
             className="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-50"
-            onClick={() => refresh()}
+            onClick={() => {
+              void runIncrementalAggregateThenRefresh();
+            }}
             disabled={loading}
-            title="목록 새로고침"
+            title="(05시 집계 이후 변경분) 증분 집계 반영 + 목록 새로고침"
           >
             새로고침
           </button>
