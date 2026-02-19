@@ -1,5 +1,3 @@
-// app/menus/subMenus.ts
-
 import { TopMenu } from "./topMenus";
 
 export const SUB_MENUS: Record<TopMenu, string[]> = {
