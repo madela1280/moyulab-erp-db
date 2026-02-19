@@ -1,4 +1,21 @@
+// app/menus/viewMap.tsx
+
 import dynamic from "next/dynamic";
+import type { SmsSubCategory } from "@/sms/types/sms.types";
+
+// ✅ SmsView를 소카테고리별로 감싸는 wrapper (defaultProps 조작 같은 불안정 패턴 금지)
+function makeSmsWrapper(initialSubCategory: SmsSubCategory) {
+  return dynamic(async () => {
+    const mod = await import("@/views/sms/SmsView");
+    const SmsView = mod.default;
+
+    const Wrapped = function SmsWrappedView() {
+      return <SmsView initialSubCategory={initialSubCategory} />;
+    };
+
+    return Wrapped;
+  });
+}
 
 export const VIEW_MAP: Record<string, any> = {
   // 사용자관리
@@ -30,7 +47,9 @@ export const VIEW_MAP: Record<string, any> = {
   "유축기현황>유축기현황": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
   // 문자
-  "문자>문자": dynamic(() => import("@/views/sms/SmsView")),
+  "문자>대여첫안내": makeSmsWrapper("대여첫안내"),
+  "문자>만기3일전": makeSmsWrapper("만기3일전"),
+  "문자>만기지남": makeSmsWrapper("만기지남"),
 
   // 합포장
   "합포장>합포장": dynamic(() => import("@/views/packaging/PackagingView")),
@@ -38,7 +57,6 @@ export const VIEW_MAP: Record<string, any> = {
   // 집계
   "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
 };
-
 
 
 

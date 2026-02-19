@@ -1,5 +1,4 @@
-// app/views/sms/SmsView.tsx
-
+// app/views/sms/SmsMainView.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,15 +10,8 @@ import SmsSubCategoryTabs from "@/views/sms/components/SmsSubCategoryTabs";
 import SmsTargetTable from "@/views/sms/components/SmsTargetTable";
 import SmsSendPanel from "@/views/sms/components/SmsSendPanel";
 
-export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) {
-  const [subCategory, setSubCategory] = useState<SmsSubCategory>(
-    props.initialSubCategory ?? "대여첫안내"
-  );
-
-  useEffect(() => {
-    if (!props.initialSubCategory) return;
-    setSubCategory(props.initialSubCategory);
-  }, [props.initialSubCategory]);
+export default function SmsMainView() {
+  const [subCategory, setSubCategory] = useState<SmsSubCategory>("대여첫안내");
 
   const { loading, error, rows, baseDate, counts, refresh, aggregateAndRefresh } =
     useSmsTargets({
@@ -29,7 +21,7 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // rows가 바뀌면 selection에서 없는 id는 제거
+  // 데이터가 바뀌면 selection에서 없는 id는 제거
   useEffect(() => {
     const existing = new Set(rows.map((r) => r.id));
     setSelectedIds((prev) => {
@@ -58,7 +50,8 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
           <div className="text-sm font-semibold text-gray-800">문자</div>
           <div className="text-xs text-gray-500">
             기준일: <span className="font-mono">{baseDate || "-"}</span>
-            {"  "}· 총 {counts.total}건
+            {"  "}
+            · 총 {counts.total}건
             {"  "}
             {Object.entries(counts.byStatus).length ? (
               <span className="ml-2">
@@ -114,11 +107,8 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
             subCategory={subCategory}
             baseDate={baseDate}
             selectedRows={selectedRows}
-            selectedCount={selectedCount}
             onSend={async (opts) => {
-              const targetIds =
-                opts.scope === "selected" ? Array.from(selectedIds) : undefined;
-
+              const targetIds = opts.scope === "selected" ? Array.from(selectedIds) : undefined;
               const res = await sendSmsAuto({
                 subCategory,
                 baseDate,
@@ -126,6 +116,7 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
                 dryRun: opts.dryRun,
               });
 
+              // 발송 요청 후 목록 새로고침
               await refresh();
               return res;
             }}
@@ -135,10 +126,10 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
               return res;
             }}
             onClearSelection={() => setSelectedIds(new Set())}
+            selectedCount={selectedCount}
           />
         </div>
       </div>
     </div>
   );
 }
-

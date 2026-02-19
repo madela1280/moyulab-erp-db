@@ -1,3 +1,5 @@
+// app/menus/subMenus.ts
+
 import { TopMenu } from "./topMenus";
 
 export const SUB_MENUS: Record<TopMenu, string[]> = {
@@ -13,7 +15,7 @@ export const SUB_MENUS: Record<TopMenu, string[]> = {
 
   유축기현황: ["유축기현황"],
 
-  문자: ["문자"],
+  문자: ["대여첫안내", "만기3일전", "만기지남"],
 
   합포장: ["합포장"],
 
