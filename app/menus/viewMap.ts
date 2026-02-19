@@ -1,20 +1,17 @@
-// app/menus/viewMap.tsx
+// app/menus/viewMap.ts
 
 import dynamic from "next/dynamic";
+import { createElement } from "react";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
 
-// ✅ SmsView를 소카테고리별로 감싸는 wrapper (defaultProps 조작 같은 불안정 패턴 금지)
+// ✅ 문자 View는 1개(SmsView)만 두고, 소카테고리별로 props만 다르게 주는 wrapper로 분기
+const SmsViewDynamic = dynamic(() => import("@/views/sms/SmsView"));
+
 function makeSmsWrapper(initialSubCategory: SmsSubCategory) {
-  return dynamic(async () => {
-    const mod = await import("@/views/sms/SmsView");
-    const SmsView = mod.default;
-
-    const Wrapped = function SmsWrappedView() {
-      return <SmsView initialSubCategory={initialSubCategory} />;
-    };
-
-    return Wrapped;
-  });
+  const Wrapped = function SmsWrappedView() {
+    return createElement(SmsViewDynamic as any, { initialSubCategory });
+  };
+  return Wrapped;
 }
 
 export const VIEW_MAP: Record<string, any> = {
@@ -57,7 +54,3 @@ export const VIEW_MAP: Record<string, any> = {
   // 집계
   "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
 };
-
-
-
-
