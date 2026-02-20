@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
 import { useSmsTargets } from "@/views/sms/hooks/useSmsTargets";
-import { sendSmsAuto, syncSmsResults } from "@/views/sms/service/serviceSms";
 
 import SmsTargetTable from "@/views/sms/components/SmsTargetTable";
-import SmsSendPanel from "@/views/sms/components/SmsSendPanel";
 
 export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) {
   const [subCategory, setSubCategory] = useState<SmsSubCategory>(
@@ -18,13 +16,12 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
     setSubCategory(props.initialSubCategory);
   }, [props.initialSubCategory]);
 
-  const { loading, rows, baseDate, refresh } = useSmsTargets({
+  const { loading, rows } = useSmsTargets({
     subCategory,
     aggregateOnMount: false,
   });
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [showVerifyPanel, setShowVerifyPanel] = useState(false);
 
   // rows가 바뀌면 selection에서 없는 id는 제거
   useEffect(() => {
@@ -40,76 +37,20 @@ export default function SmsView(props: { initialSubCategory?: SmsSubCategory }) 
     });
   }, [rows]);
 
-  const selectedCount = selectedIds.size;
-
-  const selectedRows = useMemo(() => {
-    if (!selectedCount) return [];
-    const set = selectedIds;
-    return rows.filter((r) => set.has(r.id));
-  }, [rows, selectedIds, selectedCount]);
-
   return (
     <div className="w-full h-full flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-gray-800">{subCategory}</div>
-
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1.5 text-xs rounded border bg-gray-900 text-white hover:bg-black disabled:opacity-50"
-            onClick={() => setShowVerifyPanel((v) => !v)}
-            disabled={loading}
-            title="검증/발송 패널 열기/닫기"
-          >
-            검증
-          </button>
-        </div>
+        <div className="flex items-center gap-2" />
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-12 gap-3">
-        <div
-          className={
-            (showVerifyPanel ? "col-span-8" : "col-span-12") +
-            " min-h-0 border rounded bg-white overflow-hidden"
-          }
-        >
-          <SmsTargetTable
-            loading={loading}
-            rows={rows}
-            selectedIds={selectedIds}
-            onSelectedIdsChange={setSelectedIds}
-          />
-        </div>
-
-        {showVerifyPanel && (
-          <div className="col-span-4 min-h-0 border rounded bg-white overflow-auto">
-            <SmsSendPanel
-              subCategory={subCategory}
-              baseDate={baseDate}
-              selectedRows={selectedRows}
-              selectedCount={selectedCount}
-              onSend={async (opts) => {
-                const targetIds =
-                  opts.scope === "selected" ? Array.from(selectedIds) : undefined;
-
-                const res = await sendSmsAuto({
-                  subCategory,
-                  baseDate,
-                  targetIds,
-                  dryRun: opts.dryRun,
-                });
-
-                await refresh();
-                return res;
-              }}
-              onSyncResult={async () => {
-                const res = await syncSmsResults({ baseDate });
-                await refresh();
-                return res;
-              }}
-              onClearSelection={() => setSelectedIds(new Set())}
-            />
-          </div>
-        )}
+      <div className="flex-1 min-h-0 border rounded bg-white overflow-hidden">
+        <SmsTargetTable
+          loading={loading}
+          rows={rows}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+        />
       </div>
     </div>
   );

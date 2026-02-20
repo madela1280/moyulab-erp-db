@@ -1,19 +1,17 @@
 // app/views/sms/SmsMainView.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
 import { useSmsTargets } from "@/views/sms/hooks/useSmsTargets";
-import { sendSmsAuto, syncSmsResults } from "@/views/sms/service/serviceSms";
 
 import SmsSubCategoryTabs from "@/views/sms/components/SmsSubCategoryTabs";
 import SmsTargetTable from "@/views/sms/components/SmsTargetTable";
-import SmsSendPanel from "@/views/sms/components/SmsSendPanel";
 
 export default function SmsMainView() {
   const [subCategory, setSubCategory] = useState<SmsSubCategory>("대여첫안내");
 
-  const { loading, error, rows, baseDate, counts, refresh } = useSmsTargets({
+  const { loading, error, rows, baseDate, counts } = useSmsTargets({
     subCategory,
     aggregateOnMount: false,
   });
@@ -33,14 +31,6 @@ export default function SmsMainView() {
       return changed ? next : prev;
     });
   }, [rows]);
-
-  const selectedCount = selectedIds.size;
-
-  const selectedRows = useMemo(() => {
-    if (!selectedCount) return [];
-    const set = selectedIds;
-    return rows.filter((r) => set.has(r.id));
-  }, [rows, selectedIds, selectedCount]);
 
   return (
     <div className="w-full h-full flex flex-col gap-3">
@@ -73,43 +63,13 @@ export default function SmsMainView() {
         </div>
       ) : null}
 
-      <div className="flex-1 min-h-0 grid grid-cols-12 gap-3">
-        <div className="col-span-8 min-h-0 border rounded bg-white overflow-hidden">
-          <SmsTargetTable
-            loading={loading}
-            rows={rows}
-            selectedIds={selectedIds}
-            onSelectedIdsChange={setSelectedIds}
-          />
-        </div>
-
-        <div className="col-span-4 min-h-0 border rounded bg-white overflow-auto">
-          <SmsSendPanel
-            subCategory={subCategory}
-            baseDate={baseDate}
-            selectedRows={selectedRows}
-            onSend={async (opts) => {
-              const targetIds = opts.scope === "selected" ? Array.from(selectedIds) : undefined;
-              const res = await sendSmsAuto({
-                subCategory,
-                baseDate,
-                targetIds,
-                dryRun: opts.dryRun,
-              });
-
-              // 발송 요청 후 목록 새로고침
-              await refresh();
-              return res;
-            }}
-            onSyncResult={async () => {
-              const res = await syncSmsResults({ baseDate });
-              await refresh();
-              return res;
-            }}
-            onClearSelection={() => setSelectedIds(new Set())}
-            selectedCount={selectedCount}
-          />
-        </div>
+      <div className="flex-1 min-h-0 border rounded bg-white overflow-hidden">
+        <SmsTargetTable
+          loading={loading}
+          rows={rows}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+        />
       </div>
     </div>
   );

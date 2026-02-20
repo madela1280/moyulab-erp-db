@@ -3,19 +3,12 @@
 // 문자(SMS/알림톡) 도메인 API 호출 래퍼
 // - UI에서는 이 파일만 통해 /api/sms/* 를 호출한다.
 //
-// 정책 변경(중요):
+// 정책(안전 최우선):
 // - 집계는 05시 배치 1회만 수행한다.
-// - UI/클라이언트에서 집계를 트리거하거나(수동 집계/새로고침 집계),
-//   통합관리 수정에 따라 sms_targets를 즉시 재계산(recompute)하는 경로는 비활성화한다.
-//   (05시 집계 결과에 영향을 주는 경로 제거)
+// - 중복발송/오류/상태불일치 소지를 완전히 제거하기 위해
+//   클라이언트에서 발송(send) / 결과동기화(result) / 집계 트리거(aggregate) / 즉시반영(recompute)을 호출하지 않는다.
 
-import type {
-  SmsAggregateResponse,
-  SmsResultSyncResponse,
-  SmsSendResponse,
-  SmsSubCategory,
-  SmsTargetsResponse,
-} from "@/sms/types/sms.types";
+import type { SmsSubCategory, SmsTargetsResponse } from "@/sms/types/sms.types";
 
 function qs(params: Record<string, string | number | boolean | null | undefined>) {
   const sp = new URLSearchParams();
@@ -43,66 +36,24 @@ export async function fetchSmsTargets(args: {
   return j as SmsTargetsResponse;
 }
 
-/**
- * ⚠️ 비활성화됨
- * - 05시 배치 1회만 집계 허용(클라이언트에서 집계 트리거 금지)
- * - 이 함수는 의도적으로 네트워크 호출을 하지 않는다.
- */
-export async function runSmsAggregate(_args?: { baseDate?: string }): Promise<SmsAggregateResponse> {
-  throw new Error("disabled: sms aggregate can only run by 05:00 batch");
+/** ⚠️ 비활성화됨 */
+export async function runSmsAggregate(): Promise<never> {
+  throw new Error("disabled");
 }
 
-/**
- * ⚠️ 비활성화됨
- * - 05시 집계 이후 통합관리 수정이 sms_targets에 영향을 주는 경로 제거
- * - 이 함수는 의도적으로 네트워크 호출을 하지 않는다.
- */
-export async function recomputeSmsForUnified(_args: {
-  unifiedId: number;
-  baseDate?: string;
-}): Promise<{ ok: true }> {
-  throw new Error("disabled: sms recompute is not allowed");
+/** ⚠️ 비활성화됨 */
+export async function recomputeSmsForUnified(): Promise<never> {
+  throw new Error("disabled");
 }
 
-export async function sendSmsAuto(args: {
-  subCategory: SmsSubCategory;
-  baseDate?: string;
-  /** 선택 발송(없으면 전체 pending 대상) */
-  targetIds?: number[];
-  /** dryRun이면 실제 발송 호출 없이 검증만(서버 구현에 따라) */
-  dryRun?: boolean;
-}) {
-  const r = await fetch("/api/sms/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args),
-  });
-
-  const j = (await r.json().catch(() => null)) as SmsSendResponse | any;
-
-  if (!r.ok || !j) {
-    throw new Error(j?.error || `FAILED(${r.status})`);
-  }
-  return j as SmsSendResponse;
+/** ⚠️ 비활성화됨 */
+export async function sendSmsAuto(): Promise<never> {
+  throw new Error("disabled");
 }
 
-export async function syncSmsResults(args: {
-  /** 특정 batchId만 확정(없으면 진행중 전체를 조회/확정) */
-  batchId?: string;
-  baseDate?: string;
-}) {
-  const r = await fetch("/api/sms/result", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args),
-  });
-
-  const j = (await r.json().catch(() => null)) as SmsResultSyncResponse | any;
-
-  if (!r.ok || !j?.ok) {
-    throw new Error(j?.error || `FAILED(${r.status})`);
-  }
-  return j as SmsResultSyncResponse;
+/** ⚠️ 비활성화됨 */
+export async function syncSmsResults(): Promise<never> {
+  throw new Error("disabled");
 }
 
 export type SmsTemplateMapRow = {
@@ -116,33 +67,12 @@ export type SmsTemplateMapRow = {
   updated_at: string;
 };
 
-export async function fetchSmsSettings() {
-  const r = await fetch("/api/sms/settings", { cache: "no-store" });
-  const j = (await r.json().catch(() => null)) as { ok: true; rows: SmsTemplateMapRow[] } | any;
-
-  if (!r.ok || !j?.ok) {
-    throw new Error(j?.error || `FAILED(${r.status})`);
-  }
-  return j as { ok: true; rows: SmsTemplateMapRow[] };
+/** ⚠️ 비활성화됨: 발송 기능을 막았으므로 설정도 클라이언트에서 조작하지 않는다. */
+export async function fetchSmsSettings(): Promise<never> {
+  throw new Error("disabled");
 }
 
-export async function patchSmsSetting(
-  input: Partial<SmsTemplateMapRow> & {
-    sub_category: SmsSubCategory;
-    template_code: string;
-    plus_friend_id: string;
-  }
-) {
-  const r = await fetch("/api/sms/settings", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-
-  const j = (await r.json().catch(() => null)) as { ok: boolean; error?: string } | any;
-
-  if (!r.ok || !j?.ok) {
-    throw new Error(j?.error || `FAILED(${r.status})`);
-  }
-  return j as { ok: true };
+/** ⚠️ 비활성화됨: 발송 기능을 막았으므로 설정도 클라이언트에서 조작하지 않는다. */
+export async function patchSmsSetting(): Promise<never> {
+  throw new Error("disabled");
 }
