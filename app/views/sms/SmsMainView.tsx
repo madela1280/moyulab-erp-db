@@ -13,11 +13,10 @@ import SmsSendPanel from "@/views/sms/components/SmsSendPanel";
 export default function SmsMainView() {
   const [subCategory, setSubCategory] = useState<SmsSubCategory>("대여첫안내");
 
-  const { loading, error, rows, baseDate, counts, refresh, aggregateAndRefresh } =
-    useSmsTargets({
-      subCategory,
-      aggregateOnMount: false,
-    });
+  const { loading, error, rows, baseDate, counts, refresh } = useSmsTargets({
+    subCategory,
+    aggregateOnMount: false,
+  });
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -63,25 +62,7 @@ export default function SmsMainView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-50"
-            onClick={() => aggregateAndRefresh()}
-            disabled={loading}
-            title="(배치) 집계를 다시 만들고 목록을 새로고침"
-          >
-            집계 실행(05시 배치)
-          </button>
-
-          <button
-            className="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-50"
-            onClick={() => refresh()}
-            disabled={loading}
-            title="목록 새로고침"
-          >
-            새로고침
-          </button>
-        </div>
+        <div className="flex items-center gap-2" />
       </div>
 
       <SmsSubCategoryTabs value={subCategory} onChange={setSubCategory} />
