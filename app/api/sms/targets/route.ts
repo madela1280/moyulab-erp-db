@@ -45,10 +45,7 @@ export async function GET(req: Request) {
 
     const subCategory = normalizeSubCategory(sp.get("subCategory"));
     if (!subCategory) {
-      return NextResponse.json(
-        { ok: false, error: "invalid_subCategory" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "invalid_subCategory" }, { status: 400 });
     }
 
     const baseDate = normalizeBaseDate(sp.get("baseDate")) ?? getKstTodayYmd();
@@ -57,13 +54,17 @@ export async function GET(req: Request) {
     // ✅ 문자 화면은 "통합관리 데이터 그대로"가 원칙:
     // - sms_targets는 발송대상 확정/상태용
     // - 표에 보여줄 값은 unified.data를 JOIN 해서 그대로 내려준다.
+    //
+    // ✅ base_date 형식 고정:
+    // - DB DATE 컬럼을 JS Date로 받아 String()하면 "Fri Feb ..." 형태가 될 수 있으므로
+    //   SQL에서 ::text 캐스팅하여 항상 "YYYY-MM-DD"로 내려준다.
     const r = await query(
       `
       SELECT
         t.id AS target_id,
         t.unified_id,
         t.sub_category,
-        t.base_date,
+        t.base_date::text AS base_date_ymd,
         t.target_status,
         u.data
       FROM sms_targets t
@@ -99,7 +100,7 @@ export async function GET(req: Request) {
         id: Number(row?.target_id),
         unified_id: Number(row?.unified_id),
         sub_category: String(row?.sub_category ?? ""),
-        base_date: String(row?.base_date ?? baseDate),
+        base_date: String(row?.base_date_ymd ?? baseDate),
         target_status: String(row?.target_status ?? "pending"),
 
         // 통합관리 컬럼(그대로)
