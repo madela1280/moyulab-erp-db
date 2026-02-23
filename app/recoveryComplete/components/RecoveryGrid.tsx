@@ -64,6 +64,9 @@ const WINDOW_MAX_ROWS = 1500;
 const ROW_HEIGHT = 24;
 const OVERSCAN = 12;
 
+// ✅ 드래그 민감도(엑셀처럼 “클릭 후 드래그”일 때만 범위 확장)
+const CELL_DRAG_THRESHOLD_PX = 10;
+
 function clampUnit(v: any) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 20;
@@ -260,6 +263,64 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     };
   }
 
+  // ✅ 드래그 상태(행/셀) — “마우스 움직이기만 해도 선택 확장” 방지
+  const [isRowDragging, setIsRowDragging] = useState(false);
+  const [rowDragAnchor, setRowDragAnchor] = useState<number | null>(null);
+
+  const [isCellDragging, setIsCellDragging] = useState(false);
+  const [cellDragAnchor, setCellDragAnchor] = useState<{ row: number; col: number } | null>(null);
+  const cellDragStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const cellDragMovedRef = useRef(false);
+
+  // cell drag threshold
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!isCellDragging) return;
+      if (cellDragMovedRef.current) return;
+
+      const start = cellDragStartPosRef.current;
+      if (!start) return;
+
+      const dx = Math.abs(e.clientX - start.x);
+      const dy = Math.abs(e.clientY - start.y);
+
+      if (dx >= CELL_DRAG_THRESHOLD_PX || dy >= CELL_DRAG_THRESHOLD_PX) {
+        cellDragMovedRef.current = true;
+      }
+    }
+
+    window.addEventListener("mousemove", onMove, true);
+    return () => window.removeEventListener("mousemove", onMove, true);
+  }, [isCellDragging]);
+
+  // drag end safety
+  useEffect(() => {
+    function endAllDragging() {
+      setIsRowDragging(false);
+      setRowDragAnchor(null);
+
+      setIsCellDragging(false);
+      setCellDragAnchor(null);
+
+      cellDragStartPosRef.current = null;
+      cellDragMovedRef.current = false;
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden) endAllDragging();
+    }
+
+    window.addEventListener("mouseup", endAllDragging);
+    window.addEventListener("blur", endAllDragging);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.removeEventListener("mouseup", endAllDragging);
+      window.removeEventListener("blur", endAllDragging);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   // --- context menu ---
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
   const [ctxMode, setCtxMode] = useState<"row" | "cell">("row");
@@ -425,7 +486,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
   }
 
   async function saveCell(rowId: number, key: string, value: string) {
-    // single cell 저장도 bulk-patch로 통일(성공 시 rows truth를 돌려받음)
     const { rows: serverRows } = await bulkPatchRecoveryRows({
       scope,
       updates: [{ id: rowId, patch: { [key]: value === "" ? null : value } }],
@@ -494,7 +554,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
         const f = map.get(row.id);
         if (!f) return row;
 
-        // 편집 중인 셀은 보존
         const editing = editingCellRef.current;
         let nextData = (f.data ?? row.data) as Record<string, any>;
 
@@ -514,10 +573,8 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     });
   }
 
-  // sync listen (단순: 부분 갱신 + count 갱신)
   useEffect(() => {
     const off = syncListen(() => {
-      // 너무 자주 때리면 무거워질 수 있어 간단 디바운스
       window.setTimeout(() => {
         void refreshVisibleRowsFromServer();
         void (async () => {
@@ -535,7 +592,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
 
-  // 최초 로딩
   useEffect(() => {
     void (async () => {
       await loadTailPage();
@@ -651,7 +707,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
 
   // --- copy/paste ---
   async function copySelectionToClipboard() {
-    // cell range
     if (selectedCellRange) {
       const { startRow, endRow, startCol, endCol } = selectedCellRange;
       const lines: string[] = [];
@@ -668,19 +723,18 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
         lines.push(cells.join("\t"));
       }
 
-      const text = lines.join("\n");
-      await navigator.clipboard.writeText(text).catch(() => void 0);
+      await navigator.clipboard.writeText(lines.join("\n")).catch(() => void 0);
       setCtx(null);
       return;
     }
 
-    // row range
     const { slice } = getSelectedRowRangeInfo();
     if (!slice.length) return;
 
     const lines = slice.map((row) =>
       viewColumns.map((k) => String(row.data?.[k] ?? "")).join("\t")
     );
+
     await navigator.clipboard.writeText(lines.join("\n")).catch(() => void 0);
     setCtx(null);
   }
@@ -697,7 +751,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
       baseColIndex = 0;
     }
 
-    const lines = text
+    const lines = String(text ?? "")
       .split(/\r?\n/)
       .map((l) => l.trimEnd())
       .filter((l) => l.length > 0);
@@ -727,7 +781,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
 
     if (!updates.length) return;
 
-    // 로컬 즉시 반영
     const patchById = new Map<number, Record<string, any>>();
     for (const u of updates) patchById.set(u.id, u.patch);
 
@@ -739,7 +792,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
       })
     );
 
-    // 서버 저장 + truth merge
     const res = await bulkPatchRecoveryRows({ scope, updates });
     const serverRows = Array.isArray(res?.rows) ? res.rows : null;
 
@@ -781,12 +833,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
         e.preventDefault();
         e.stopPropagation();
         void copySelectionToClipboard();
-        return;
-      }
-
-      if (key === "v") {
-        // paste는 capture 단계에서 처리(아래 onPasteCapture)
-        return;
       }
     }
 
@@ -857,7 +903,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
             updates.push({ id: row.id, patch });
           }
 
-          // 로컬 즉시 반영
           const patchById = new Map<number, Record<string, any>>();
           for (const u of updates) patchById.set(u.id, u.patch);
 
@@ -949,7 +994,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
 
           const threshold = 120;
 
-          // 필터/정렬 모드에서는 페이징이 화면을 흔들 수 있어 막음
           const allowPaging = !filterMode && !(sortState?.key ?? null);
           if (!allowPaging) return;
 
@@ -1083,18 +1127,17 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                     data-row-index={rowIndex}
                     onMouseDown={(e) => {
                       if (e.button !== 0) return;
+                      setIsRowDragging(true);
+                      setRowDragAnchor(rowIndex);
                       setSelectedRowRange({ start: rowIndex, end: rowIndex });
                       setSelectedCellRange(null);
                       setCtx(null);
                     }}
                     onMouseEnter={() => {
-                      if (!selectedRowRange) return;
-                      const anchor = selectedRowRange.start;
-                      const endIdx = rowIndex;
-                      setSelectedRowRange({
-                        start: Math.min(anchor, endIdx),
-                        end: Math.max(anchor, endIdx),
-                      });
+                      if (!isRowDragging || rowDragAnchor === null) return;
+                      const a = rowDragAnchor;
+                      const b = rowIndex;
+                      setSelectedRowRange({ start: Math.min(a, b), end: Math.max(a, b) });
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -1131,14 +1174,28 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                         data-col-key={key}
                         onMouseDown={(e) => {
                           if (e.button !== 0) return;
+
+                          cellDragStartPosRef.current = { x: e.clientX, y: e.clientY };
+                          cellDragMovedRef.current = false;
+
+                          setIsCellDragging(true);
+                          setCellDragAnchor({ row: rowIndex, col: colIndex });
+
                           setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
                           setSelectedRowRange(null);
                           setCtx(null);
                         }}
                         onMouseEnter={() => {
-                          if (!selectedCellRange) return;
-                          const a = selectedCellRange;
-                          setCellRangeByPoints(a.startRow, a.startCol, rowIndex, colIndex);
+                          // ✅ 드래그 중 + threshold 넘었을 때만 범위 확장
+                          if (!isCellDragging || !cellDragAnchor) return;
+                          if (!cellDragMovedRef.current) return;
+
+                          setCellRangeByPoints(
+                            cellDragAnchor.row,
+                            cellDragAnchor.col,
+                            rowIndex,
+                            colIndex
+                          );
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1170,9 +1227,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
-                            const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, e);
-                            // 선택 하이라이트는 포커스 시에도 유지
                             setSelectedRowRange(null);
                             setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
                           }}
@@ -1189,7 +1244,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                             }
 
                             if (!hasLock) {
-                              // 락이 없으면 서버 truth로 복구
                               await refreshVisibleRowsFromServer().catch(() => void 0);
                               return;
                             }
@@ -1275,10 +1329,13 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                   const { start, end } = getSelectedRowRangeInfo();
                   const N = Math.max(1, end - start + 1);
 
-                  const beforeId = start > 0 ? displayRowsRef.current[start - 1]?.id ?? null : null;
+                  const beforeId =
+                    start > 0 ? displayRowsRef.current[start - 1]?.id ?? null : null;
                   const afterId = displayRowsRef.current[start]?.id ?? null;
 
-                  await insertRecoveryRows({ scope, count: N, beforeId, afterId }).catch(() => void 0);
+                  await insertRecoveryRows({ scope, count: N, beforeId, afterId }).catch(
+                    () => void 0
+                  );
                   syncEmitUnifiedUpdate();
                   await loadTailPage();
                   setCtx(null);
@@ -1309,7 +1366,6 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
               <button
                 className="block w-full text-left px-3 py-1 hover:bg-gray-100"
                 onClick={async () => {
-                  // row clear = row 전체 null
                   const { slice } = getSelectedRowRangeInfo();
                   if (!slice.length) return;
 
