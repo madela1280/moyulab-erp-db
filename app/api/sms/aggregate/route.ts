@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
 import { decideSmsSubCategoryFromUnifiedRow } from "@/sms/rules/smsSubCategoryRules";
+import { isSmsExcludedFromUnifiedRow } from "@/sms/rules/smsExcludeRules";
 import { formatKoreanDateWithDow } from "@/sms/utils/formatKoreanDate";
 
 function getKstTodayYmd() {
@@ -109,6 +110,10 @@ export async function POST(req: Request) {
 
     for (const row of unifiedRows) {
       const data = row?.data ?? {};
+
+      // ✅ 예외 규칙: 특정 거래처분류+안내분류 조합은 집계 대상에서 제외
+      if (isSmsExcludedFromUnifiedRow(data)) continue;
+
       const decision = decideSmsSubCategoryFromUnifiedRow(data, baseToday);
       const sub = decision.subCategory;
       if (!sub) continue;
