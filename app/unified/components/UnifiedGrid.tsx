@@ -1004,7 +1004,7 @@ function scrollToTailData() {
   });
 }  
 
-           async function loadTailPage() {
+async function loadTailPage() {
   await ensureMinRowsInDb();
 
   // ✅ 레이스 방지: tail 요청도 겹칠 수 있음(reload 연타/카운트변화/폴백 reload)
@@ -1034,19 +1034,66 @@ function scrollToTailData() {
   // ✅ 더 최신 tail 요청이 이미 시작되었으면 이번 응답은 버린다.
   if (mySeq !== tailLoadSeqRef.current) return;
 
-  const data: UnifiedRow[] = j?.rows ?? [];
-  const nextTotal = Number(j?.total ?? data.length);
+  const baseRows: UnifiedRow[] = j?.rows ?? [];
+  let nextTotal = Number(j?.total ?? baseRows.length);
   const nextBase = Number(j?.baseIndex ?? 1);
 
-  setRows(data);
+  // ✅ (Fix) tailData는 “마지막 데이터 행” 기준이라,
+  // 그 뒤에 추가된 빈 행(행10추가/행삽입으로 생성된 빈 행)이 화면에 안 보일 수 있음.
+  // → 마지막 데이터 행 이후를 추가로 조회해서 붙인다(엑셀처럼 아래에 빈 행이 보이게).
+  const EXTRA_AFTER_ROWS = 250;
+
+  if (baseRows.length) {
+    const last = baseRows[baseRows.length - 1];
+    const afterSortKey = Number(last.sort_key ?? 0);
+    const afterId = Number(last.id ?? 0);
+
+    if (Number.isFinite(afterSortKey) && afterId > 0) {
+      try {
+        const r2 = await fetch(
+          `/api/unified?afterSortKey=${afterSortKey}&afterId=${afterId}&limit=${EXTRA_AFTER_ROWS}`,
+          { cache: "no-store", signal: ac.signal }
+        );
+
+        if (r2.ok) {
+          const j2 = await r2.json().catch(() => null);
+
+          // ✅ 더 최신 tail 요청이 이미 시작되었으면 이번 응답은 버린다.
+          if (mySeq !== tailLoadSeqRef.current) return;
+
+          const afterRows: UnifiedRow[] = j2?.rows ?? [];
+          if (afterRows.length) {
+            const combined = [...baseRows, ...afterRows];
+            nextTotal = Number(j2?.total ?? nextTotal);
+
+            setRows(combined);
+            setTotalCount(nextTotal);
+            setBaseIndex(nextBase);
+
+            // ref도 즉시 동기화
+            rowsRef.current = combined;
+            totalCountRef.current = nextTotal;
+            baseIndexRef.current = nextBase;
+            return;
+          }
+        }
+      } catch (e: any) {
+        // abort면 조용히 종료
+        if (ac.signal.aborted) return;
+        // 실패 시 baseRows로 fallback
+      }
+    }
+  }
+
+  setRows(baseRows);
   setTotalCount(nextTotal);
   setBaseIndex(nextBase);
 
   // ref도 즉시 동기화
-  rowsRef.current = data;
+  rowsRef.current = baseRows;
   totalCountRef.current = nextTotal;
   baseIndexRef.current = nextBase;
-}  
+}
 
     /* --------------------- 소켓 연결 --------------------- */
 
