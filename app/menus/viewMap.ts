@@ -37,8 +37,9 @@ export const VIEW_MAP: Record<string, any> = {
   // 데이터업로드
   "데이터업로드>신규가입": dynamic(() => import("@/views/dataUpload/SignupView")),
 
-  // 대여관리
-  "대여관리>대여관리": dynamic(() => import("@/views/rentals/RentalsView")),
+  // ✅ 회수완료
+  "회수완료>회수1": dynamic(() => import("@/views/recoveryComplete/Recovery1View")),
+  "회수완료>회수2": dynamic(() => import("@/views/recoveryComplete/Recovery2View")),
 
   // 유축기현황
   "유축기현황>유축기현황": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),

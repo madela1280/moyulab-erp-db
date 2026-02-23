@@ -1,3 +1,5 @@
+// app/components/AppShell.tsx
+
 "use client";
 
 import "@/global-socket/socket-client.js";
@@ -107,6 +109,14 @@ export default function AppShell() {
     };
   }, []);
 
+  // ✅ 권한 호환(기존 데이터 보호):
+  // - 과거에 permissions.menu_key = "대여관리" 로 저장된 권한이 있을 수 있음
+  // - 이제 대카테고리는 "회수완료" 이므로, 회수완료 권한이 없으면 대여관리 권한을 폴백으로 사용
+  const getPermCompat = (menu: TopMenu) => {
+    if (menu !== "회수완료") return perms[menu];
+    return perms["회수완료"] ?? perms["대여관리"];
+  };
+
   // 특정 대카테고리에 대해 읽기 권한 있는지
   const canRead = (menu: TopMenu): boolean => {
     if (isAdmin) return true;
@@ -117,7 +127,7 @@ export default function AppShell() {
       return false;
     }
 
-    const p = perms[menu];
+    const p = getPermCompat(menu);
     return !!p && !!p.can_read;
   };
 
@@ -130,7 +140,7 @@ export default function AppShell() {
       return false;
     }
 
-    const p = perms[menu];
+    const p = getPermCompat(menu);
     return !!p && !!p.can_write;
   };
 
