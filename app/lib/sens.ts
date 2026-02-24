@@ -151,7 +151,7 @@ export type SendAlimTalkResponse = {
 };
 
 export async function sendAlimTalk(args: SendAlimTalkArgs) {
-  const path = `/alimtalk/v2/services/${encodeURIComponent(args.serviceId)}/messages`;
+  const path = `/alimtalk/v2/services/${args.serviceId}/messages`;
 
   const payload: any = {
     plusFriendId: args.plusFriendId,
