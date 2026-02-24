@@ -16,7 +16,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
-import { sendAlimTalk } from "@/app/lib/sens";
+import { sendAlimTalk } from "@/lib/sens";
 
 function mustEnv(name: string) {
   const v = process.env[name];
