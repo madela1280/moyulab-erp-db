@@ -183,7 +183,7 @@ export async function POST(req: Request) {
 
         // 2) 템플릿 매핑 조회: guide 우선, 없으면 default(null)
         const mapR = await query(
-          `
+  `
           SELECT
             template_code,
             plus_friend_id,
@@ -202,11 +202,13 @@ export async function POST(req: Request) {
               WHEN $2::text IS NOT NULL AND guide_name = $2::text THEN 0
               WHEN guide_name IS NULL THEN 1
               ELSE 2
-            END ASC
+            END ASC,
+            updated_at DESC,
+            id DESC
           LIMIT 1
           `,
-          [subCategory, guide]
-        );
+  [subCategory, guide]
+);
 
         if (!mapR.rows?.length) throw new Error("missing_template_map");
 
