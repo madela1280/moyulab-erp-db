@@ -49,6 +49,7 @@ function onlyDigitsPhone(v: any) {
 
 function fillTemplate(args: {
   template: string;
+  subCategory: SmsSubCategory;
   name: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -58,14 +59,20 @@ function fillTemplate(args: {
   // #{name}
   out = out.replace(/#\{name\}/g, args.name ?? "");
 
-  // #{date} (순서 치환)
-  let i = 0;
-  out = out.replace(/#\{date\}/g, () => {
-    i += 1;
-    if (i === 1) return args.startDate ?? "";
-    if (i === 2) return args.endDate ?? "";
-    return args.endDate ?? "";
-  });
+  // #{date}
+  // - 대여첫안내: #{date} 1번째=시작일, 2번째=종료일
+  // - 만기3일전/만기지남: #{date}=종료일(만기일)
+  if (args.subCategory === "대여첫안내") {
+    let i = 0;
+    out = out.replace(/#\{date\}/g, () => {
+      i += 1;
+      if (i === 1) return args.startDate ?? "";
+      if (i === 2) return args.endDate ?? "";
+      return args.endDate ?? "";
+    });
+  } else {
+    out = out.replace(/#\{date\}/g, args.endDate ?? "");
+  }
 
   return out;
 }
@@ -221,11 +228,12 @@ export async function POST(req: Request) {
 
         // 3) 치환된 content 생성
         const content = fillTemplate({
-          template: templateBody,
-          name: norm(t.recipient_name),
-          startDate: norm(t.start_date),
-          endDate: norm(t.end_date),
-        });
+           template: templateBody,
+           subCategory,
+           name: norm(t.recipient_name),
+           startDate: norm(t.start_date),
+           endDate: norm(t.end_date),
+          });
 
         // 4) 수신번호
         const to = onlyDigitsPhone(t.phone1);
