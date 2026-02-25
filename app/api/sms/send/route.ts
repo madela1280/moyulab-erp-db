@@ -77,7 +77,8 @@ function fillTemplate(args: {
   // #{날짜} (만기지남 템플릿용): 종료일(end_date)
   out = out.replace(/#\{날짜\}/g, args.endDate ?? "");
 
-  return out;  
+  return out;
+}
 
 type Body = {
   baseDate?: string;
@@ -87,6 +88,7 @@ type Body = {
 };
 
 export async function POST(req: Request) {
+
   try {
     // ✅ 운영 발송 스위치(1차 안전장치)
     if (process.env.NODE_ENV === "production") {
