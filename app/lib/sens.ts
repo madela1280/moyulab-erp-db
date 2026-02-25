@@ -181,16 +181,32 @@ export type NormalizedSensStatus =
  * SENS 문서에서 "알림톡 발송 결과 조회" API 경로/응답을 확정한 뒤 이 함수 구현.
  * 현재는 빌드/흐름 연결을 위한 placeholder로만 동작하며 항상 processing을 반환한다.
  */
-export async function getAlimTalkStatus(_args: {
+export async function getAlimTalkStatus(args: {
   serviceId: string;
   messageId: string;
 }): Promise<NormalizedSensStatus> {
-  return {
-    status: "processing",
-    code: "not_implemented",
-    desc: "알림톡 결과조회 API 스펙 확정 후 구현 필요",
-    failoverMessageId: null,
-  };
+  const path = `/alimtalk/v2/services/${args.serviceId}/messages/${args.messageId}`;
+
+  const detail = await sensFetch<any>({
+    method: "GET",
+    path,
+  });
+
+  const code = String(detail?.messageStatusCode ?? "");
+  const desc = String(detail?.messageStatusDesc ?? detail?.messageStatusName ?? "");
+  const name = String(detail?.messageStatusName ?? "").toUpperCase();
+
+  // 콘솔에서 확인된 케이스:
+  // - messageStatusCode: "0000", messageStatusName: "SUCCESS"
+  // - messageStatusCode: "3016", messageStatusName: "FAIL"
+  if (code === "0000" || name === "SUCCESS") {
+    return { status: "success", code, desc, failoverMessageId: null };
+  }
+  if (name === "FAIL" || (code && code !== "0000")) {
+    return { status: "fail", code, desc, failoverMessageId: null };
+  }
+
+  return { status: "processing", code, desc, failoverMessageId: null };
 }
 
 /**
