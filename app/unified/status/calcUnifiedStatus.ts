@@ -55,7 +55,11 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
   // - 반납요청일이 "문자"면(대여취소 등) 회수완료로 간주
   if (requested.kind === "text") return { status: "회수완료" };
 
-  // (2) 만기 N일전(5~1) : 오늘 = 종료일 - N 인 "딱 하루"
+    // (2) 회수중: 반납요청일(날짜) 있고, 반납완료일은 비어있음
+  // ✅ 만기 1~5일전보다 우선 표시되어야 함
+  if (requested.kind === "date") return { status: "회수중" };
+
+  // (3) 만기 N일전(5~1) : 오늘 = 종료일 - N 인 "딱 하루"
   if (ended.kind === "date") {
     const diff = diffDays(ended.date, today); // 종료일 - 오늘
     if (diff === 5) return { status: "만기5일전" };
@@ -69,9 +73,6 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
       return { status: "오늘만기", textColor: "#dc2626" }; // red-600
     }
   }
-
-  // (3) 회수중: 반납요청일(날짜) 있고, 반납완료일은 비어있음
-  if (requested.kind === "date") return { status: "회수중" };
 
   // (4) 만기지남: 종료일 < 오늘 AND 반납요청일 비어있음
   if (ended.kind === "date") {
