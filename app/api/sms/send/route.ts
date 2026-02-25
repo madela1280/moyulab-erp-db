@@ -59,7 +59,7 @@ function fillTemplate(args: {
   // #{name}
   out = out.replace(/#\{name\}/g, args.name ?? "");
 
-  // #{date}
+   // #{date}
   // - 대여첫안내: #{date} 1번째=시작일, 2번째=종료일
   // - 만기3일전/만기지남: #{date}=종료일(만기일)
   if (args.subCategory === "대여첫안내") {
@@ -74,8 +74,10 @@ function fillTemplate(args: {
     out = out.replace(/#\{date\}/g, args.endDate ?? "");
   }
 
-  return out;
-}
+  // #{날짜} (만기지남 템플릿용): 종료일(end_date)
+  out = out.replace(/#\{날짜\}/g, args.endDate ?? "");
+
+  return out;  
 
 type Body = {
   baseDate?: string;
