@@ -1,7 +1,29 @@
 // app/views/unified/extensions/extensionDate.ts
 
 /**
- * 종료일(YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD) + N일 => YYYY-MM-DD
+ * ✅ 시작일 + 총 연장일수(0차+1차+...n차) => 종료일(YYYY-MM-DD)
+ * - 시작일 파싱 실패면 null
+ * - totalDays가 0/빈값이면 종료일 = 시작일
+ */
+export function computeEndDateFromStartAndTotalDays(
+  startDateRaw: string,
+  totalDaysRaw: any
+): string | null {
+  const start = parseYMD(startDateRaw);
+  if (!start) return null;
+
+  const days = Number(String(totalDaysRaw ?? "").trim());
+  if (!Number.isFinite(days)) return toYMD(start);
+
+  const d = Math.floor(days);
+  if (d <= 0) return toYMD(start);
+
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+  return toYMD(end);
+}
+
+/**
+ * (기존 유지) 종료일(YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD) + N일 => YYYY-MM-DD
  * - 종료일이 없거나 파싱 실패면 null
  * - days가 0/빈값이면 원본 종료일을 유지(= 그대로 반환)
  */
@@ -19,7 +41,7 @@ export function addDaysToEndDate(endDateRaw: string, daysRaw: string): string | 
 }
 
 /**
- * 종료일(YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD) - N일 => YYYY-MM-DD
+ * (기존 유지) 종료일(YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD) - N일 => YYYY-MM-DD
  * - 종료일이 없거나 파싱 실패면 null
  * - days가 0/빈값이면 원본 종료일을 유지(= 그대로 반환)
  */

@@ -13,8 +13,9 @@ import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/
 import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
 import ExtensionEditPanel from "@/views/unified/extensions/ExtensionEditPanel";
-import { addDaysToEndDate, subDaysFromEndDate } from "@/views/unified/extensions/extensionDate";
-import { parseExtensionCell, type ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+import { computeEndDateFromStartAndTotalDays } from "@/views/unified/extensions/extensionDate";
+import { type ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
+import { sumExtensionDaysFromRow } from "@/views/unified/extensions/extensionCompute";
 
 // ✅ (추가) 통합관리: 필터/칼라/다운로드(심포니와 동일 UX)
 import ColorPopover, { type UnifiedSoftColor } from "@/unified/color/ColorPopover";
@@ -46,6 +47,14 @@ const EXT_KEYS = [
   "5차연장",
   "6차연장",
   "7차연장",
+  "8차연장",
+  "9차연장",
+  "10차연장",
+  "11차연장",
+  "12차연장",
+  "13차연장",
+  "14차연장",
+  "15차연장",
 ] as const;
 
 type ExtKey = (typeof EXT_KEYS)[number];
@@ -606,47 +615,28 @@ export default function UnifiedMainView() {
         initialValue={extPanel.initialValue}
         paymentOptions={paymentOptions}
         onClose={() => setExtPanel((p) => ({ ...p, open: false, rowId: null, colKey: "" }))}
-        onSave={async (nextCellText: string, fields: ExtensionCellFields) => {
+        onSave={async (nextCellText: string, _fields: ExtensionCellFields) => {
           const rowId = extPanel.rowId;
           const colKey = extPanel.colKey;
           if (!rowId || !colKey) return;
 
-          const isDelete = String(nextCellText ?? "") === "";
-
           // 1) 해당 차수 셀 저장(비우기면 "" -> syncPatch에서 null 저장)
           await syncPatch(rowId, colKey, nextCellText);
 
-          // 2) 종료일 변경은 항상 "현재 종료일(서버 최신)" 기준으로만 처리
-          //    - 저장: +N일
-          //    - 삭제: (삭제 직전 셀값의 days)만큼 -N일 롤백
-          if (isDelete) {
-            const old = parseExtensionCell(extPanel.initialValue);
-            const oldDays = old?.days;
+          // 2) ✅ 종료일 = 시작일 + (0차연장 + 1차~15차 연장일수 합)
+          //    항상 “시작일/연장값 전체” 기준으로 재계산해서 저장(증감 롤백 방식 제거)
+          const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
+          if (!r.ok) return;
 
-            if (oldDays) {
-              const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
-              if (r.ok) {
-                const j = await r.json().catch(() => null);
-                const endDateRaw = String(j?.data?.["종료일"] ?? "");
-                const nextEnd = subDaysFromEndDate(endDateRaw, oldDays);
-                if (nextEnd) {
-                  await syncPatch(rowId, "종료일", nextEnd);
-                }
-              }
-            }
-            return;
-          }
+          const j = await r.json().catch(() => null);
+          const data = (j?.data ?? {}) as Record<string, any>;
 
-          if (fields?.days) {
-            const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
-            if (r.ok) {
-              const j = await r.json().catch(() => null);
-              const endDateRaw = String(j?.data?.["종료일"] ?? "");
-              const nextEnd = addDaysToEndDate(endDateRaw, fields.days);
-              if (nextEnd) {
-                await syncPatch(rowId, "종료일", nextEnd);
-              }
-            }
+          const startDateRaw = String(data?.["시작일"] ?? "");
+          const totalDays = sumExtensionDaysFromRow(data);
+          const nextEnd = computeEndDateFromStartAndTotalDays(startDateRaw, totalDays);
+
+          if (nextEnd) {
+            await syncPatch(rowId, "종료일", nextEnd);
           }
         }}
       />
