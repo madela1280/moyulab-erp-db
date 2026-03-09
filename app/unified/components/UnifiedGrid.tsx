@@ -526,15 +526,11 @@ function clearFilterForColumn(colKey: string) {
 }
 
 function isExtensionKey(key: any) {
-  return (
-    key === "1차연장" ||
-    key === "2차연장" ||
-    key === "3차연장" ||
-    key === "4차연장" ||
-    key === "5차연장" ||
-    key === "6차연장" ||
-    key === "7차연장"
-  );
+  const s = String(key ?? "").trim();
+  const m = s.match(/^(\d+)차연장$/);
+  if (!m) return false;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 1 && n <= 15;
 }
 
 type CellStyleInfo = { bg?: string; fg?: string };
