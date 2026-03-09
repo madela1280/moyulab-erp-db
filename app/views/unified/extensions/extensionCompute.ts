@@ -77,6 +77,19 @@ export function sumExtensionDaysFromRow(rowData: Record<string, any> | null | un
 }
 
 /**
+ * 사용자 직접입력/서버 저장값 검증용:
+ * - 정수로 해석 가능하면 0 이상만 허용
+ * - 그 외는 null
+ */
+export function normalizeNonNegativeIntString(raw: any): string | null {
+  const n = Number(String(raw ?? "").trim());
+  if (!Number.isFinite(n)) return null;
+  const i = Math.floor(n);
+  if (i < 0) return null;
+  return String(i);
+}
+
+/**
  * ✅ 0차연장 2순위(종료일-시작일 자동계산) 규칙 삭제
  * - 더 이상 자동계산/표시/자동기록을 하지 않음
  * - (호환성) 기존 호출부가 남아있어도 동작하지 않도록 항상 null 반환
