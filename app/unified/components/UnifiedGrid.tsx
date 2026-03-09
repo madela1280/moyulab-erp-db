@@ -50,7 +50,8 @@ import {
 
 import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
 import { useUnifiedStatusTicker } from "@/unified/status/useUnifiedStatusTicker";
-import { countExtensionRounds } from "@/views/unified/extensions/extensionCompute";
+import { countExtensionRounds, sumExtensionDaysFromRow } from "@/views/unified/extensions/extensionCompute";
+import { computeEndDateFromStartAndTotalDays } from "@/views/unified/extensions/extensionDate";
 
 // ✅ (추가) 통합관리 필터/정렬 UI (심포니 동일 UX)
 import ColumnFilterPopover from "@/unified/filter/ColumnFilterPopover";
@@ -3218,6 +3219,24 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
               await bulkPatchAndReconcile([{ id: row.id, patch: { [key]: null } }]);
             } else {
               await saveCell(row.id, key, v);
+            }
+
+            // ✅ (추가) 시작일/0차연장 변경 시: 종료일 = 시작일 + (0차 + 1차~15차 합) 자동 반영
+            if (key === "시작일" || key === "0차연장") {
+              const fresh = await fetchRowNoStore(row.id);
+              const data = (fresh?.data ?? null) as Record<string, any> | null;
+
+              if (data) {
+                const startDateRaw = String(data?.["시작일"] ?? "");
+                const totalDays = sumExtensionDaysFromRow(data);
+                const nextEnd = computeEndDateFromStartAndTotalDays(startDateRaw, totalDays);
+
+                if (nextEnd) {
+                  updateLocalCell(row.id, "종료일", nextEnd);
+                  await saveCell(row.id, "종료일", nextEnd);
+                  pendingReloadRef.current = true;
+                }
+              }
             }
 
             // ✅ 서버가 연쇄 업데이트를 하는 키(거래처→안내분류, 기기번호→기종/제품...)는
