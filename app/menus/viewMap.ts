@@ -53,6 +53,6 @@ export const VIEW_MAP: Record<string, any> = {
   "BBB>BBB": dynamic(() => import("@/views/packaging/PackagingView")),
 
   // 집계
-  "집계>설정": dynamic(() => import("@/views/statistics/StatisticsView")),
-  "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
+  "집계>설정": dynamic(() => import("@/views/aggregate/AggregateSettingView")),
+  "집계>집계": dynamic(() => import("@/views/aggregate/AggregateView")),
 };
