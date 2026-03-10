@@ -182,6 +182,21 @@ export default function AggregateSettingView() {
                    <SimpleRegisterList key="deal-types" title="거래유형" />
                   </div>
                 </div>
+              ) : category === "가격" ? (
+                <div>
+                  <div className="font-semibold text-gray-800 mb-3">가격</div>
+
+                  <div className="grid grid-cols-2 gap-3 max-w-[900px]">
+                    <SimpleRegisterList
+                      key="price-rent-day"
+                      title="대여 일별금액"
+                    />
+                    <SimpleRegisterList
+                      key="price-extend-day"
+                      title="연장 일별금액"
+                    />
+                  </div>
+                </div>
               ) : (
                 <div className="text-xs text-gray-600">
                   <div className="font-semibold text-gray-800 mb-2">
@@ -189,7 +204,7 @@ export default function AggregateSettingView() {
                   </div>
                   <div className="text-gray-500">(준비중) {category} 분류 화면</div>
                 </div>
-              )}
+              )} 
             </div>
           ) : (
             <div className="text-sm text-gray-700">
