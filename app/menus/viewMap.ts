@@ -41,17 +41,18 @@ export const VIEW_MAP: Record<string, any> = {
   "회수완료>회수1": dynamic(() => import("@/views/recoveryComplete/Recovery1View")),
   "회수완료>회수2": dynamic(() => import("@/views/recoveryComplete/Recovery2View")),
 
-  // 유축기현황
-  "유축기현황>유축기현황": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
+  // AAA
+  "AAA>AAA": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
   // 문자
   "문자>대여첫안내": makeSmsWrapper("대여첫안내"),
   "문자>만기3일전": makeSmsWrapper("만기3일전"),
   "문자>만기지남": makeSmsWrapper("만기지남"),
 
-  // 합포장
-  "합포장>합포장": dynamic(() => import("@/views/packaging/PackagingView")),
+  // BBB
+  "BBB>BBB": dynamic(() => import("@/views/packaging/PackagingView")),
 
   // 집계
+  "집계>설정": dynamic(() => import("@/views/statistics/StatisticsView")),
   "집계>집계": dynamic(() => import("@/views/statistics/StatisticsView")),
 };
