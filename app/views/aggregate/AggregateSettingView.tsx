@@ -5,10 +5,7 @@ import { useMemo, useState } from "react";
 type SettingTab = "분류" | "세팅";
 type ClassifyCategory = "거래처분류" | "유축기" | "거래유형" | "가격";
 
-function SimpleRegisterList(props: {
-  title: string;
-  titleClassName?: string;
-}) {
+function SimpleRegisterList(props: { title: string; titleClassName?: string }) {
   const { title, titleClassName } = props;
   const [items, setItems] = useState<string[]>([]);
   const [value, setValue] = useState("");
@@ -153,17 +150,33 @@ export default function AggregateSettingView() {
                   <div className="grid grid-cols-3 gap-3">
                     <SimpleRegisterList
                       title="대분류"
-                      // 거래처분류 글자(기본)보다 10% 작게
-                      titleClassName="text-[0.675rem] font-semibold text-gray-700"
+                      // 거래처분류(기본 1rem) 대비 10% 작게
+                      titleClassName="text-[0.9rem] font-semibold text-gray-700"
                     />
                     <SimpleRegisterList
                       title="중분류"
-                      titleClassName="text-[0.675rem] font-semibold text-gray-700"
+                      titleClassName="text-[0.9rem] font-semibold text-gray-700"
                     />
                     <SimpleRegisterList
                       title="소분류"
-                      titleClassName="text-[0.675rem] font-semibold text-gray-700"
+                      titleClassName="text-[0.9rem] font-semibold text-gray-700"
                     />
+                  </div>
+                </div>
+              ) : category === "유축기" ? (
+                <div>
+                  <div className="font-semibold text-gray-800 mb-3">유축기</div>
+                  <div className="max-w-[520px]">
+                    <SimpleRegisterList title="유축기 기종" />
+                  </div>
+                </div>
+              ) : category === "거래유형" ? (
+                <div>
+                  <div className="font-semibold text-gray-800 mb-3">
+                    거래유형
+                  </div>
+                  <div className="max-w-[520px]">
+                    <SimpleRegisterList title="거래유형" />
                   </div>
                 </div>
               ) : (
