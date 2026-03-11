@@ -636,9 +636,9 @@ export default function AggregateSettingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, category, selectedPartnerName]);
 
-  return (
+   return (
     <div className="w-full h-full overflow-auto">
-      <div className="px-4 py-3">
+      <div className="px-4 py-3 h-full flex flex-col">
         {/* 상단 탭 */}
         <div className="flex items-center gap-2 border-b pb-2">
           <button
@@ -666,7 +666,7 @@ export default function AggregateSettingView() {
         </div>
 
         {/* 본문 */}
-        <div className="mt-4 border rounded bg-white p-4">
+        <div className="mt-4 border rounded bg-white p-4 flex-1 min-h-0">
           {tab === "분류" ? (
             <div className="text-sm text-gray-700">
               <div className="font-semibold mb-3">분류</div>
@@ -807,10 +807,10 @@ export default function AggregateSettingView() {
             <div className="text-sm text-gray-700">
               <div className="font-semibold mb-3">세팅</div>
 
-              <div className="flex gap-4">
+              <div className="flex gap-4 flex-1 min-h-0">
                 {/* 좌측(35%): 거래처 목록 */}
-                <div className="w-[35%] min-w-[260px]">
-                  <div className="border rounded bg-white overflow-hidden h-[552px] flex flex-col">
+                <div className="w-[35%] min-w-[260px] min-h-0 flex flex-col">
+                  <div className="border rounded bg-white overflow-hidden flex-1 min-h-0 flex flex-col">
                     <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
                       <div>거래처</div>
                       <div className="text-right">상태</div>
