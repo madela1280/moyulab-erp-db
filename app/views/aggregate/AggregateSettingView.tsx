@@ -810,7 +810,7 @@ export default function AggregateSettingView() {
               <div className="flex gap-4">
                 {/* 좌측(35%): 거래처 목록 */}
                 <div className="w-[35%] min-w-[260px]">
-                 <div className="border rounded bg-white overflow-hidden h-[552px] flex flex-col">
+                  <div className="border rounded bg-white overflow-hidden h-[552px] flex flex-col">
                     <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
                       <div>거래처</div>
                       <div className="text-right">상태</div>
@@ -832,7 +832,8 @@ export default function AggregateSettingView() {
                       ) : (
                         <div>
                           {settingPartners.map((p) => {
-                            const active = selectedPartnerName === p.partner_name;
+                            const active =
+                              selectedPartnerName === p.partner_name;
                             return (
                               <button
                                 key={p.partner_name}
@@ -863,6 +864,7 @@ export default function AggregateSettingView() {
                       )}
                     </div>
                   </div>
+                </div>
 
                 {/* 우측(65%): 설정 폼 */}
                 <div className="flex-1 w-[65%] min-w-0">
