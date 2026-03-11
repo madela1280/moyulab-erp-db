@@ -636,8 +636,8 @@ export default function AggregateSettingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, category, selectedPartnerName]);
 
-   return (
-    <div className="w-full h-full overflow-auto">
+  return (
+    <div className="w-full h-full overflow-hidden">
       <div className="px-4 py-3 h-full flex flex-col">
         {/* 상단 탭 */}
         <div className="flex items-center gap-2 border-b pb-2">
