@@ -637,8 +637,8 @@ export default function AggregateSettingView() {
   }, [tab, category, selectedPartnerName]);
 
   return (
-    <div className="w-full h-full overflow-hidden">
-      <div className="px-4 py-3 h-full flex flex-col">
+    <div className="w-full h-full flex flex-col overflow-hidden">
+      <div className="px-4 py-3 flex-1 min-h-0 flex flex-col">
         {/* 상단 탭 */}
         <div className="flex items-center gap-2 border-b pb-2">
           <button
@@ -804,17 +804,17 @@ export default function AggregateSettingView() {
               )}
             </div>
           ) : (
-            <div className="text-sm text-gray-700">
+            <div className="text-sm text-gray-700 h-full flex flex-col min-h-0">
               <div className="font-semibold mb-3">세팅</div>
 
-              <div className="flex gap-4 flex-1 min-h-0">
+              <div className="flex gap-4 flex-1 min-h-0 items-stretch">
                 {/* 좌측(35%): 거래처 목록 */}
                 <div className="w-[35%] min-w-[260px] min-h-0 flex flex-col">
                   <div className="border rounded bg-white overflow-hidden flex-1 min-h-0 flex flex-col">
                     <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
                       <div>거래처</div>
                       <div className="text-right">상태</div>
-                    </div>
+                    </div> 
 
                     <div className="flex-1 overflow-auto">
                       {settingPartnersLoading ? (
