@@ -810,17 +810,13 @@ export default function AggregateSettingView() {
               <div className="flex gap-4">
                 {/* 좌측(35%): 거래처 목록 */}
                 <div className="w-[35%] min-w-[260px]">
-                  <div className="text-xs text-gray-600 mb-2">
-                    통합관리 → 거래처분류
-                  </div>
-
-                  <div className="border rounded bg-white overflow-hidden">
+                 <div className="border rounded bg-white overflow-hidden h-[552px] flex flex-col">
                     <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
                       <div>거래처</div>
                       <div className="text-right">상태</div>
                     </div>
 
-                    <div className="max-h-[520px] overflow-auto">
+                    <div className="flex-1 overflow-auto">
                       {settingPartnersLoading ? (
                         <div className="px-3 py-2 text-xs text-gray-400">
                           불러오는 중...
@@ -867,7 +863,6 @@ export default function AggregateSettingView() {
                       )}
                     </div>
                   </div>
-                </div>
 
                 {/* 우측(65%): 설정 폼 */}
                 <div className="flex-1 w-[65%] min-w-0">
