@@ -10,6 +10,21 @@ type ListItem = {
   label: string;
 };
 
+type SettingPartnerRow = {
+  partner_name: string;
+  is_configured: boolean;
+};
+
+type PartnerSettingsForm = {
+  partner_name: string;
+  partner_cat_l1_id: number | null;
+  partner_cat_l2_id: number | null;
+  partner_cat_l3_id: number | null;
+  rent_day_price_id: number | null;
+  extend_day_price_id: number | null;
+  pump_model_id: number | null;
+};
+
 async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, {
     cache: "no-store",
@@ -210,6 +225,112 @@ export default function AggregateSettingView() {
   const [priceExtendDay, setPriceExtendDay] = useState<ListItem[]>([]);
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
+
+  // 세팅 탭(좌측 거래처 목록 + 우측 설정 폼)
+  const [settingPartners, setSettingPartners] = useState<SettingPartnerRow[]>(
+    []
+  );
+  const [settingPartnersLoading, setSettingPartnersLoading] = useState(false);
+  const [settingPartnersError, setSettingPartnersError] = useState<
+    string | null
+  >(null);
+
+  const [selectedPartnerName, setSelectedPartnerName] = useState<string>("");
+
+  const [settingsForm, setSettingsForm] = useState<PartnerSettingsForm | null>(
+    null
+  );
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(
+    null
+  );
+
+  async function loadSettingPartners() {
+    setSettingPartnersLoading(true);
+    setSettingPartnersError(null);
+    try {
+      const r = await fetchJson(`/api/aggregate/partners`);
+      setSettingPartners(
+        (r.partners || []).map((x: any) => ({
+          partner_name: String(x.partner_name ?? "").trim(),
+          is_configured: !!x.is_configured,
+        }))
+      );
+    } catch (e: any) {
+      setSettingPartnersError(e?.message || "목록 로드 실패");
+    } finally {
+      setSettingPartnersLoading(false);
+    }
+  }
+
+  async function loadPartnerSettings(partnerName: string) {
+    const name = String(partnerName ?? "").trim();
+    if (!name) {
+      setSettingsForm(null);
+      return;
+    }
+
+    setSettingsLoading(true);
+    setSettingsError(null);
+    try {
+      const r = await fetchJson(
+        `/api/aggregate/partner-settings?partner_name=${encodeURIComponent(name)}`
+      );
+
+      const s = r?.settings;
+
+      setSettingsForm({
+        partner_name: name,
+        partner_cat_l1_id: s?.partner_cat_l1_id ?? null,
+        partner_cat_l2_id: s?.partner_cat_l2_id ?? null,
+        partner_cat_l3_id: s?.partner_cat_l3_id ?? null,
+        rent_day_price_id: s?.rent_day_price_id ?? null,
+        extend_day_price_id: s?.extend_day_price_id ?? null,
+        pump_model_id: s?.pump_model_id ?? null,
+      });
+    } catch (e: any) {
+      setSettingsError(e?.message || "설정 로드 실패");
+      setSettingsForm({
+        partner_name: name,
+        partner_cat_l1_id: null,
+        partner_cat_l2_id: null,
+        partner_cat_l3_id: null,
+        rent_day_price_id: null,
+        extend_day_price_id: null,
+        pump_model_id: null,
+      });
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
+  async function savePartnerSettings() {
+    if (!settingsForm?.partner_name) return;
+
+    setSettingsSaving(true);
+    setSettingsSaveError(null);
+
+    try {
+      await fetchJson(`/api/aggregate/partner-settings`, {
+        method: "POST",
+        body: JSON.stringify(settingsForm),
+      });
+
+      // 저장 성공 후 좌측 상태 갱신 + 우측 재로딩
+      await loadSettingPartners();
+      await loadPartnerSettings(settingsForm.partner_name);
+    } catch (e: any) {
+      setSettingsSaveError(e?.message || "저장 실패");
+      // 실패 시에도 최신값으로 복구(재조회)
+      await loadPartnerSettings(settingsForm.partner_name).catch(() => {});
+      await loadSettingPartners().catch(() => {});
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
 
   async function loadPartnerCategories() {
     setPartnerLoading(true);
@@ -462,10 +583,43 @@ export default function AggregateSettingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, category]);
 
+  // 세팅 탭 진입 시: 좌측 목록 + 옵션(분류 데이터) 로드
+  useEffect(() => {
+    if (tab !== "세팅") return;
+
+    loadSettingPartners();
+
+    // 우측 폼에서 사용하는 옵션들(기존 로더 재사용)
+    loadPartnerCategories();
+    loadPumpModels();
+    loadPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // 세팅 탭에서 거래처 선택 시: 해당 거래처 설정 로드
+  useEffect(() => {
+    if (tab !== "세팅") return;
+
+    if (!selectedPartnerName) {
+      setSettingsForm(null);
+      return;
+    }
+
+    loadPartnerSettings(selectedPartnerName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, selectedPartnerName]);
+
   // 간이 동기화: 포커스/가시성 복귀 시 재조회
   useEffect(() => {
     async function onFocus() {
       await reloadForCurrent();
+
+      if (tab === "세팅") {
+        await loadSettingPartners();
+        if (selectedPartnerName) {
+          await loadPartnerSettings(selectedPartnerName);
+        }
+      }
     }
     function onVisibility() {
       if (document.visibilityState === "visible") {
@@ -480,7 +634,7 @@ export default function AggregateSettingView() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, category]);
+  }, [tab, category, selectedPartnerName]);
 
   return (
     <div className="w-full h-full overflow-auto">
@@ -651,8 +805,307 @@ export default function AggregateSettingView() {
             </div>
           ) : (
             <div className="text-sm text-gray-700">
-              <div className="font-semibold mb-2">세팅</div>
-              <div className="text-xs text-gray-500">(준비중) 세팅 화면</div>
+              <div className="font-semibold mb-3">세팅</div>
+
+              <div className="flex gap-4">
+                {/* 좌측(35%): 거래처 목록 */}
+                <div className="w-[35%] min-w-[260px]">
+                  <div className="text-xs text-gray-600 mb-2">
+                    통합관리 → 거래처분류
+                  </div>
+
+                  <div className="border rounded bg-white overflow-hidden">
+                    <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
+                      <div>거래처</div>
+                      <div className="text-right">상태</div>
+                    </div>
+
+                    <div className="max-h-[520px] overflow-auto">
+                      {settingPartnersLoading ? (
+                        <div className="px-3 py-2 text-xs text-gray-400">
+                          불러오는 중...
+                        </div>
+                      ) : settingPartnersError ? (
+                        <div className="px-3 py-2 text-xs text-red-600">
+                          {settingPartnersError}
+                        </div>
+                      ) : settingPartners.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-gray-400">
+                          목록 없음
+                        </div>
+                      ) : (
+                        <div>
+                          {settingPartners.map((p) => {
+                            const active = selectedPartnerName === p.partner_name;
+                            return (
+                              <button
+                                key={p.partner_name}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedPartnerName(p.partner_name)
+                                }
+                                className={`w-full grid grid-cols-[1fr_84px] px-3 py-2 text-sm border-b last:border-b-0 hover:bg-gray-50 ${
+                                  active ? "bg-blue-50" : "bg-white"
+                                }`}
+                              >
+                                <div className="truncate text-left">
+                                  {p.partner_name}
+                                </div>
+                                <div
+                                  className={`text-right text-xs ${
+                                    p.is_configured
+                                      ? "text-green-700"
+                                      : "text-gray-500"
+                                  }`}
+                                >
+                                  {p.is_configured ? "설정" : "미설정"}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 우측(65%): 설정 폼 */}
+                <div className="flex-1 w-[65%] min-w-0">
+                  <div className="border rounded bg-white p-4">
+                    {!selectedPartnerName ? (
+                      <div className="text-xs text-gray-500">
+                        좌측에서 거래처를 선택해 주세요.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="font-semibold text-gray-800 truncate">
+                            {selectedPartnerName}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={savePartnerSettings}
+                            disabled={
+                              settingsSaving || settingsLoading || !settingsForm
+                            }
+                            className={`px-3 py-1.5 text-sm rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 ${
+                              settingsSaving || settingsLoading || !settingsForm
+                                ? "opacity-60 cursor-not-allowed"
+                                : ""
+                            }`}
+                          >
+                            저장
+                          </button>
+                        </div>
+
+                        {settingsLoading ? (
+                          <div className="text-xs text-gray-400">
+                            불러오는 중...
+                          </div>
+                        ) : settingsError ? (
+                          <div className="text-xs text-red-600">
+                            {settingsError}
+                          </div>
+                        ) : null}
+
+                        {settingsSaveError ? (
+                          <div className="mt-2 text-xs text-red-600">
+                            {settingsSaveError}
+                          </div>
+                        ) : null}
+
+                        {settingsForm ? (
+                          <div className="mt-3 space-y-3">
+                            {/* 1줄: 대/중/소 */}
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  대분류
+                                </div>
+                                <select
+                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                  value={settingsForm.partner_cat_l1_id ?? ""}
+                                  onChange={(e) =>
+                                    setSettingsForm((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            partner_cat_l1_id: e.target.value
+                                              ? Number(e.target.value)
+                                              : null,
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  <option value="">(선택)</option>
+                                  {partnerL1.map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  중분류
+                                </div>
+                                <select
+                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                  value={settingsForm.partner_cat_l2_id ?? ""}
+                                  onChange={(e) =>
+                                    setSettingsForm((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            partner_cat_l2_id: e.target.value
+                                              ? Number(e.target.value)
+                                              : null,
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  <option value="">(선택)</option>
+                                  {partnerL2.map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  소분류
+                                </div>
+                                <select
+                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                  value={settingsForm.partner_cat_l3_id ?? ""}
+                                  onChange={(e) =>
+                                    setSettingsForm((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            partner_cat_l3_id: e.target.value
+                                              ? Number(e.target.value)
+                                              : null,
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  <option value="">(선택)</option>
+                                  {partnerL3.map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* 2줄: 가격(대여/연장) */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  대여 일별금액
+                                </div>
+                                <select
+                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                  value={settingsForm.rent_day_price_id ?? ""}
+                                  onChange={(e) =>
+                                    setSettingsForm((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            rent_day_price_id: e.target.value
+                                              ? Number(e.target.value)
+                                              : null,
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  <option value="">(선택)</option>
+                                  {priceRentDay.map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.label}원
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  연장 일별금액
+                                </div>
+                                <select
+                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                  value={
+                                    settingsForm.extend_day_price_id ?? ""
+                                  }
+                                  onChange={(e) =>
+                                    setSettingsForm((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            extend_day_price_id: e.target.value
+                                              ? Number(e.target.value)
+                                              : null,
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  <option value="">(선택)</option>
+                                  {priceExtendDay.map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.label}원
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* 3줄: 기종 */}
+                            <div>
+                              <div className="text-xs text-gray-600 mb-1">
+                                기종
+                              </div>
+                              <select
+                                className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                value={settingsForm.pump_model_id ?? ""}
+                                onChange={(e) =>
+                                  setSettingsForm((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          pump_model_id: e.target.value
+                                            ? Number(e.target.value)
+                                            : null,
+                                        }
+                                      : prev
+                                  )
+                                }
+                              >
+                                <option value="">(선택)</option>
+                                {pumpModels.map((x) => (
+                                  <option key={x.id} value={x.id}>
+                                    {x.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
