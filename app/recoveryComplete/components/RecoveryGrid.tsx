@@ -217,6 +217,54 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     setVisibleRange(r);
   }
 
+  // ✅ (Fix) 첫 진입/탭 전환 시 컨테이너 높이 계산이 늦어서 visibleRange가 (0,0)으로 남는 케이스 방지
+  // - scroll 영역의 실제 size가 잡히는 타이밍에 맞춰 visibleRange를 강제 갱신
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    let raf1 = 0;
+    let raf2 = 0;
+
+    const run = () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          updateVisibleRangeNow();
+        });
+      });
+    };
+
+    run();
+
+    // element size 변화(처음 표시/레이아웃 확정) 감지
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => run());
+      ro.observe(el);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      if (ro) ro.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
+
+  // ✅ rows/filter 결과가 바뀌어 displayRows 길이가 변한 직후에도 1회 갱신
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        updateVisibleRangeNow();
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayRows.length, scope]);
+
   // --- selection (row / cell range) ---
   const [selectedRowRange, setSelectedRowRange] = useState<{ start: number; end: number } | null>(
     null
