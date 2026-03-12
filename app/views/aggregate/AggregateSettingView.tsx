@@ -27,11 +27,7 @@ type PartnerSettingsForm = {
   partner_cat_l2_id: number | null;
   partner_cat_l3_id: number | null;
 
-  // ✅ 기존(기본값)도 유지
-  rent_day_price_id: number | null;
-  extend_day_price_id: number | null;
-
-  // ✅ 추가: 유축기별 단가(여러 줄)
+   // ✅ 추가: 유축기별 단가(여러 줄)
   pump_prices: PumpPriceLine[];
 };
 
@@ -316,8 +312,6 @@ export default function AggregateSettingView() {
         partner_cat_l1_id: s?.partner_cat_l1_id ?? null,
         partner_cat_l2_id: s?.partner_cat_l2_id ?? null,
         partner_cat_l3_id: s?.partner_cat_l3_id ?? null,
-        rent_day_price_id: s?.rent_day_price_id ?? null,
-        extend_day_price_id: s?.extend_day_price_id ?? null,
         pump_prices: normalizePumpLines(pumpLines),
       });
     } catch (e: any) {
@@ -327,8 +321,6 @@ export default function AggregateSettingView() {
         partner_cat_l1_id: null,
         partner_cat_l2_id: null,
         partner_cat_l3_id: null,
-        rent_day_price_id: null,
-        extend_day_price_id: null,
         pump_prices: normalizePumpLines([]),
       });
     } finally {

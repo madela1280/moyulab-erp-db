@@ -113,15 +113,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "INVALID_PARTNER_NAME" }, { status: 400 });
   }
 
-  const r = await query(
+    const r = await query(
     `
     SELECT
       partner_name,
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      rent_day_price_id,
-      extend_day_price_id,
       updated_at
     FROM agg_partner_settings
     WHERE partner_name = $1
@@ -143,8 +141,6 @@ export async function GET(req: Request) {
       partner_cat_l1_id: row.partner_cat_l1_id == null ? null : Number(row.partner_cat_l1_id),
       partner_cat_l2_id: row.partner_cat_l2_id == null ? null : Number(row.partner_cat_l2_id),
       partner_cat_l3_id: row.partner_cat_l3_id == null ? null : Number(row.partner_cat_l3_id),
-      rent_day_price_id: row.rent_day_price_id == null ? null : Number(row.rent_day_price_id),
-      extend_day_price_id: row.extend_day_price_id == null ? null : Number(row.extend_day_price_id),
       updated_at: row.updated_at ?? null,
     },
     pump_prices,
@@ -157,7 +153,6 @@ export async function GET(req: Request) {
  * {
  *   partner_name,
  *   partner_cat_l1_id?, partner_cat_l2_id?, partner_cat_l3_id?,
- *   rent_day_price_id?, extend_day_price_id?,
  *   pump_prices?: Array<{
  *     pump_model_id: number,
  *     rent_day_price_id?: number|null,
@@ -187,9 +182,7 @@ export async function POST(req: Request) {
   const partner_cat_l1_id = toNullableInt(body?.partner_cat_l1_id);
   const partner_cat_l2_id = toNullableInt(body?.partner_cat_l2_id);
   const partner_cat_l3_id = toNullableInt(body?.partner_cat_l3_id);
-  const rent_day_price_id = toNullableInt(body?.rent_day_price_id);
-  const extend_day_price_id = toNullableInt(body?.extend_day_price_id);
-
+  
   // 참조 무결성(레벨/종류까지 검증)
   if (partner_cat_l1_id != null && !(await ensureCategoryLevel(partner_cat_l1_id, 1))) {
     return NextResponse.json({ error: "INVALID_PARTNER_CAT_L1" }, { status: 400 });
@@ -201,52 +194,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "INVALID_PARTNER_CAT_L3" }, { status: 400 });
   }
 
-  if (rent_day_price_id != null && !(await ensurePrice(rent_day_price_id, "rent", "day"))) {
-    return NextResponse.json({ error: "INVALID_RENT_PRICE" }, { status: 400 });
-  }
-  if (extend_day_price_id != null && !(await ensurePrice(extend_day_price_id, "extend", "day"))) {
-    return NextResponse.json({ error: "INVALID_EXTEND_PRICE" }, { status: 400 });
-  }
-
-  // ✅ 기본 세팅 upsert(기존 동작 유지)
-  const r = await query(
+   // ✅ 기본 세팅 upsert(기존 동작 유지)
+   const r = await query(
     `
     INSERT INTO agg_partner_settings (
       partner_name,
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      rent_day_price_id,
-      extend_day_price_id,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+    VALUES ($1, $2, $3, $4, now(), now())
     ON CONFLICT (partner_name)
     DO UPDATE SET
       partner_cat_l1_id = EXCLUDED.partner_cat_l1_id,
       partner_cat_l2_id = EXCLUDED.partner_cat_l2_id,
       partner_cat_l3_id = EXCLUDED.partner_cat_l3_id,
-      rent_day_price_id = EXCLUDED.rent_day_price_id,
-      extend_day_price_id = EXCLUDED.extend_day_price_id,
       updated_at = now()
     RETURNING
       partner_name,
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      rent_day_price_id,
-      extend_day_price_id,
       updated_at
     `,
-    [
-      partner_name,
-      partner_cat_l1_id,
-      partner_cat_l2_id,
-      partner_cat_l3_id,
-      rent_day_price_id,
-      extend_day_price_id,
-    ]
+    [partner_name, partner_cat_l1_id, partner_cat_l2_id, partner_cat_l3_id]
   );
 
   // ✅ (추가) 유축기별 단가 반영
@@ -326,9 +299,6 @@ export async function POST(req: Request) {
       partner_cat_l1_id: saved.partner_cat_l1_id == null ? null : Number(saved.partner_cat_l1_id),
       partner_cat_l2_id: saved.partner_cat_l2_id == null ? null : Number(saved.partner_cat_l2_id),
       partner_cat_l3_id: saved.partner_cat_l3_id == null ? null : Number(saved.partner_cat_l3_id),
-      rent_day_price_id: saved.rent_day_price_id == null ? null : Number(saved.rent_day_price_id),
-      extend_day_price_id:
-        saved.extend_day_price_id == null ? null : Number(saved.extend_day_price_id),
       updated_at: saved.updated_at ?? null,
     },
     pump_prices,

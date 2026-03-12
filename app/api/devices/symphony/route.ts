@@ -10,35 +10,48 @@ function toInt(v: string | null): number | null {
 
 // ✅ 심포니 테이블이 아직 DB에 없어서 500이 나는 경우를 막기 위해,
 //    API 호출 시 안전하게 "필요 테이블을 자동 생성" (IF NOT EXISTS) + order 누락 보정
+// ✅ (Perf) 요청마다 실행하지 않고, 같은 Node 프로세스에서는 1회만 실행
+let _ensureSymphonyTablesPromise: Promise<void> | null = null;
+
 async function ensureSymphonyTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_symphony (
-      id   SERIAL PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb
-    );
-  `);
+  if (_ensureSymphonyTablesPromise) return _ensureSymphonyTablesPromise;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_symphony_order (
-      symphony_id INT PRIMARY KEY REFERENCES device_symphony(id) ON DELETE CASCADE,
-      sort_key    NUMERIC NOT NULL
-    );
-  `);
+  _ensureSymphonyTablesPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_symphony (
+        id   SERIAL PRIMARY KEY,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+    `);
 
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_device_symphony_order_sort
-    ON device_symphony_order(sort_key, symphony_id);
-  `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_symphony_order (
+        symphony_id INT PRIMARY KEY REFERENCES device_symphony(id) ON DELETE CASCADE,
+        sort_key    NUMERIC NOT NULL
+      );
+    `);
 
-  // 기존 row가 있는데 order가 없는 경우(초기 세팅/수동 insert 등) 보정
-  await query(`
-    INSERT INTO device_symphony_order (symphony_id, sort_key)
-    SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
-    FROM device_symphony s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM device_symphony_order o WHERE o.symphony_id = s.id
-    );
-  `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_device_symphony_order_sort
+      ON device_symphony_order(sort_key, symphony_id);
+    `);
+
+    // 기존 row가 있는데 order가 없는 경우(초기 세팅/수동 insert 등) 보정
+    await query(`
+      INSERT INTO device_symphony_order (symphony_id, sort_key)
+      SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
+      FROM device_symphony s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM device_symphony_order o WHERE o.symphony_id = s.id
+      );
+    `);
+  })().catch((e) => {
+    // 실패 시 다음 요청에서 재시도 가능하게 초기화
+    _ensureSymphonyTablesPromise = null;
+    throw e;
+  });
+
+  return _ensureSymphonyTablesPromise;
 }
 
 export async function GET(req: Request) {
@@ -97,10 +110,8 @@ export async function GET(req: Request) {
       return NextResponse.json(r.rows);
     }
 
-    const totalR = await query(`SELECT COUNT(*)::int AS total FROM device_symphony_order`);
-    const total = Number(totalR.rows[0]?.total ?? 0);
-
-    // 1) tailData=1 : 마지막 데이터 근처 로드(1차는 tail과 동일 동작)
+    // 1) tailData=1 : 마지막 데이터 근처 로드
+    // ✅ (Perf) 여기서 COUNT(*)는 비용이 크므로 기본 응답에서는 생략(필요 시 meta=count로 별도 호출)
     if (tailData || tail) {
       const r = await query(
         `
@@ -117,8 +128,11 @@ export async function GET(req: Request) {
       );
 
       const rows = r.rows;
-      const baseIndex = Math.max(1, total - rows.length + 1);
-      return NextResponse.json({ rows, total, baseIndex });
+      return NextResponse.json({
+        rows,
+        total: rows.length,
+        baseIndex: 1,
+      });
     }
 
     // 기본: limit만 주면 앞에서부터 limit개
@@ -138,7 +152,7 @@ export async function GET(req: Request) {
     );
 
     const rows = (r.rows[0]?.rows_json ?? []) as any[];
-    return NextResponse.json({ rows, total, baseIndex: 1 });
+    return NextResponse.json({ rows, total: rows.length, baseIndex: 1 });
   } catch (e) {
     console.error("GET /api/devices/symphony error:", e);
     return NextResponse.json({ error: "SERVER" }, { status: 500 });
