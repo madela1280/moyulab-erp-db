@@ -197,7 +197,7 @@ export default function AppShell() {
               {visibleTopMenus.map((m) => (
                 <button
                   key={m}
-                  onClick={(e) => {
+                    onClick={(e) => {
                     if (!canRead(m)) {
                       setNoAccessMenu(m);
                       setTop(m);
@@ -208,8 +208,14 @@ export default function AppShell() {
                     }
 
                     setNoAccessMenu(null);
-                    setTop(m);
-                    setSub(SUB_MENUS[m][0]);
+
+                    // ✅ (최소 변경) 같은 대카테고리를 다시 클릭했을 때 sub를 1번으로 리셋하지 않음
+                    // -> 불필요한 기본 소카테고리(예: 심포니) 재로딩 방지
+                    if (top !== m) {
+                      setTop(m);
+                      setSub(SUB_MENUS[m][0]);
+                    }
+
                     setShowSub(true);
                     startTimer();
                     setDropdownLeft(e.currentTarget.offsetLeft);
