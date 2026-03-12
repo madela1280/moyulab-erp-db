@@ -821,42 +821,6 @@ export default function AggregateSettingView() {
                           <div className="mt-2 text-xs text-red-600">{settingsSaveError}</div>
                         ) : null}
 
-                        {/* ✅ 유축기 추가 입력 */}
-                        <div className="mt-2 border rounded bg-gray-50 p-3">
-                          <div className="text-xs font-semibold text-gray-700 mb-2">유축기 추가(선택 목록 확장)</div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              value={newPumpName}
-                              onChange={(e) => setNewPumpName(e.target.value)}
-                              placeholder="예: 프리스타일"
-                              className="flex-1 border rounded px-2 py-1 text-sm bg-white"
-                              disabled={pumpLoading || newPumpBusy}
-                            />
-                            <button
-                              type="button"
-                              className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
-                                pumpLoading || newPumpBusy ? "opacity-60 cursor-not-allowed" : ""
-                              }`}
-                              disabled={pumpLoading || newPumpBusy}
-                              onClick={() => void addPumpModel(newPumpName)}
-                            >
-                              추가
-                            </button>
-                            <button
-                              type="button"
-                              className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
-                                pumpLoading ? "opacity-60 cursor-not-allowed" : ""
-                              }`}
-                              disabled={pumpLoading}
-                              onClick={() => void loadPumpModels()}
-                            >
-                              새로고침
-                            </button>
-                          </div>
-                          {pumpError ? <div className="mt-2 text-xs text-red-600">{pumpError}</div> : null}
-                          {pumpLoading ? <div className="mt-2 text-xs text-gray-400">유축기 목록 로딩 중...</div> : null}
-                        </div>
-
                         {settingsForm ? (
                           <div className="mt-3 space-y-3">
                             {/* 1줄: 대/중/소 */}
@@ -937,165 +901,133 @@ export default function AggregateSettingView() {
                               </div>
                             </div>
 
-                            {/* 2줄: 기본 가격(대여/연장) - 기존 유지 */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <div className="text-xs text-gray-600 mb-1">대여 일별금액(기본)</div>
-                                <select
-                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                  value={settingsForm.rent_day_price_id ?? ""}
-                                  onChange={(e) =>
-                                    setSettingsForm((prev) =>
-                                      prev
-                                        ? {
-                                            ...prev,
-                                            rent_day_price_id: e.target.value ? Number(e.target.value) : null,
-                                          }
-                                        : prev
-                                    )
-                                  }
-                                >
-                                  <option value="">(선택)</option>
-                                  {priceRentDay.map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.label}원
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                            
+                            {/* ✅ 3줄+: 유축기별 가격 */}
+<div className="border rounded p-3 bg-white">
+  <div className="text-xs font-semibold text-gray-700 mb-2">유축기별 일별금액</div>
 
-                              <div>
-                                <div className="text-xs text-gray-600 mb-1">연장 일별금액(기본)</div>
-                                <select
-                                  className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                  value={settingsForm.extend_day_price_id ?? ""}
-                                  onChange={(e) =>
-                                    setSettingsForm((prev) =>
-                                      prev
-                                        ? {
-                                            ...prev,
-                                            extend_day_price_id: e.target.value ? Number(e.target.value) : null,
-                                          }
-                                        : prev
-                                    )
-                                  }
-                                >
-                                  <option value="">(선택)</option>
-                                  {priceExtendDay.map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.label}원
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
+  <div className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 text-[11px] font-semibold text-gray-600 mb-2">
+    <div>유축기</div>
+    <div>대여 일별금액</div>
+    <div>연장 일별금액</div>
+    <div className="text-right">삭제</div>
+  </div>
 
-                            {/* ✅ 3줄+: 유축기별 가격(여러 줄) */}
-                            <div className="border rounded p-3 bg-white">
-                              <div className="text-xs font-semibold text-gray-700 mb-2">
-                                유축기별 일별금액(여러 줄)
-                              </div>
+  <div className="space-y-2">
+    {(settingsForm.pump_prices || [emptyPumpLine()]).map((line, idx) => {
+      const isLast = idx === (settingsForm.pump_prices?.length ?? 1) - 1;
+      const canDelete = !isLast && !isPumpLineEmpty(line);
 
-                              <div className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 text-[11px] font-semibold text-gray-600 mb-2">
-                                <div>유축기</div>
-                                <div>대여 일별금액</div>
-                                <div>연장 일별금액</div>
-                                <div className="text-right">삭제</div>
-                              </div>
+      return (
+        <div
+          key={`${idx}-${line.pump_model_id ?? "x"}`}
+          className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 items-center"
+        >
+          <select
+            className="w-full border rounded px-2 py-1 text-sm bg-white"
+            value={line.pump_model_id ?? ""}
+            onChange={(e) =>
+              updatePumpLine(idx, {
+                pump_model_id: e.target.value ? Number(e.target.value) : null,
+              })
+            }
+          >
+            <option value="">(선택)</option>
+            {pumpModels.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}
+              </option>
+            ))}
+          </select>
 
-                              <div className="space-y-2">
-                                {(settingsForm.pump_prices || [emptyPumpLine()]).map((line, idx) => {
-                                  const isLast = idx === (settingsForm.pump_prices?.length ?? 1) - 1;
-                                  const canDelete = !isLast && !isPumpLineEmpty(line);
+          <select
+            className="w-full border rounded px-2 py-1 text-sm bg-white"
+            value={line.rent_day_price_id ?? ""}
+            onChange={(e) =>
+              updatePumpLine(idx, {
+                rent_day_price_id: e.target.value ? Number(e.target.value) : null,
+              })
+            }
+          >
+            <option value="">(선택)</option>
+            {priceRentDay.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}원
+              </option>
+            ))}
+          </select>
 
-                                  return (
-                                    <div
-                                      key={`${idx}-${line.pump_model_id ?? "x"}`}
-                                      className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 items-center"
-                                    >
-                                      <select
-                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                        value={line.pump_model_id ?? ""}
-                                        onChange={(e) =>
-                                          updatePumpLine(idx, {
-                                            pump_model_id: e.target.value ? Number(e.target.value) : null,
-                                          })
-                                        }
-                                      >
-                                        <option value="">(선택)</option>
-                                        {pumpModels.map((x) => (
-                                          <option key={x.id} value={x.id}>
-                                            {x.label}
-                                          </option>
-                                        ))}
-                                      </select>
+          <select
+            className="w-full border rounded px-2 py-1 text-sm bg-white"
+            value={line.extend_day_price_id ?? ""}
+            onChange={(e) =>
+              updatePumpLine(idx, {
+                extend_day_price_id: e.target.value ? Number(e.target.value) : null,
+              })
+            }
+          >
+            <option value="">(선택)</option>
+            {priceExtendDay.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}원
+              </option>
+            ))}
+          </select>
 
-                                      <select
-                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                        value={line.rent_day_price_id ?? ""}
-                                        onChange={(e) =>
-                                          updatePumpLine(idx, {
-                                            rent_day_price_id: e.target.value ? Number(e.target.value) : null,
-                                          })
-                                        }
-                                      >
-                                        <option value="">(선택)</option>
-                                        {priceRentDay.map((x) => (
-                                          <option key={x.id} value={x.id}>
-                                            {x.label}원
-                                          </option>
-                                        ))}
-                                      </select>
-
-                                      <select
-                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                        value={line.extend_day_price_id ?? ""}
-                                        onChange={(e) =>
-                                          updatePumpLine(idx, {
-                                            extend_day_price_id: e.target.value ? Number(e.target.value) : null,
-                                          })
-                                        }
-                                      >
-                                        <option value="">(선택)</option>
-                                        {priceExtendDay.map((x) => (
-                                          <option key={x.id} value={x.id}>
-                                            {x.label}원
-                                          </option>
-                                        ))}
-                                      </select>
-
-                                      <div className="text-right">
-                                        <button
-                                          type="button"
-                                          className={`px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50 ${
-                                            canDelete ? "" : "opacity-40 cursor-not-allowed"
-                                          }`}
-                                          disabled={!canDelete}
-                                          onClick={() => deletePumpLine(idx)}
-                                        >
-                                          삭제
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              <div className="mt-2 text-[11px] text-gray-500">
-                                마지막 줄은 자동으로 유지됩니다(한 줄이 채워지면 다음 빈 줄이 자동 생성).
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="text-right">
+            <button
+              type="button"
+              className={`px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50 ${
+                canDelete ? "" : "opacity-40 cursor-not-allowed"
+              }`}
+              disabled={!canDelete}
+              onClick={() => deletePumpLine(idx)}
+            >
+              삭제
+            </button>
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      );
+    })}
+  </div>
+
+  <div className="mt-2 text-[11px] text-gray-500">
+    마지막 줄은 자동으로 유지됩니다(한 줄이 채워지면 다음 빈 줄이 자동 생성).
+  </div>
+</div>
+
+{/* ✅ 유축기 추가 */}
+<div className="border rounded bg-gray-50 p-3">
+  <div className="text-xs font-semibold text-gray-700 mb-2">유축기 추가</div>
+  <div className="flex items-center gap-2">
+    <input
+      value={newPumpName}
+      onChange={(e) => setNewPumpName(e.target.value)}
+      placeholder="예: 프리스타일"
+      className="flex-1 border rounded px-2 py-1 text-sm bg-white"
+      disabled={pumpLoading || newPumpBusy}
+    />
+    <button
+      type="button"
+      className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
+        pumpLoading || newPumpBusy ? "opacity-60 cursor-not-allowed" : ""
+      }`}
+      disabled={pumpLoading || newPumpBusy}
+      onClick={() => void addPumpModel(newPumpName)}
+    >
+      추가
+    </button>
+    <button
+      type="button"
+      className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
+        pumpLoading ? "opacity-60 cursor-not-allowed" : ""
+      }`}
+      disabled={pumpLoading}
+      onClick={() => void loadPumpModels()}
+    >
+      새로고침
+    </button>
+  </div>
+  {pumpError ? <div className="mt-2 text-xs text-red-600">{pumpError}</div> : null}
+  {pumpLoading ? <div className="mt-2 text-xs text-gray-400">유축기 목록 로딩 중...</div> : null}
+</div>
