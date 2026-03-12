@@ -289,6 +289,112 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     setSelectedCellRange({ startRow, endRow, startCol, endCol });
   }
 
+   // ✅ 방향키로 셀 이동(엑셀처럼)
+  function focusCell(rowIndex: number, colIndex: number) {
+    const selector = `input[data-row="${rowIndex}"][data-col="${colIndex}"]`;
+    const el = document.querySelector<HTMLInputElement>(selector);
+    if (el) {
+      el.focus();
+      try {
+        el.select();
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function handleCellArrowKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    colIndex: number
+  ) {
+    const key = e.key;
+    const isArrow =
+      key === "ArrowDown" || key === "ArrowUp" || key === "ArrowLeft" || key === "ArrowRight";
+    if (!isArrow) return;
+    if ((e as any).isComposing) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rowCount = displayRowsRef.current.length;
+    const colCount = viewColumns.length;
+    if (rowCount <= 0 || colCount <= 0) return;
+
+    let targetRow = rowIndex;
+    let targetCol = colIndex;
+
+    const allowPaging = !filterMode && !(sortState?.key ?? null);
+
+    if (key === "ArrowDown") {
+      if (targetRow >= rowCount - 1) {
+        if (allowPaging) void loadNextPage();
+        return;
+      }
+      targetRow += 1;
+    } else if (key === "ArrowUp") {
+      if (targetRow <= 0) {
+        if (allowPaging) void loadPrevPage();
+        return;
+      }
+      targetRow -= 1;
+    } else if (key === "ArrowRight") {
+      if (targetCol < colCount - 1) {
+        targetCol += 1;
+      } else {
+        if (targetRow >= rowCount - 1) {
+          if (allowPaging) void loadNextPage();
+          return;
+        }
+        targetRow += 1;
+        targetCol = 0;
+      }
+    } else if (key === "ArrowLeft") {
+      if (targetCol > 0) {
+        targetCol -= 1;
+      } else {
+        if (targetRow <= 0) {
+          if (allowPaging) void loadPrevPage();
+          return;
+        }
+        targetRow -= 1;
+        targetCol = colCount - 1;
+      }
+    }
+
+    setSelectedRowRange(null);
+    setCellRangeByPoints(targetRow, targetCol, targetRow, targetCol);
+    setCtx(null);
+
+    // 1) 이미 렌더되어 있으면 바로 포커스
+    if (focusCell(targetRow, targetCol)) return;
+
+    // 2) 아직 렌더되어 있지 않으면: 해당 row가 보이도록 스크롤 → 렌더 → 포커스
+    const el = scrollRef.current;
+    if (el) {
+      const rowTop = targetRow * ROW_HEIGHT;
+      const rowBottom = rowTop + ROW_HEIGHT;
+
+      const viewTop = el.scrollTop;
+      const viewBottom = viewTop + el.clientHeight;
+
+      if (rowTop < viewTop) {
+        el.scrollTop = Math.max(0, rowTop - Math.floor(el.clientHeight * 0.2));
+      } else if (rowBottom > viewBottom) {
+        el.scrollTop = Math.max(0, rowBottom - Math.floor(el.clientHeight * 0.8));
+      }
+    }
+
+    requestAnimationFrame(() => {
+      updateVisibleRangeNow();
+      requestAnimationFrame(() => {
+        focusCell(targetRow, targetCol);
+      });
+    });
+  }
+
   function isRowSelected(rowIndex: number) {
     if (!selectedRowRange) return false;
     return rowIndex >= selectedRowRange.start && rowIndex <= selectedRowRange.end;
@@ -1279,6 +1385,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
                             setSelectedRowRange(null);
                             setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
                           }}
+                          onKeyDown={(e) => handleCellArrowKeyDown(e, rowIndex, colIndex)}
                           onBlur={async (e) => {
                             const v = String((e.target as HTMLInputElement).value ?? "");
 
