@@ -1031,3 +1031,17 @@ export default function AggregateSettingView() {
   {pumpError ? <div className="mt-2 text-xs text-red-600">{pumpError}</div> : null}
   {pumpLoading ? <div className="mt-2 text-xs text-gray-400">유축기 목록 로딩 중...</div> : null}
 </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
