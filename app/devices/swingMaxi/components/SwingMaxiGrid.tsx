@@ -878,7 +878,7 @@ const SwingMaxiGrid = forwardRef<SwingMaxiGridHandle, Props>(function SwingMaxiG
 
               return (
                 <tr key={row.id}>
-                  <td
+                 <td
                     className={
                       "border px-1 py-[3px] text-[0.68rem] text-center select-none " +
                       (rowSelected ? "bg-blue-200 text-gray-800" : "bg-gray-100 text-gray-500")
@@ -909,7 +909,7 @@ const SwingMaxiGrid = forwardRef<SwingMaxiGridHandle, Props>(function SwingMaxiG
                       closeFilterPopover();
                     }}
                   >
-                    {baseIndex + rowIndex}
+                    {rowIndex + 1}
                   </td>
 
                   {viewColumns.map((key, colIndex) => {
