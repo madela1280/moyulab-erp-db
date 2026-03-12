@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type SettingTab = "분류" | "세팅";
-type ClassifyCategory = "거래처분류" | "유축기" | "거래유형" | "가격";
+type ClassifyCategory = "거래처분류" | "가격";
 
 type ListItem = {
   id: number;
@@ -22,7 +22,6 @@ type PartnerSettingsForm = {
   partner_cat_l3_id: number | null;
   rent_day_price_id: number | null;
   extend_day_price_id: number | null;
-  pump_model_id: number | null;
 };
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -210,16 +209,6 @@ export default function AggregateSettingView() {
   const [partnerLoading, setPartnerLoading] = useState(false);
   const [partnerError, setPartnerError] = useState<string | null>(null);
 
-  // 유축기
-  const [pumpModels, setPumpModels] = useState<ListItem[]>([]);
-  const [pumpLoading, setPumpLoading] = useState(false);
-  const [pumpError, setPumpError] = useState<string | null>(null);
-
-  // 거래유형
-  const [dealTypes, setDealTypes] = useState<ListItem[]>([]);
-  const [dealLoading, setDealLoading] = useState(false);
-  const [dealError, setDealError] = useState<string | null>(null);
-
   // 가격(kind=rent/extend, unit=day)
   const [priceRentDay, setPriceRentDay] = useState<ListItem[]>([]);
   const [priceExtendDay, setPriceExtendDay] = useState<ListItem[]>([]);
@@ -227,26 +216,18 @@ export default function AggregateSettingView() {
   const [priceError, setPriceError] = useState<string | null>(null);
 
   // 세팅 탭(좌측 거래처 목록 + 우측 설정 폼)
-  const [settingPartners, setSettingPartners] = useState<SettingPartnerRow[]>(
-    []
-  );
+  const [settingPartners, setSettingPartners] = useState<SettingPartnerRow[]>([]);
   const [settingPartnersLoading, setSettingPartnersLoading] = useState(false);
-  const [settingPartnersError, setSettingPartnersError] = useState<
-    string | null
-  >(null);
+  const [settingPartnersError, setSettingPartnersError] = useState<string | null>(null);
 
   const [selectedPartnerName, setSelectedPartnerName] = useState<string>("");
 
-  const [settingsForm, setSettingsForm] = useState<PartnerSettingsForm | null>(
-    null
-  );
+  const [settingsForm, setSettingsForm] = useState<PartnerSettingsForm | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const [settingsSaving, setSettingsSaving] = useState(false);
-  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(
-    null
-  );
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
 
   async function loadSettingPartners() {
     setSettingPartnersLoading(true);
@@ -289,7 +270,6 @@ export default function AggregateSettingView() {
         partner_cat_l3_id: s?.partner_cat_l3_id ?? null,
         rent_day_price_id: s?.rent_day_price_id ?? null,
         extend_day_price_id: s?.extend_day_price_id ?? null,
-        pump_model_id: s?.pump_model_id ?? null,
       });
     } catch (e: any) {
       setSettingsError(e?.message || "설정 로드 실패");
@@ -300,7 +280,6 @@ export default function AggregateSettingView() {
         partner_cat_l3_id: null,
         rent_day_price_id: null,
         extend_day_price_id: null,
-        pump_model_id: null,
       });
     } finally {
       setSettingsLoading(false);
@@ -400,106 +379,6 @@ export default function AggregateSettingView() {
     }
   }
 
-  async function loadPumpModels() {
-    setPumpLoading(true);
-    setPumpError(null);
-    try {
-      const r = await fetchJson(`/api/aggregate/pump-models`);
-      setPumpModels(
-        (r.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
-    } catch (e: any) {
-      setPumpError(e?.message || "불러오기 실패");
-    } finally {
-      setPumpLoading(false);
-    }
-  }
-
-  async function addPumpModel(name: string) {
-    setPumpError(null);
-    try {
-      await fetchJson(`/api/aggregate/pump-models`, {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      });
-      await loadPumpModels();
-    } catch (e: any) {
-      setPumpError(
-        e?.data?.error === "DUPLICATE_NAME"
-          ? "이미 등록된 항목입니다."
-          : e?.message || "등록 실패"
-      );
-      await loadPumpModels().catch(() => {});
-    }
-  }
-
-  async function deletePumpModel(id: number) {
-    setPumpError(null);
-    try {
-      await fetchJson(`/api/aggregate/pump-models`, {
-        method: "DELETE",
-        body: JSON.stringify({ id }),
-      });
-      await loadPumpModels();
-    } catch (e: any) {
-      setPumpError(e?.message || "삭제 실패");
-      await loadPumpModels().catch(() => {});
-    }
-  }
-
-  async function loadDealTypes() {
-    setDealLoading(true);
-    setDealError(null);
-    try {
-      const r = await fetchJson(`/api/aggregate/deal-types`);
-      setDealTypes(
-        (r.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
-    } catch (e: any) {
-      setDealError(e?.message || "불러오기 실패");
-    } finally {
-      setDealLoading(false);
-    }
-  }
-
-  async function addDealType(name: string) {
-    setDealError(null);
-    try {
-      await fetchJson(`/api/aggregate/deal-types`, {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      });
-      await loadDealTypes();
-    } catch (e: any) {
-      setDealError(
-        e?.data?.error === "DUPLICATE_NAME"
-          ? "이미 등록된 항목입니다."
-          : e?.message || "등록 실패"
-      );
-      await loadDealTypes().catch(() => {});
-    }
-  }
-
-  async function deleteDealType(id: number) {
-    setDealError(null);
-    try {
-      await fetchJson(`/api/aggregate/deal-types`, {
-        method: "DELETE",
-        body: JSON.stringify({ id }),
-      });
-      await loadDealTypes();
-    } catch (e: any) {
-      setDealError(e?.message || "삭제 실패");
-      await loadDealTypes().catch(() => {});
-    }
-  }
-
   async function loadPrices() {
     setPriceLoading(true);
     setPriceError(null);
@@ -568,10 +447,6 @@ export default function AggregateSettingView() {
 
     if (category === "거래처분류") {
       await loadPartnerCategories();
-    } else if (category === "유축기") {
-      await loadPumpModels();
-    } else if (category === "거래유형") {
-      await loadDealTypes();
     } else if (category === "가격") {
       await loadPrices();
     }
@@ -589,9 +464,8 @@ export default function AggregateSettingView() {
 
     loadSettingPartners();
 
-    // 우측 폼에서 사용하는 옵션들(기존 로더 재사용)
+    // 우측 폼에서 사용하는 옵션들
     loadPartnerCategories();
-    loadPumpModels();
     loadPrices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -671,11 +545,9 @@ export default function AggregateSettingView() {
             <div className="text-sm text-gray-700">
               <div className="font-semibold mb-3">분류</div>
 
-              {/* 분류 4종 버튼 */}
+              {/* 분류 버튼 */}
               <div className="flex flex-wrap items-center gap-2 mb-4">
-                {(
-                  ["거래처분류", "유축기", "거래유형", "가격"] as ClassifyCategory[]
-                ).map((c) => (
+                {(["거래처분류", "가격"] as ClassifyCategory[]).map((c) => (
                   <button
                     key={c}
                     type="button"
@@ -703,7 +575,6 @@ export default function AggregateSettingView() {
                     <SimpleRegisterList
                       key="partner-l1"
                       title="대분류"
-                      // 거래처분류(기본 1rem) 대비 10% 작게
                       titleClassName="text-[0.9rem] font-semibold text-gray-700"
                       items={partnerL1}
                       loading={partnerLoading}
@@ -730,38 +601,6 @@ export default function AggregateSettingView() {
                       errorText={partnerError}
                       onAdd={(name) => addPartnerCategory(3, name)}
                       onDelete={(id) => deletePartnerCategory(id)}
-                    />
-                  </div>
-                </div>
-              ) : category === "유축기" ? (
-                <div>
-                  <div className="font-semibold text-gray-800 mb-3">유축기</div>
-                  <div className="max-w-[520px]">
-                    <SimpleRegisterList
-                      key="pump-models"
-                      title="유축기 기종"
-                      items={pumpModels}
-                      loading={pumpLoading}
-                      errorText={pumpError}
-                      onAdd={(name) => addPumpModel(name)}
-                      onDelete={(id) => deletePumpModel(id)}
-                    />
-                  </div>
-                </div>
-              ) : category === "거래유형" ? (
-                <div>
-                  <div className="font-semibold text-gray-800 mb-3">
-                    거래유형
-                  </div>
-                  <div className="max-w-[520px]">
-                    <SimpleRegisterList
-                      key="deal-types"
-                      title="거래유형"
-                      items={dealTypes}
-                      loading={dealLoading}
-                      errorText={dealError}
-                      onAdd={(name) => addDealType(name)}
-                      onDelete={(id) => deleteDealType(id)}
                     />
                   </div>
                 </div>
@@ -814,7 +653,7 @@ export default function AggregateSettingView() {
                     <div className="grid grid-cols-[1fr_84px] px-3 py-2 text-xs bg-gray-50 border-b font-semibold text-gray-600">
                       <div>거래처</div>
                       <div className="text-right">상태</div>
-                    </div> 
+                    </div>
 
                     <div className="flex-1 overflow-auto">
                       {settingPartnersLoading ? (
@@ -832,15 +671,12 @@ export default function AggregateSettingView() {
                       ) : (
                         <div>
                           {settingPartners.map((p) => {
-                            const active =
-                              selectedPartnerName === p.partner_name;
+                            const active = selectedPartnerName === p.partner_name;
                             return (
                               <button
                                 key={p.partner_name}
                                 type="button"
-                                onClick={() =>
-                                  setSelectedPartnerName(p.partner_name)
-                                }
+                                onClick={() => setSelectedPartnerName(p.partner_name)}
                                 className={`w-full grid grid-cols-[1fr_84px] px-3 py-2 text-sm border-b last:border-b-0 hover:bg-gray-50 ${
                                   active ? "bg-blue-50" : "bg-white"
                                 }`}
@@ -850,9 +686,7 @@ export default function AggregateSettingView() {
                                 </div>
                                 <div
                                   className={`text-right text-xs ${
-                                    p.is_configured
-                                      ? "text-green-700"
-                                      : "text-gray-500"
+                                    p.is_configured ? "text-green-700" : "text-gray-500"
                                   }`}
                                 >
                                   {p.is_configured ? "설정" : "미설정"}
@@ -883,9 +717,7 @@ export default function AggregateSettingView() {
                           <button
                             type="button"
                             onClick={savePartnerSettings}
-                            disabled={
-                              settingsSaving || settingsLoading || !settingsForm
-                            }
+                            disabled={settingsSaving || settingsLoading || !settingsForm}
                             className={`px-3 py-1.5 text-sm rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 ${
                               settingsSaving || settingsLoading || !settingsForm
                                 ? "opacity-60 cursor-not-allowed"
@@ -897,13 +729,9 @@ export default function AggregateSettingView() {
                         </div>
 
                         {settingsLoading ? (
-                          <div className="text-xs text-gray-400">
-                            불러오는 중...
-                          </div>
+                          <div className="text-xs text-gray-400">불러오는 중...</div>
                         ) : settingsError ? (
-                          <div className="text-xs text-red-600">
-                            {settingsError}
-                          </div>
+                          <div className="text-xs text-red-600">{settingsError}</div>
                         ) : null}
 
                         {settingsSaveError ? (
@@ -917,9 +745,7 @@ export default function AggregateSettingView() {
                             {/* 1줄: 대/중/소 */}
                             <div className="grid grid-cols-3 gap-3">
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">
-                                  대분류
-                                </div>
+                                <div className="text-xs text-gray-600 mb-1">대분류</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.partner_cat_l1_id ?? ""}
@@ -946,9 +772,7 @@ export default function AggregateSettingView() {
                               </div>
 
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">
-                                  중분류
-                                </div>
+                                <div className="text-xs text-gray-600 mb-1">중분류</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.partner_cat_l2_id ?? ""}
@@ -975,9 +799,7 @@ export default function AggregateSettingView() {
                               </div>
 
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">
-                                  소분류
-                                </div>
+                                <div className="text-xs text-gray-600 mb-1">소분류</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.partner_cat_l3_id ?? ""}
@@ -1007,9 +829,7 @@ export default function AggregateSettingView() {
                             {/* 2줄: 가격(대여/연장) */}
                             <div className="grid grid-cols-2 gap-3">
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">
-                                  대여 일별금액
-                                </div>
+                                <div className="text-xs text-gray-600 mb-1">대여 일별금액</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.rent_day_price_id ?? ""}
@@ -1036,14 +856,10 @@ export default function AggregateSettingView() {
                               </div>
 
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">
-                                  연장 일별금액
-                                </div>
+                                <div className="text-xs text-gray-600 mb-1">연장 일별금액</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                  value={
-                                    settingsForm.extend_day_price_id ?? ""
-                                  }
+                                  value={settingsForm.extend_day_price_id ?? ""}
                                   onChange={(e) =>
                                     setSettingsForm((prev) =>
                                       prev
@@ -1065,36 +881,6 @@ export default function AggregateSettingView() {
                                   ))}
                                 </select>
                               </div>
-                            </div>
-
-                            {/* 3줄: 기종 */}
-                            <div>
-                              <div className="text-xs text-gray-600 mb-1">
-                                기종
-                              </div>
-                              <select
-                                className="w-full border rounded px-2 py-1 text-sm bg-white"
-                                value={settingsForm.pump_model_id ?? ""}
-                                onChange={(e) =>
-                                  setSettingsForm((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          pump_model_id: e.target.value
-                                            ? Number(e.target.value)
-                                            : null,
-                                        }
-                                      : prev
-                                  )
-                                }
-                              >
-                                <option value="">(선택)</option>
-                                {pumpModels.map((x) => (
-                                  <option key={x.id} value={x.id}>
-                                    {x.label}
-                                  </option>
-                                ))}
-                              </select>
                             </div>
                           </div>
                         ) : null}

@@ -23,11 +23,6 @@ async function ensureCategoryLevel(id: number, level: 1 | 2 | 3) {
   return r.rows.length > 0;
 }
 
-async function ensurePumpModel(id: number) {
-  const r = await query(`SELECT 1 FROM agg_pump_models WHERE id=$1`, [id]);
-  return r.rows.length > 0;
-}
-
 async function ensurePrice(id: number, kind: "rent" | "extend", unit: "day") {
   const r = await query(
     `SELECT 1 FROM agg_prices WHERE id=$1 AND kind=$2 AND unit=$3`,
@@ -60,7 +55,6 @@ export async function GET(req: Request) {
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      pump_model_id,
       rent_day_price_id,
       extend_day_price_id,
       updated_at
@@ -79,12 +73,18 @@ export async function GET(req: Request) {
     ok: true,
     settings: {
       partner_name: String(row.partner_name ?? ""),
-      partner_cat_l1_id: row.partner_cat_l1_id == null ? null : Number(row.partner_cat_l1_id),
-      partner_cat_l2_id: row.partner_cat_l2_id == null ? null : Number(row.partner_cat_l2_id),
-      partner_cat_l3_id: row.partner_cat_l3_id == null ? null : Number(row.partner_cat_l3_id),
-      pump_model_id: row.pump_model_id == null ? null : Number(row.pump_model_id),
-      rent_day_price_id: row.rent_day_price_id == null ? null : Number(row.rent_day_price_id),
-      extend_day_price_id: row.extend_day_price_id == null ? null : Number(row.extend_day_price_id),
+      partner_cat_l1_id:
+        row.partner_cat_l1_id == null ? null : Number(row.partner_cat_l1_id),
+      partner_cat_l2_id:
+        row.partner_cat_l2_id == null ? null : Number(row.partner_cat_l2_id),
+      partner_cat_l3_id:
+        row.partner_cat_l3_id == null ? null : Number(row.partner_cat_l3_id),
+      rent_day_price_id:
+        row.rent_day_price_id == null ? null : Number(row.rent_day_price_id),
+      extend_day_price_id:
+        row.extend_day_price_id == null
+          ? null
+          : Number(row.extend_day_price_id),
       updated_at: row.updated_at ?? null,
     },
   });
@@ -96,8 +96,7 @@ export async function GET(req: Request) {
  * {
  *   partner_name,
  *   partner_cat_l1_id?, partner_cat_l2_id?, partner_cat_l3_id?,
- *   rent_day_price_id?, extend_day_price_id?,
- *   pump_model_id?
+ *   rent_day_price_id?, extend_day_price_id?
  * }
  *
  * - upsert 저장
@@ -115,32 +114,51 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "INVALID_PARTNER_NAME" }, { status: 400 });
   }
   if (partner_name.length > 120) {
-    return NextResponse.json({ error: "PARTNER_NAME_TOO_LONG" }, { status: 400 });
+    return NextResponse.json(
+      { error: "PARTNER_NAME_TOO_LONG" },
+      { status: 400 }
+    );
   }
 
   const partner_cat_l1_id = toNullableInt(body?.partner_cat_l1_id);
   const partner_cat_l2_id = toNullableInt(body?.partner_cat_l2_id);
   const partner_cat_l3_id = toNullableInt(body?.partner_cat_l3_id);
-  const pump_model_id = toNullableInt(body?.pump_model_id);
   const rent_day_price_id = toNullableInt(body?.rent_day_price_id);
   const extend_day_price_id = toNullableInt(body?.extend_day_price_id);
 
   // 참조 무결성(레벨/종류까지 검증)
-  if (partner_cat_l1_id != null && !(await ensureCategoryLevel(partner_cat_l1_id, 1))) {
-    return NextResponse.json({ error: "INVALID_PARTNER_CAT_L1" }, { status: 400 });
+  if (
+    partner_cat_l1_id != null &&
+    !(await ensureCategoryLevel(partner_cat_l1_id, 1))
+  ) {
+    return NextResponse.json(
+      { error: "INVALID_PARTNER_CAT_L1" },
+      { status: 400 }
+    );
   }
-  if (partner_cat_l2_id != null && !(await ensureCategoryLevel(partner_cat_l2_id, 2))) {
-    return NextResponse.json({ error: "INVALID_PARTNER_CAT_L2" }, { status: 400 });
+  if (
+    partner_cat_l2_id != null &&
+    !(await ensureCategoryLevel(partner_cat_l2_id, 2))
+  ) {
+    return NextResponse.json(
+      { error: "INVALID_PARTNER_CAT_L2" },
+      { status: 400 }
+    );
   }
-  if (partner_cat_l3_id != null && !(await ensureCategoryLevel(partner_cat_l3_id, 3))) {
-    return NextResponse.json({ error: "INVALID_PARTNER_CAT_L3" }, { status: 400 });
+  if (
+    partner_cat_l3_id != null &&
+    !(await ensureCategoryLevel(partner_cat_l3_id, 3))
+  ) {
+    return NextResponse.json(
+      { error: "INVALID_PARTNER_CAT_L3" },
+      { status: 400 }
+    );
   }
 
-  if (pump_model_id != null && !(await ensurePumpModel(pump_model_id))) {
-    return NextResponse.json({ error: "INVALID_PUMP_MODEL" }, { status: 400 });
-  }
-
-  if (rent_day_price_id != null && !(await ensurePrice(rent_day_price_id, "rent", "day"))) {
+  if (
+    rent_day_price_id != null &&
+    !(await ensurePrice(rent_day_price_id, "rent", "day"))
+  ) {
     return NextResponse.json({ error: "INVALID_RENT_PRICE" }, { status: 400 });
   }
 
@@ -148,7 +166,10 @@ export async function POST(req: Request) {
     extend_day_price_id != null &&
     !(await ensurePrice(extend_day_price_id, "extend", "day"))
   ) {
-    return NextResponse.json({ error: "INVALID_EXTEND_PRICE" }, { status: 400 });
+    return NextResponse.json(
+      { error: "INVALID_EXTEND_PRICE" },
+      { status: 400 }
+    );
   }
 
   const r = await query(
@@ -158,19 +179,17 @@ export async function POST(req: Request) {
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      pump_model_id,
       rent_day_price_id,
       extend_day_price_id,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+    VALUES ($1, $2, $3, $4, $5, $6, now(), now())
     ON CONFLICT (partner_name)
     DO UPDATE SET
       partner_cat_l1_id = EXCLUDED.partner_cat_l1_id,
       partner_cat_l2_id = EXCLUDED.partner_cat_l2_id,
       partner_cat_l3_id = EXCLUDED.partner_cat_l3_id,
-      pump_model_id = EXCLUDED.pump_model_id,
       rent_day_price_id = EXCLUDED.rent_day_price_id,
       extend_day_price_id = EXCLUDED.extend_day_price_id,
       updated_at = now()
@@ -179,7 +198,6 @@ export async function POST(req: Request) {
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      pump_model_id,
       rent_day_price_id,
       extend_day_price_id,
       updated_at
@@ -189,7 +207,6 @@ export async function POST(req: Request) {
       partner_cat_l1_id,
       partner_cat_l2_id,
       partner_cat_l3_id,
-      pump_model_id,
       rent_day_price_id,
       extend_day_price_id,
     ]
@@ -200,12 +217,18 @@ export async function POST(req: Request) {
     ok: true,
     settings: {
       partner_name: String(row.partner_name ?? ""),
-      partner_cat_l1_id: row.partner_cat_l1_id == null ? null : Number(row.partner_cat_l1_id),
-      partner_cat_l2_id: row.partner_cat_l2_id == null ? null : Number(row.partner_cat_l2_id),
-      partner_cat_l3_id: row.partner_cat_l3_id == null ? null : Number(row.partner_cat_l3_id),
-      pump_model_id: row.pump_model_id == null ? null : Number(row.pump_model_id),
-      rent_day_price_id: row.rent_day_price_id == null ? null : Number(row.rent_day_price_id),
-      extend_day_price_id: row.extend_day_price_id == null ? null : Number(row.extend_day_price_id),
+      partner_cat_l1_id:
+        row.partner_cat_l1_id == null ? null : Number(row.partner_cat_l1_id),
+      partner_cat_l2_id:
+        row.partner_cat_l2_id == null ? null : Number(row.partner_cat_l2_id),
+      partner_cat_l3_id:
+        row.partner_cat_l3_id == null ? null : Number(row.partner_cat_l3_id),
+      rent_day_price_id:
+        row.rent_day_price_id == null ? null : Number(row.rent_day_price_id),
+      extend_day_price_id:
+        row.extend_day_price_id == null
+          ? null
+          : Number(row.extend_day_price_id),
       updated_at: row.updated_at ?? null,
     },
   });
