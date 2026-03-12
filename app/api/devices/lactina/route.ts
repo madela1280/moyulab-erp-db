@@ -10,35 +10,48 @@ function toInt(v: string | null): number | null {
 
 // ✅ 락티나 테이블이 아직 DB에 없어서 500이 나는 경우를 막기 위해,
 //    API 호출 시 안전하게 "필요 테이블을 자동 생성" (IF NOT EXISTS) + order 누락 보정
+// ✅ (Perf) 요청마다 실행하지 않고, 같은 Node 프로세스에서는 1회만 실행
+let _ensureLactinaTablesPromise: Promise<void> | null = null;
+
 async function ensureLactinaTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_lactina (
-      id   SERIAL PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb
-    );
-  `);
+  if (_ensureLactinaTablesPromise) return _ensureLactinaTablesPromise;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_lactina_order (
-      lactina_id INT PRIMARY KEY REFERENCES device_lactina(id) ON DELETE CASCADE,
-      sort_key   NUMERIC NOT NULL
-    );
-  `);
+  _ensureLactinaTablesPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_lactina (
+        id   SERIAL PRIMARY KEY,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+    `);
 
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_device_lactina_order_sort
-    ON device_lactina_order(sort_key, lactina_id);
-  `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_lactina_order (
+        lactina_id INT PRIMARY KEY REFERENCES device_lactina(id) ON DELETE CASCADE,
+        sort_key   NUMERIC NOT NULL
+      );
+    `);
 
-  // 기존 row가 있는데 order가 없는 경우(초기 세팅/수동 insert 등) 보정
-  await query(`
-    INSERT INTO device_lactina_order (lactina_id, sort_key)
-    SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
-    FROM device_lactina s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM device_lactina_order o WHERE o.lactina_id = s.id
-    );
-  `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_device_lactina_order_sort
+      ON device_lactina_order(sort_key, lactina_id);
+    `);
+
+    // 기존 row가 있는데 order가 없는 경우(초기 세팅/수동 insert 등) 보정
+    await query(`
+      INSERT INTO device_lactina_order (lactina_id, sort_key)
+      SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
+      FROM device_lactina s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM device_lactina_order o WHERE o.lactina_id = s.id
+      );
+    `);
+  })().catch((e) => {
+    // 실패 시 다음 요청에서 재시도 가능하게 초기화
+    _ensureLactinaTablesPromise = null;
+    throw e;
+  });
+
+  return _ensureLactinaTablesPromise;
 }
 
 export async function GET(req: Request) {

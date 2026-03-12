@@ -8,35 +8,50 @@ function toInt(v: string | null): number | null {
   return Math.floor(n);
 }
 
+// ✅ 시밀레 테이블이 아직 DB에 없어서 500이 나는 경우를 막기 위해,
+//    API 호출 시 안전하게 "필요 테이블을 자동 생성" (IF NOT EXISTS) + order 누락 보정
+// ✅ (Perf) 요청마다 실행하지 않고, 같은 Node 프로세스에서는 1회만 실행
+let _ensureSimileTablesPromise: Promise<void> | null = null;
+
 async function ensureSimileTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_simile (
-      id   SERIAL PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb
-    );
-  `);
+  if (_ensureSimileTablesPromise) return _ensureSimileTablesPromise;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_simile_order (
-      simile_id INT PRIMARY KEY REFERENCES device_simile(id) ON DELETE CASCADE,
-      sort_key  NUMERIC NOT NULL
-    );
-  `);
+  _ensureSimileTablesPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_simile (
+        id   SERIAL PRIMARY KEY,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+    `);
 
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_device_simile_order_sort
-    ON device_simile_order(sort_key, simile_id);
-  `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_simile_order (
+        simile_id INT PRIMARY KEY REFERENCES device_simile(id) ON DELETE CASCADE,
+        sort_key  NUMERIC NOT NULL
+      );
+    `);
 
-  // order 누락 보정
-  await query(`
-    INSERT INTO device_simile_order (simile_id, sort_key)
-    SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
-    FROM device_simile s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM device_simile_order o WHERE o.simile_id = s.id
-    );
-  `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_device_simile_order_sort
+      ON device_simile_order(sort_key, simile_id);
+    `);
+
+    // order 누락 보정
+    await query(`
+      INSERT INTO device_simile_order (simile_id, sort_key)
+      SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
+      FROM device_simile s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM device_simile_order o WHERE o.simile_id = s.id
+      );
+    `);
+  })().catch((e) => {
+    // 실패 시 다음 요청에서 재시도 가능하게 초기화
+    _ensureSimileTablesPromise = null;
+    throw e;
+  });
+
+  return _ensureSimileTablesPromise;
 }
 
 export async function GET(req: Request) {

@@ -8,35 +8,50 @@ function toInt(v: string | null): number | null {
   return Math.floor(n);
 }
 
+// ✅ 각시밀 테이블이 아직 DB에 없어서 500이 나는 경우를 막기 위해,
+//    API 호출 시 안전하게 "필요 테이블을 자동 생성" (IF NOT EXISTS) + order 누락 보정
+// ✅ (Perf) 요청마다 실행하지 않고, 같은 Node 프로세스에서는 1회만 실행
+let _ensureGaksiMilTablesPromise: Promise<void> | null = null;
+
 async function ensureGaksiMilTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_gaksimil (
-      id   SERIAL PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb
-    );
-  `);
+  if (_ensureGaksiMilTablesPromise) return _ensureGaksiMilTablesPromise;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_gaksimil_order (
-      gaksimil_id INT PRIMARY KEY REFERENCES device_gaksimil(id) ON DELETE CASCADE,
-      sort_key    NUMERIC NOT NULL
-    );
-  `);
+  _ensureGaksiMilTablesPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_gaksimil (
+        id   SERIAL PRIMARY KEY,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+    `);
 
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_device_gaksimil_order_sort
-    ON device_gaksimil_order(sort_key, gaksimil_id);
-  `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_gaksimil_order (
+        gaksimil_id INT PRIMARY KEY REFERENCES device_gaksimil(id) ON DELETE CASCADE,
+        sort_key    NUMERIC NOT NULL
+      );
+    `);
 
-  // order 누락 보정
-  await query(`
-    INSERT INTO device_gaksimil_order (gaksimil_id, sort_key)
-    SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
-    FROM device_gaksimil s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM device_gaksimil_order o WHERE o.gaksimil_id = s.id
-    );
-  `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_device_gaksimil_order_sort
+      ON device_gaksimil_order(sort_key, gaksimil_id);
+    `);
+
+    // order 누락 보정
+    await query(`
+      INSERT INTO device_gaksimil_order (gaksimil_id, sort_key)
+      SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
+      FROM device_gaksimil s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM device_gaksimil_order o WHERE o.gaksimil_id = s.id
+      );
+    `);
+  })().catch((e) => {
+    // 실패 시 다음 요청에서 재시도 가능하게 초기화
+    _ensureGaksiMilTablesPromise = null;
+    throw e;
+  });
+
+  return _ensureGaksiMilTablesPromise;
 }
 
 export async function GET(req: Request) {

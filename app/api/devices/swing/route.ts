@@ -8,34 +8,49 @@ function toInt(v: string | null): number | null {
   return Math.floor(n);
 }
 
+// ✅ 스윙 테이블이 아직 DB에 없어서 500이 나는 경우를 막기 위해,
+//    API 호출 시 안전하게 "필요 테이블을 자동 생성" (IF NOT EXISTS) + order 누락 보정
+// ✅ (Perf) 요청마다 실행하지 않고, 같은 Node 프로세스에서는 1회만 실행
+let _ensureSwingTablesPromise: Promise<void> | null = null;
+
 async function ensureSwingTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_swing (
-      id   SERIAL PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb
-    );
-  `);
+  if (_ensureSwingTablesPromise) return _ensureSwingTablesPromise;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS device_swing_order (
-      swing_id INT PRIMARY KEY REFERENCES device_swing(id) ON DELETE CASCADE,
-      sort_key NUMERIC NOT NULL
-    );
-  `);
+  _ensureSwingTablesPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_swing (
+        id   SERIAL PRIMARY KEY,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+    `);
 
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_device_swing_order_sort
-    ON device_swing_order(sort_key, swing_id);
-  `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_swing_order (
+        swing_id INT PRIMARY KEY REFERENCES device_swing(id) ON DELETE CASCADE,
+        sort_key NUMERIC NOT NULL
+      );
+    `);
 
-  await query(`
-    INSERT INTO device_swing_order (swing_id, sort_key)
-    SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
-    FROM device_swing s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM device_swing_order o WHERE o.swing_id = s.id
-    );
-  `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_device_swing_order_sort
+      ON device_swing_order(sort_key, swing_id);
+    `);
+
+    await query(`
+      INSERT INTO device_swing_order (swing_id, sort_key)
+      SELECT s.id, (ROW_NUMBER() OVER (ORDER BY s.id)) * 1000
+      FROM device_swing s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM device_swing_order o WHERE o.swing_id = s.id
+      );
+    `);
+  })().catch((e) => {
+    // 실패 시 다음 요청에서 재시도 가능하게 초기화
+    _ensureSwingTablesPromise = null;
+    throw e;
+  });
+
+  return _ensureSwingTablesPromise;
 }
 
 export async function GET(req: Request) {
