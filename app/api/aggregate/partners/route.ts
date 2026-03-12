@@ -6,6 +6,22 @@ function normalizeString(v: any) {
   return String(v ?? "").trim();
 }
 
+// ✅ 거래처 목록 생성 규칙:
+// - 거래처분류가 "조리원*" 으로 시작하면 partner_name = 수취인명(비어있으면 거래처분류로 fallback)
+// - 그 외는 partner_name = 거래처분류
+function partnerKeyExpr(jsonCol: string) {
+  return `
+    CASE
+      WHEN trim(COALESCE(${jsonCol}->>'거래처분류','')) LIKE '조리원%' THEN
+        COALESCE(
+          NULLIF(trim(COALESCE(${jsonCol}->>'수취인명','')), ''),
+          trim(COALESCE(${jsonCol}->>'거래처분류',''))
+        )
+      ELSE trim(COALESCE(${jsonCol}->>'거래처분류',''))
+    END
+  `;
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user?.username) {
@@ -40,18 +56,24 @@ export async function GET() {
 
   // 1) 통합관리(unified)
   unionParts.push(`
-    SELECT DISTINCT trim(COALESCE(u.data->>'거래처분류','')) AS partner_name
-    FROM unified u
-    WHERE trim(COALESCE(u.data->>'거래처분류','')) <> ''
+    SELECT DISTINCT partner_name
+    FROM (
+      SELECT ${partnerKeyExpr("u.data")} AS partner_name
+      FROM unified u
+    ) t
+    WHERE trim(COALESCE(t.partner_name,'')) <> ''
   `);
 
   // 2) 회수완료 테이블(존재하는 경우만)
   for (const t of existingTables) {
     // table name is from allowlist(candidates) -> safe to interpolate
     unionParts.push(`
-      SELECT DISTINCT trim(COALESCE(x.data->>'거래처분류','')) AS partner_name
-      FROM ${t} x
-      WHERE trim(COALESCE(x.data->>'거래처분류','')) <> ''
+      SELECT DISTINCT partner_name
+      FROM (
+        SELECT ${partnerKeyExpr("x.data")} AS partner_name
+        FROM ${t} x
+      ) t
+      WHERE trim(COALESCE(t.partner_name,'')) <> ''
     `);
   }
 
