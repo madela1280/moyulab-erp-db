@@ -76,6 +76,54 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
   return result;
 }
 
+// ✅ 회수완료 전용: 연장 컬럼(0차, 1~15차연장)은 항상 한 구간으로 모아서 정렬 고정
+function isRecoveryExtensionKey(key: any) {
+  const s = String(key ?? "").trim();
+  if (s === "0차연장") return true;
+
+  const m = s.match(/^(\d+)차연장$/);
+  if (!m) return false;
+
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 1 && n <= 15;
+}
+
+function applyRecoveryExtensionOrder(order: string[]) {
+  const keys = Array.isArray(order) ? order.map(String) : [];
+  const keySet = new Set(keys);
+
+  // 연장키가 하나도 없으면 그대로
+  let hasAny = false;
+  for (const k of keys) {
+    if (isRecoveryExtensionKey(k)) {
+      hasAny = true;
+      break;
+    }
+  }
+  if (!hasAny) return keys;
+
+  // 연장키를 숫자 오름차순(0,1,2,...15)으로 고정
+  const ext: string[] = [];
+  if (keySet.has("0차연장")) ext.push("0차연장");
+  for (let n = 1; n <= 15; n++) {
+    const k = `${n}차연장`;
+    if (keySet.has(k)) ext.push(k);
+  }
+
+  const nonExt = keys.filter((k) => !isRecoveryExtensionKey(k));
+
+  // 삽입 위치: "신청일" 뒤(우선) → 없으면 "총연장횟수" 뒤 → 없으면 맨 뒤
+  let insertAt = nonExt.length;
+  const idxAfterApply = nonExt.indexOf("신청일");
+  if (idxAfterApply >= 0) insertAt = idxAfterApply + 1;
+  else {
+    const idxAfterTotal = nonExt.indexOf("총연장횟수");
+    if (idxAfterTotal >= 0) insertAt = idxAfterTotal + 1;
+  }
+
+  return [...nonExt.slice(0, insertAt), ...ext, ...nonExt.slice(insertAt)];
+}
+
 function sanitizeWidths(input: any, globalOrder: string[]) {
   const base: Record<string, number> = {};
 
@@ -132,7 +180,7 @@ export function useRecoveryColumnConfig(scope: RecoveryScope) {
 
     const gSet = new Set(availableColumns);
     const filtered = next.filter((k) => gSet.has(k));
-    _setColumnOrder(mergeUserOrderWithGlobal(filtered, availableColumns));
+    _setColumnOrder(applyRecoveryExtensionOrder(mergeUserOrderWithGlobal(filtered, availableColumns)));
   }
 
   function setColWidthUnitByKey(next: Record<string, number>) {
@@ -161,7 +209,7 @@ export function useRecoveryColumnConfig(scope: RecoveryScope) {
     if (!r.ok) return;
 
     const j = (await r.json().catch(() => null)) as Partial<ColumnConfig> | null;
-    _setColumnOrder(mergeUserOrderWithGlobal(j?.columnOrder, globalOrder));
+    _setColumnOrder(applyRecoveryExtensionOrder(mergeUserOrderWithGlobal(j?.columnOrder, globalOrder)));
     _setColWidthUnitByKey(sanitizeWidths(j?.colWidthUnitByKey, globalOrder));
   }
 
@@ -178,7 +226,7 @@ export function useRecoveryColumnConfig(scope: RecoveryScope) {
     const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
     await loadUserConfig(globalOrder);
 
-    _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
+    _setColumnOrder((prev) => applyRecoveryExtensionOrder(mergeUserOrderWithGlobal(prev, globalOrder)));
     _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
   }
 
@@ -188,7 +236,7 @@ export function useRecoveryColumnConfig(scope: RecoveryScope) {
       const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
       await loadUserConfig(globalOrder);
 
-      _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
+      _setColumnOrder((prev) => applyRecoveryExtensionOrder(mergeUserOrderWithGlobal(prev, globalOrder)));
       _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
 
       hydratedRef.current = true;
