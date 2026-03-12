@@ -1,6 +1,6 @@
 -- 집계 > 설정(분류) 저장용 테이블
--- 거래처분류(대/중/소) + 가격(대여/연장, 일별)
--- (유축기 기종/거래유형 테이블 제거)
+-- 거래처분류(대/중/소) + 가격(대여/연장, 일별) + 유축기 모델(선택 목록)
+-- (거래유형 테이블은 사용하지 않음)
 
  /* 1) 거래처분류(대/중/소) */
 CREATE TABLE IF NOT EXISTS agg_partner_categories (
@@ -26,3 +26,10 @@ CREATE TABLE IF NOT EXISTS agg_prices (
 
 CREATE INDEX IF NOT EXISTS agg_prices_kind_unit_idx
   ON agg_prices(kind, unit);
+
+ /* 3) 유축기 모델(선택 목록) */
+CREATE TABLE IF NOT EXISTS agg_pump_models (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

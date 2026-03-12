@@ -15,13 +15,24 @@ type SettingPartnerRow = {
   is_configured: boolean;
 };
 
+type PumpPriceLine = {
+  pump_model_id: number | null;
+  rent_day_price_id: number | null;
+  extend_day_price_id: number | null;
+};
+
 type PartnerSettingsForm = {
   partner_name: string;
   partner_cat_l1_id: number | null;
   partner_cat_l2_id: number | null;
   partner_cat_l3_id: number | null;
+
+  // ✅ 기존(기본값)도 유지
   rent_day_price_id: number | null;
   extend_day_price_id: number | null;
+
+  // ✅ 추가: 유축기별 단가(여러 줄)
+  pump_prices: PumpPriceLine[];
 };
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -42,9 +53,7 @@ async function fetchJson(url: string, init?: RequestInit) {
   }
 
   if (!res.ok) {
-    const err = new Error(
-      (data && (data.error || data.message)) || `HTTP_${res.status}`
-    );
+    const err = new Error((data && (data.error || data.message)) || `HTTP_${res.status}`);
     (err as any).status = res.status;
     (err as any).data = data;
     throw err;
@@ -59,16 +68,49 @@ function normalizeName(v: string) {
 
 function normalizeAmountInput(v: string) {
   // "10,000" or " 10000 " -> "10000"
-  return String(v ?? "")
-    .trim()
-    .replaceAll(",", "")
-    .replaceAll(" ", "");
+  return String(v ?? "").trim().replaceAll(",", "").replaceAll(" ", "");
 }
 
 function formatAmountLabel(amount: number) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return String(amount ?? "");
   return n.toLocaleString("ko-KR");
+}
+
+function emptyPumpLine(): PumpPriceLine {
+  return { pump_model_id: null, rent_day_price_id: null, extend_day_price_id: null };
+}
+
+function isPumpLineEmpty(x: PumpPriceLine | null | undefined) {
+  if (!x) return true;
+  return x.pump_model_id == null && x.rent_day_price_id == null && x.extend_day_price_id == null;
+}
+
+// ✅ 항상 "마지막에 빈 줄 1개"만 유지
+function normalizePumpLines(input: PumpPriceLine[]) {
+  const base = Array.isArray(input) ? input : [];
+  const nonEmpty = base.filter((x) => !isPumpLineEmpty(x));
+  return [...nonEmpty, emptyPumpLine()];
+}
+
+// ✅ 저장용 정규화: pump_model_id가 있는 줄만 보내되, price는 null 허용(=삭제 의미)
+function normalizePumpLinesForSave(input: PumpPriceLine[]) {
+  const base = Array.isArray(input) ? input : [];
+
+  // pump_model_id 없는 줄은 버림(마지막 빈줄 등)
+  const filtered = base
+    .map((x) => ({
+      pump_model_id: x?.pump_model_id ?? null,
+      rent_day_price_id: x?.rent_day_price_id ?? null,
+      extend_day_price_id: x?.extend_day_price_id ?? null,
+    }))
+    .filter((x) => x.pump_model_id != null);
+
+  // 같은 pump_model_id가 중복되면 마지막 값이 최종이 되도록 덮어쓰기
+  const map = new Map<number, PumpPriceLine>();
+  for (const x of filtered) map.set(Number(x.pump_model_id), x);
+
+  return Array.from(map.values());
 }
 
 function SimpleRegisterList(props: {
@@ -131,9 +173,7 @@ function SimpleRegisterList(props: {
 
   return (
     <div className="border rounded bg-white">
-      <div className={`px-3 py-2 border-b bg-gray-50 ${titleClassName || ""}`}>
-        {title}
-      </div>
+      <div className={`px-3 py-2 border-b bg-gray-50 ${titleClassName || ""}`}>{title}</div>
 
       <div className="p-3">
         <div className="flex items-center gap-2">
@@ -159,17 +199,11 @@ function SimpleRegisterList(props: {
           </button>
         </div>
 
-        <div className="mt-2">
-          {errorText ? (
-            <div className="text-xs text-red-600">{errorText}</div>
-          ) : null}
-        </div>
+        <div className="mt-2">{errorText ? <div className="text-xs text-red-600">{errorText}</div> : null}</div>
 
         <div className="mt-3">
           {items.length === 0 ? (
-            <div className="text-xs text-gray-400">
-              {loading ? "불러오는 중..." : "등록된 항목 없음"}
-            </div>
+            <div className="text-xs text-gray-400">{loading ? "불러오는 중..." : "등록된 항목 없음"}</div>
           ) : (
             <ul className="text-sm">
               {items.map((it) => (
@@ -215,6 +249,11 @@ export default function AggregateSettingView() {
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
 
+  // ✅ 유축기 모델(선택 목록 + 직접추가)
+  const [pumpModels, setPumpModels] = useState<ListItem[]>([]);
+  const [pumpLoading, setPumpLoading] = useState(false);
+  const [pumpError, setPumpError] = useState<string | null>(null);
+
   // 세팅 탭(좌측 거래처 목록 + 우측 설정 폼)
   const [settingPartners, setSettingPartners] = useState<SettingPartnerRow[]>([]);
   const [settingPartnersLoading, setSettingPartnersLoading] = useState(false);
@@ -228,6 +267,10 @@ export default function AggregateSettingView() {
 
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
+
+  // 유축기 추가 입력
+  const [newPumpName, setNewPumpName] = useState<string>("");
+  const [newPumpBusy, setNewPumpBusy] = useState<boolean>(false);
 
   async function loadSettingPartners() {
     setSettingPartnersLoading(true);
@@ -257,11 +300,16 @@ export default function AggregateSettingView() {
     setSettingsLoading(true);
     setSettingsError(null);
     try {
-      const r = await fetchJson(
-        `/api/aggregate/partner-settings?partner_name=${encodeURIComponent(name)}`
-      );
+      const r = await fetchJson(`/api/aggregate/partner-settings?partner_name=${encodeURIComponent(name)}`);
 
       const s = r?.settings;
+      const pumpPricesRaw = Array.isArray(r?.pump_prices) ? r.pump_prices : [];
+
+      const pumpLines: PumpPriceLine[] = pumpPricesRaw.map((x: any) => ({
+        pump_model_id: x?.pump_model_id == null ? null : Number(x.pump_model_id),
+        rent_day_price_id: x?.rent_day_price_id == null ? null : Number(x.rent_day_price_id),
+        extend_day_price_id: x?.extend_day_price_id == null ? null : Number(x.extend_day_price_id),
+      }));
 
       setSettingsForm({
         partner_name: name,
@@ -270,6 +318,7 @@ export default function AggregateSettingView() {
         partner_cat_l3_id: s?.partner_cat_l3_id ?? null,
         rent_day_price_id: s?.rent_day_price_id ?? null,
         extend_day_price_id: s?.extend_day_price_id ?? null,
+        pump_prices: normalizePumpLines(pumpLines),
       });
     } catch (e: any) {
       setSettingsError(e?.message || "설정 로드 실패");
@@ -280,6 +329,7 @@ export default function AggregateSettingView() {
         partner_cat_l3_id: null,
         rent_day_price_id: null,
         extend_day_price_id: null,
+        pump_prices: normalizePumpLines([]),
       });
     } finally {
       setSettingsLoading(false);
@@ -293,9 +343,14 @@ export default function AggregateSettingView() {
     setSettingsSaveError(null);
 
     try {
+      const payload = {
+        ...settingsForm,
+        pump_prices: normalizePumpLinesForSave(settingsForm.pump_prices),
+      };
+
       await fetchJson(`/api/aggregate/partner-settings`, {
         method: "POST",
-        body: JSON.stringify(settingsForm),
+        body: JSON.stringify(payload),
       });
 
       // 저장 성공 후 좌측 상태 갱신 + 우측 재로딩
@@ -321,24 +376,9 @@ export default function AggregateSettingView() {
         fetchJson(`/api/aggregate/partner-categories?level=3`),
       ]);
 
-      setPartnerL1(
-        (r1.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
-      setPartnerL2(
-        (r2.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
-      setPartnerL3(
-        (r3.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
+      setPartnerL1((r1.items || []).map((x: any) => ({ id: Number(x.id), label: String(x.name ?? "") })));
+      setPartnerL2((r2.items || []).map((x: any) => ({ id: Number(x.id), label: String(x.name ?? "") })));
+      setPartnerL3((r3.items || []).map((x: any) => ({ id: Number(x.id), label: String(x.name ?? "") })));
     } catch (e: any) {
       setPartnerError(e?.message || "불러오기 실패");
     } finally {
@@ -356,11 +396,8 @@ export default function AggregateSettingView() {
       await loadPartnerCategories();
     } catch (e: any) {
       setPartnerError(
-        e?.data?.error === "DUPLICATE_NAME"
-          ? "이미 등록된 항목입니다."
-          : e?.message || "등록 실패"
+        e?.data?.error === "DUPLICATE_NAME" ? "이미 등록된 항목입니다." : e?.message || "등록 실패"
       );
-      // 실패 시 리로드로 복구(로컬만 바뀐 상태 방지)
       await loadPartnerCategories().catch(() => {});
     }
   }
@@ -442,6 +479,49 @@ export default function AggregateSettingView() {
     }
   }
 
+  async function loadPumpModels() {
+    setPumpLoading(true);
+    setPumpError(null);
+    try {
+      const r = await fetchJson(`/api/aggregate/pump-models`);
+      setPumpModels(
+        (r.items || []).map((x: any) => ({
+          id: Number(x.id),
+          label: String(x.name ?? ""),
+        }))
+      );
+    } catch (e: any) {
+      setPumpError(e?.message || "유축기 목록 로드 실패");
+    } finally {
+      setPumpLoading(false);
+    }
+  }
+
+  async function addPumpModel(nameRaw: string) {
+    const name = normalizeName(nameRaw);
+    if (!name) return;
+
+    setNewPumpBusy(true);
+    setPumpError(null);
+    try {
+      await fetchJson(`/api/aggregate/pump-models`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setNewPumpName("");
+      await loadPumpModels();
+    } catch (e: any) {
+      setPumpError(
+        e?.data?.error === "DUPLICATE_NAME"
+          ? "이미 등록된 유축기입니다."
+          : e?.message || "유축기 추가 실패"
+      );
+      await loadPumpModels().catch(() => {});
+    } finally {
+      setNewPumpBusy(false);
+    }
+  }
+
   async function reloadForCurrent() {
     if (tab !== "분류") return;
 
@@ -463,10 +543,9 @@ export default function AggregateSettingView() {
     if (tab !== "세팅") return;
 
     loadSettingPartners();
-
-    // 우측 폼에서 사용하는 옵션들
     loadPartnerCategories();
     loadPrices();
+    loadPumpModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -490,6 +569,7 @@ export default function AggregateSettingView() {
 
       if (tab === "세팅") {
         await loadSettingPartners();
+        await loadPumpModels();
         if (selectedPartnerName) {
           await loadPartnerSettings(selectedPartnerName);
         }
@@ -509,6 +589,32 @@ export default function AggregateSettingView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, category, selectedPartnerName]);
+
+  function updatePumpLine(index: number, patch: Partial<PumpPriceLine>) {
+    setSettingsForm((prev) => {
+      if (!prev) return prev;
+
+      const cur = Array.isArray(prev.pump_prices) ? prev.pump_prices : [emptyPumpLine()];
+      const next = cur.slice();
+      const base = next[index] ?? emptyPumpLine();
+      next[index] = { ...base, ...patch };
+
+      return {
+        ...prev,
+        pump_prices: normalizePumpLines(next),
+      };
+    });
+  }
+
+  function deletePumpLine(index: number) {
+    setSettingsForm((prev) => {
+      if (!prev) return prev;
+
+      const cur = Array.isArray(prev.pump_prices) ? prev.pump_prices : [];
+      const next = cur.filter((_, i) => i !== index);
+      return { ...prev, pump_prices: normalizePumpLines(next) };
+    });
+  }
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
@@ -566,9 +672,7 @@ export default function AggregateSettingView() {
               {/* 선택된 분류 화면 */}
               {category === "거래처분류" ? (
                 <div>
-                  <div className="font-semibold text-gray-800 mb-3">
-                    거래처분류
-                  </div>
+                  <div className="font-semibold text-gray-800 mb-3">거래처분류</div>
 
                   {/* 3등분(대/중/소) */}
                   <div className="grid grid-cols-3 gap-3">
@@ -631,16 +735,7 @@ export default function AggregateSettingView() {
                     />
                   </div>
                 </div>
-              ) : (
-                <div className="text-xs text-gray-600">
-                  <div className="font-semibold text-gray-800 mb-2">
-                    {category}
-                  </div>
-                  <div className="text-gray-500">
-                    (준비중) {category} 분류 화면
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           ) : (
             <div className="text-sm text-gray-700 h-full flex flex-col min-h-0">
@@ -657,17 +752,11 @@ export default function AggregateSettingView() {
 
                     <div className="flex-1 overflow-auto">
                       {settingPartnersLoading ? (
-                        <div className="px-3 py-2 text-xs text-gray-400">
-                          불러오는 중...
-                        </div>
+                        <div className="px-3 py-2 text-xs text-gray-400">불러오는 중...</div>
                       ) : settingPartnersError ? (
-                        <div className="px-3 py-2 text-xs text-red-600">
-                          {settingPartnersError}
-                        </div>
+                        <div className="px-3 py-2 text-xs text-red-600">{settingPartnersError}</div>
                       ) : settingPartners.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-400">
-                          목록 없음
-                        </div>
+                        <div className="px-3 py-2 text-xs text-gray-400">목록 없음</div>
                       ) : (
                         <div>
                           {settingPartners.map((p) => {
@@ -681,9 +770,7 @@ export default function AggregateSettingView() {
                                   active ? "bg-blue-50" : "bg-white"
                                 }`}
                               >
-                                <div className="truncate text-left">
-                                  {p.partner_name}
-                                </div>
+                                <div className="truncate text-left">{p.partner_name}</div>
                                 <div
                                   className={`text-right text-xs ${
                                     p.is_configured ? "text-green-700" : "text-gray-500"
@@ -704,15 +791,11 @@ export default function AggregateSettingView() {
                 <div className="flex-1 w-[65%] min-w-0">
                   <div className="border rounded bg-white p-4">
                     {!selectedPartnerName ? (
-                      <div className="text-xs text-gray-500">
-                        좌측에서 거래처를 선택해 주세요.
-                      </div>
+                      <div className="text-xs text-gray-500">좌측에서 거래처를 선택해 주세요.</div>
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-3 mb-3">
-                          <div className="font-semibold text-gray-800 truncate">
-                            {selectedPartnerName}
-                          </div>
+                          <div className="font-semibold text-gray-800 truncate">{selectedPartnerName}</div>
 
                           <button
                             type="button"
@@ -735,10 +818,44 @@ export default function AggregateSettingView() {
                         ) : null}
 
                         {settingsSaveError ? (
-                          <div className="mt-2 text-xs text-red-600">
-                            {settingsSaveError}
-                          </div>
+                          <div className="mt-2 text-xs text-red-600">{settingsSaveError}</div>
                         ) : null}
+
+                        {/* ✅ 유축기 추가 입력 */}
+                        <div className="mt-2 border rounded bg-gray-50 p-3">
+                          <div className="text-xs font-semibold text-gray-700 mb-2">유축기 추가(선택 목록 확장)</div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={newPumpName}
+                              onChange={(e) => setNewPumpName(e.target.value)}
+                              placeholder="예: 프리스타일"
+                              className="flex-1 border rounded px-2 py-1 text-sm bg-white"
+                              disabled={pumpLoading || newPumpBusy}
+                            />
+                            <button
+                              type="button"
+                              className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
+                                pumpLoading || newPumpBusy ? "opacity-60 cursor-not-allowed" : ""
+                              }`}
+                              disabled={pumpLoading || newPumpBusy}
+                              onClick={() => void addPumpModel(newPumpName)}
+                            >
+                              추가
+                            </button>
+                            <button
+                              type="button"
+                              className={`px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ${
+                                pumpLoading ? "opacity-60 cursor-not-allowed" : ""
+                              }`}
+                              disabled={pumpLoading}
+                              onClick={() => void loadPumpModels()}
+                            >
+                              새로고침
+                            </button>
+                          </div>
+                          {pumpError ? <div className="mt-2 text-xs text-red-600">{pumpError}</div> : null}
+                          {pumpLoading ? <div className="mt-2 text-xs text-gray-400">유축기 목록 로딩 중...</div> : null}
+                        </div>
 
                         {settingsForm ? (
                           <div className="mt-3 space-y-3">
@@ -754,9 +871,7 @@ export default function AggregateSettingView() {
                                       prev
                                         ? {
                                             ...prev,
-                                            partner_cat_l1_id: e.target.value
-                                              ? Number(e.target.value)
-                                              : null,
+                                            partner_cat_l1_id: e.target.value ? Number(e.target.value) : null,
                                           }
                                         : prev
                                     )
@@ -781,9 +896,7 @@ export default function AggregateSettingView() {
                                       prev
                                         ? {
                                             ...prev,
-                                            partner_cat_l2_id: e.target.value
-                                              ? Number(e.target.value)
-                                              : null,
+                                            partner_cat_l2_id: e.target.value ? Number(e.target.value) : null,
                                           }
                                         : prev
                                     )
@@ -808,9 +921,7 @@ export default function AggregateSettingView() {
                                       prev
                                         ? {
                                             ...prev,
-                                            partner_cat_l3_id: e.target.value
-                                              ? Number(e.target.value)
-                                              : null,
+                                            partner_cat_l3_id: e.target.value ? Number(e.target.value) : null,
                                           }
                                         : prev
                                     )
@@ -826,10 +937,10 @@ export default function AggregateSettingView() {
                               </div>
                             </div>
 
-                            {/* 2줄: 가격(대여/연장) */}
+                            {/* 2줄: 기본 가격(대여/연장) - 기존 유지 */}
                             <div className="grid grid-cols-2 gap-3">
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">대여 일별금액</div>
+                                <div className="text-xs text-gray-600 mb-1">대여 일별금액(기본)</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.rent_day_price_id ?? ""}
@@ -838,9 +949,7 @@ export default function AggregateSettingView() {
                                       prev
                                         ? {
                                             ...prev,
-                                            rent_day_price_id: e.target.value
-                                              ? Number(e.target.value)
-                                              : null,
+                                            rent_day_price_id: e.target.value ? Number(e.target.value) : null,
                                           }
                                         : prev
                                     )
@@ -856,7 +965,7 @@ export default function AggregateSettingView() {
                               </div>
 
                               <div>
-                                <div className="text-xs text-gray-600 mb-1">연장 일별금액</div>
+                                <div className="text-xs text-gray-600 mb-1">연장 일별금액(기본)</div>
                                 <select
                                   className="w-full border rounded px-2 py-1 text-sm bg-white"
                                   value={settingsForm.extend_day_price_id ?? ""}
@@ -865,9 +974,7 @@ export default function AggregateSettingView() {
                                       prev
                                         ? {
                                             ...prev,
-                                            extend_day_price_id: e.target.value
-                                              ? Number(e.target.value)
-                                              : null,
+                                            extend_day_price_id: e.target.value ? Number(e.target.value) : null,
                                           }
                                         : prev
                                     )
@@ -880,6 +987,102 @@ export default function AggregateSettingView() {
                                     </option>
                                   ))}
                                 </select>
+                              </div>
+                            </div>
+
+                            {/* ✅ 3줄+: 유축기별 가격(여러 줄) */}
+                            <div className="border rounded p-3 bg-white">
+                              <div className="text-xs font-semibold text-gray-700 mb-2">
+                                유축기별 일별금액(여러 줄)
+                              </div>
+
+                              <div className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 text-[11px] font-semibold text-gray-600 mb-2">
+                                <div>유축기</div>
+                                <div>대여 일별금액</div>
+                                <div>연장 일별금액</div>
+                                <div className="text-right">삭제</div>
+                              </div>
+
+                              <div className="space-y-2">
+                                {(settingsForm.pump_prices || [emptyPumpLine()]).map((line, idx) => {
+                                  const isLast = idx === (settingsForm.pump_prices?.length ?? 1) - 1;
+                                  const canDelete = !isLast && !isPumpLineEmpty(line);
+
+                                  return (
+                                    <div
+                                      key={`${idx}-${line.pump_model_id ?? "x"}`}
+                                      className="grid grid-cols-[220px_1fr_1fr_64px] gap-2 items-center"
+                                    >
+                                      <select
+                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                        value={line.pump_model_id ?? ""}
+                                        onChange={(e) =>
+                                          updatePumpLine(idx, {
+                                            pump_model_id: e.target.value ? Number(e.target.value) : null,
+                                          })
+                                        }
+                                      >
+                                        <option value="">(선택)</option>
+                                        {pumpModels.map((x) => (
+                                          <option key={x.id} value={x.id}>
+                                            {x.label}
+                                          </option>
+                                        ))}
+                                      </select>
+
+                                      <select
+                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                        value={line.rent_day_price_id ?? ""}
+                                        onChange={(e) =>
+                                          updatePumpLine(idx, {
+                                            rent_day_price_id: e.target.value ? Number(e.target.value) : null,
+                                          })
+                                        }
+                                      >
+                                        <option value="">(선택)</option>
+                                        {priceRentDay.map((x) => (
+                                          <option key={x.id} value={x.id}>
+                                            {x.label}원
+                                          </option>
+                                        ))}
+                                      </select>
+
+                                      <select
+                                        className="w-full border rounded px-2 py-1 text-sm bg-white"
+                                        value={line.extend_day_price_id ?? ""}
+                                        onChange={(e) =>
+                                          updatePumpLine(idx, {
+                                            extend_day_price_id: e.target.value ? Number(e.target.value) : null,
+                                          })
+                                        }
+                                      >
+                                        <option value="">(선택)</option>
+                                        {priceExtendDay.map((x) => (
+                                          <option key={x.id} value={x.id}>
+                                            {x.label}원
+                                          </option>
+                                        ))}
+                                      </select>
+
+                                      <div className="text-right">
+                                        <button
+                                          type="button"
+                                          className={`px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50 ${
+                                            canDelete ? "" : "opacity-40 cursor-not-allowed"
+                                          }`}
+                                          disabled={!canDelete}
+                                          onClick={() => deletePumpLine(idx)}
+                                        >
+                                          삭제
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="mt-2 text-[11px] text-gray-500">
+                                마지막 줄은 자동으로 유지됩니다(한 줄이 채워지면 다음 빈 줄이 자동 생성).
                               </div>
                             </div>
                           </div>
