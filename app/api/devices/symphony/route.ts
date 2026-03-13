@@ -93,7 +93,7 @@ export async function GET(req: Request) {
     }
 
     const limitRaw = toInt(sp.get("limit"));
-    const limit = limitRaw == null ? 500 : Math.max(1, Math.min(5000, limitRaw));
+    const limit = limitRaw == null ? 5000 : Math.max(1, Math.min(5000, limitRaw));
 
     const tailData = sp.get("tailData") === "1";
     const tail = sp.get("tail") === "1";

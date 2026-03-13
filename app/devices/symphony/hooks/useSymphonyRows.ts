@@ -64,7 +64,8 @@ export function useSymphonyRows() {
 
     try {
       // UnifiedGrid와 유사하게 "tailData" 로딩을 기본으로 사용(마지막 데이터 근처부터 보이게)
-      const j = await listSymphonyRows({ tailData: 1, limit: 500 });
+      // ✅ 기존 500 제한 때문에 "끝에 행 추가"가 화면에서 반영되지 않는 문제가 있어 limit 상향
+      const j = await listSymphonyRows({ tailData: 1, limit: 5000 });
       const norm = normalizeRowsResult(j as any);
 
       setRows(norm.rows);
