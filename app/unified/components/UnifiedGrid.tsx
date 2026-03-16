@@ -573,6 +573,69 @@ function getCellStyleInfo(rowData: Record<string, any>, rowId: number, colKey: s
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
+// ✅ Excel 클립보드 TSV 파서(따옴표 처리 + 셀 내부 줄바꿈 유지)
+// - 탭(\t): 컬럼 구분
+// - 개행(\n): 행 구분(단, 따옴표 내부 개행은 셀 값으로 유지)
+// - 따옴표("..."): 셀 감싸기, 내부 따옴표는 "" 로 escape 되는 형태 지원
+function parseExcelClipboardTSV(text: string): string[][] {
+  const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (ch === '"') {
+      // 따옴표 내부에서 "" -> " 로 처리
+      if (inQuotes && s[i + 1] === '"') {
+        cell += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && ch === "\t") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  // 마지막 셀/행 flush
+  row.push(cell);
+  rows.push(row);
+
+  // Excel/구글시트는 끝에 개행이 붙는 경우가 많아서 "마지막 1개"만 제거
+  // (중간의 빈 줄은 유지해야 엑셀처럼 행 매핑이 안 깨짐)
+  if (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    const lastAllEmpty = last.every((v) => String(v ?? "") === "");
+    if (lastAllEmpty) rows.pop();
+  }
+
+  return rows.length ? rows : [[""]];
+}
+
+// ✅ 옵션: 셀 내부 줄바꿈(Alt+Enter)을 공백으로 치환해서 저장할지
+// - true: "insert card\nerror" -> "insert card error"
+// - false: 줄바꿈을 그대로 유지
+const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
+
    function moveColLeft(key: string) {
   setColumnOrderNext((prev) => {
     const i = prev.indexOf(key);
@@ -2711,30 +2774,35 @@ useEffect(() => {
         baseColIndex = 0;
       }
 
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trimEnd())
-        .filter((l) => l.length > 0);
+      const parsed = parseExcelClipboardTSV(text);
 
-      if (!lines.length) {
+      // 전부 빈 값이면 무시
+      const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
+      if (!hasAnyValue) {
         setRowContextMenu(null);
         return;
       }
 
-      const parsed = lines.map((line) => line.split("\t"));
+      // ✅ 핵심: "완전 빈 행"("")도 엑셀처럼 '빈 행'으로 유지되도록,
+      // 전체 붙여넣기 블록의 최대 컬럼 수로 행 폭을 맞춰 패딩한다.
+      const maxCols = parsed.reduce((m, row) => Math.max(m, row.length), 0);
+      const matrix = parsed.map((row) => {
+        if (row.length >= maxCols) return row;
+        return [...row, ...Array.from({ length: maxCols - row.length }, () => "")];
+      });
 
       // ✅ displayRows 기준으로만 붙여넣기
-      const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + parsed.length);
+      const targetRows = displayRows.slice(baseRowIndex, baseRowIndex + matrix.length);
       if (!targetRows.length) {
         setRowContextMenu(null);
         return;
       }
 
-          const updates: { id: number; patch: Record<string, any> }[] = [];
+      const updates: { id: number; patch: Record<string, any> }[] = [];
 
       for (let i = 0; i < targetRows.length; i++) {
         const row = targetRows[i];
-        const srcRow = parsed[i] ?? [];
+        const srcRow = matrix[i] ?? [];
 
         const patch: Record<string, any> = {};
 
@@ -2745,8 +2813,11 @@ useEffect(() => {
           const key = viewColumns[colIndex];
           if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
 
-          const v = srcRow[colOffset] ?? "";
-          patch[key] = v;
+          const raw = String(srcRow[colOffset] ?? "");
+          const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
+
+          // ✅ 빈칸은 null로 저장(=DB에서 삭제 의미). 그래야 "빈 행"이 실제로 비워져서 행 밀림/왜곡이 사라짐.
+          patch[key] = v === "" ? null : v;
         }
 
         if (Object.keys(patch).length) {
