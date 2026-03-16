@@ -142,6 +142,64 @@ function getCellStyleInfo(
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
+// ✅ Excel 클립보드 TSV 파서(따옴표 처리 + 셀 내부 줄바꿈 유지)
+// - 탭(\t): 컬럼 구분
+// - 개행(\n): 행 구분(단, 따옴표 내부 개행은 셀 값으로 유지)
+// - 따옴표("..."): 셀 감싸기, 내부 따옴표는 "" 로 escape 되는 형태 지원
+function parseExcelClipboardTSV(text: string): string[][] {
+  const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (ch === '"') {
+      if (inQuotes && s[i + 1] === '"') {
+        cell += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && ch === "\t") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  row.push(cell);
+  rows.push(row);
+
+  // 끝의 개행으로 생기는 마지막 빈 행 1개만 제거 (중간 빈행은 유지)
+  if (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    const lastAllEmpty = last.every((v) => String(v ?? "") === "");
+    if (lastAllEmpty) rows.pop();
+  }
+
+  return rows.length ? rows : [[""]];
+}
+
+// ✅ 옵션: 셀 내부 줄바꿈(Alt+Enter)을 공백으로 치환해서 저장할지
+const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
+
 const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, ref) {
   const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } =
     useSwingRows();
@@ -514,19 +572,23 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
       : Math.max(0, selectedRowRange?.start ?? 0);
     const baseCol = selectedCellRange ? selectedCellRange.startCol : 0;
 
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.replace(/\r/g, "").trimEnd())
-      .filter((l) => l.length > 0);
+    const parsed = parseExcelClipboardTSV(text);
 
-    if (!lines.length) return;
+    // 전부 빈 값이면 무시
+    const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
+    if (!hasAnyValue) return;
 
-    const parsed = lines.map((l) => l.split("\t"));
+    // ✅ 빈 행도 엑셀처럼 유지되도록: 전체 블록의 최대 컬럼 수로 행 폭을 맞춰 패딩
+    const maxCols = parsed.reduce((m, row) => Math.max(m, row.length), 0);
+    const matrix = parsed.map((row) => {
+      if (row.length >= maxCols) return row;
+      return [...row, ...Array.from({ length: maxCols - row.length }, () => "")];
+    });
 
     const updates: Array<{ id: number; patch: Record<string, any> }> = [];
     const local = [...rows];
 
-    for (let ro = 0; ro < parsed.length; ro++) {
+    for (let ro = 0; ro < matrix.length; ro++) {
       const dIndex = baseRow + ro;
       const dRow = displayRows[dIndex];
       if (!dRow) break;
@@ -534,16 +596,18 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
       const patch: Record<string, any> = {};
       const nextData: Record<string, any> = { ...dRow.data };
 
-      for (let co = 0; co < parsed[ro].length; co++) {
+      for (let co = 0; co < matrix[ro].length; co++) {
         const cIndex = baseCol + co;
         if (cIndex >= viewColumns.length) break;
 
         const k = viewColumns[cIndex];
         if (!k || isComputedColumn(k)) continue;
 
-        const v = parsed[ro][co] ?? "";
+        const raw = String(matrix[ro][co] ?? "");
+        const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
+
         nextData[k] = v;
-        patch[k] = v === "" ? null : v;
+        patch[k] = v === "" ? null : v;  
       }
 
       const idx = local.findIndex((x) => x.id === dRow.id);
