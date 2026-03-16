@@ -38,6 +38,7 @@ import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRen
 
 import { buildColorBulkPatch } from "@/devices/symphony/color/applySymphonyColor";
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
+import { parseTSV } from "@/views/dataUpload/signup-grid/tsv";
 
 export type SymphonyGridHandle = {
   // ✅ 실시간 수신 시 점멸 줄이기 위해 silent reload 옵션 지원
@@ -506,14 +507,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       : Math.max(0, selectedRowRange?.start ?? 0);
     const baseCol = selectedCellRange ? selectedCellRange.startCol : 0;
 
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.replace(/\r/g, "").trimEnd())
-      .filter((l) => l.length > 0);
+    const parsed = parseTSV(text);
 
-    if (!lines.length) return;
-
-    const parsed = lines.map((l) => l.split("\t"));
+    // 전부 빈 값(예: ""만 있는 경우)이면 무시
+    const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
+    if (!hasAnyValue) return;
 
     const updates: Array<{ id: number; patch: Record<string, any> }> = [];
     const local = [...rows];
