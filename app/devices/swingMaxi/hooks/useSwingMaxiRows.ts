@@ -51,7 +51,7 @@ export function useSwingMaxiRows() {
     setError("");
 
     try {
-      const j = await listSwingMaxiRows({ tailData: 1, limit: 500 });
+      const j = await listSwingMaxiRows({ tailData: 1, limit: 5000 });
       const norm = normalizeRowsResult(j as any);
 
       setRows(norm.rows);

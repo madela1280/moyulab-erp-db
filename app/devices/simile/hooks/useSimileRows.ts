@@ -51,7 +51,7 @@ export function useSimileRows() {
     setError("");
 
     try {
-      const j = await listSimileRows({ tailData: 1, limit: 500 });
+      const j = await listSimileRows({ tailData: 1, limit: 5000 });
       const norm = normalizeRowsResult(j as any);
 
       setRows(norm.rows);

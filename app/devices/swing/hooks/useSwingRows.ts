@@ -56,7 +56,7 @@ export function useSwingRows() {
     setError("");
 
     try {
-      const j = await listSwingRows({ tailData: 1, limit: 500 });
+      const j = await listSwingRows({ tailData: 1, limit: 5000 });
       const norm = normalizeRowsResult(j as any);
 
       setRows(norm.rows);
