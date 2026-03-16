@@ -513,10 +513,18 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
     if (!hasAnyValue) return;
 
+    // ✅ 핵심: "완전 빈 행"("")도 엑셀처럼 '빈 행'으로 유지되도록,
+    // 전체 붙여넣기 블록의 최대 컬럼 수로 행 폭을 맞춰 패딩한다.
+    const maxCols = parsed.reduce((m, row) => Math.max(m, row.length), 0);
+    const matrix = parsed.map((row) => {
+      if (row.length >= maxCols) return row;
+      return [...row, ...Array.from({ length: maxCols - row.length }, () => "")];
+    });
+
     const updates: Array<{ id: number; patch: Record<string, any> }> = [];
     const local = [...rows];
 
-    for (let ro = 0; ro < parsed.length; ro++) {
+    for (let ro = 0; ro < matrix.length; ro++) {
       const dIndex = baseRow + ro;
       const dRow = displayRows[dIndex];
       if (!dRow) break;
@@ -524,14 +532,14 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       const patch: Record<string, any> = {};
       const nextData: Record<string, any> = { ...dRow.data };
 
-      for (let co = 0; co < parsed[ro].length; co++) {
+      for (let co = 0; co < matrix[ro].length; co++) {
         const cIndex = baseCol + co;
         if (cIndex >= viewColumns.length) break;
 
         const k = viewColumns[cIndex];
         if (!k || isComputedColumn(k)) continue;
 
-        const v = parsed[ro][co] ?? "";
+        const v = matrix[ro][co] ?? "";
         nextData[k] = v;
         patch[k] = v === "" ? null : v;
       }
