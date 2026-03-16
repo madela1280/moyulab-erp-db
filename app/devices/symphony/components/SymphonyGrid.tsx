@@ -38,7 +38,6 @@ import { useUnifiedRentalStatus } from "@/devices/symphony/derived/useUnifiedRen
 
 import { buildColorBulkPatch } from "@/devices/symphony/color/applySymphonyColor";
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
-import { parseTSV } from "@/views/dataUpload/signup-grid/tsv";
 
 export type SymphonyGridHandle = {
   // ✅ 실시간 수신 시 점멸 줄이기 위해 silent reload 옵션 지원
@@ -136,6 +135,68 @@ function getCellStyleInfo(
   const map = (rowData?.__cellStyle ?? {}) as Record<string, CellStyleInfo>;
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
+
+// ✅ Excel 클립보드 TSV 파서(따옴표 처리 + 셀 내부 줄바꿈 유지)
+// - 탭(\t): 컬럼 구분
+// - 개행(\n): 행 구분(단, 따옴표 내부 개행은 셀 값으로 유지)
+// - 따옴표("..."): 셀 감싸기, 내부 따옴표는 "" 로 escape 되는 형태 지원
+function parseExcelClipboardTSV(text: string): string[][] {
+  const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (ch === '"') {
+      // 따옴표 내부에서 "" -> " 로 처리
+      if (inQuotes && s[i + 1] === '"') {
+        cell += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && ch === "\t") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  // 마지막 셀/행 flush
+  row.push(cell);
+  rows.push(row);
+
+  // Excel/구글시트는 끝에 개행이 붙는 경우가 많아서 "마지막 1개"만 제거(기존 parseTSV 정책 유지)
+  if (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    const lastAllEmpty = last.every((v) => String(v ?? "") === "");
+    if (lastAllEmpty) rows.pop();
+  }
+
+  return rows.length ? rows : [[""]];
+}
+
+// ✅ 옵션: 셀 내부 줄바꿈(Alt+Enter)을 공백으로 치환해서 저장할지
+// - true: "insert card\nerror" -> "insert card error"
+// - false: 줄바꿈을 그대로 유지
+const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
 
 const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
   const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } =
@@ -507,7 +568,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       : Math.max(0, selectedRowRange?.start ?? 0);
     const baseCol = selectedCellRange ? selectedCellRange.startCol : 0;
 
-    const parsed = parseTSV(text);
+    const parsed = parseExcelClipboardTSV(text);
 
     // 전부 빈 값(예: ""만 있는 경우)이면 무시
     const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
@@ -539,9 +600,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         const k = viewColumns[cIndex];
         if (!k || isComputedColumn(k)) continue;
 
-        const v = matrix[ro][co] ?? "";
+        const raw = String(matrix[ro][co] ?? "");
+        const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
+
         nextData[k] = v;
-        patch[k] = v === "" ? null : v;
+        patch[k] = v === "" ? null : v; 
       }
 
       const idx = local.findIndex((x) => x.id === dRow.id);
