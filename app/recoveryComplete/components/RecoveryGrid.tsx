@@ -102,6 +102,64 @@ function calcVisibleRange(el: HTMLDivElement, rowCount: number) {
   return { start, end };
 }
 
+// ✅ Excel 클립보드 TSV 파서(따옴표 처리 + 셀 내부 줄바꿈 유지)
+// - 탭(\t): 컬럼 구분
+// - 개행(\n): 행 구분(단, 따옴표 내부 개행은 셀 값으로 유지)
+// - 따옴표("..."): 셀 감싸기, 내부 따옴표는 "" 로 escape 되는 형태 지원
+function parseExcelClipboardTSV(text: string): string[][] {
+  const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (ch === '"') {
+      if (inQuotes && s[i + 1] === '"') {
+        cell += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && ch === "\t") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  row.push(cell);
+  rows.push(row);
+
+  // 끝의 개행으로 생기는 마지막 빈 행 1개만 제거 (중간 빈행은 유지)
+  if (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    const lastAllEmpty = last.every((v) => String(v ?? "") === "");
+    if (lastAllEmpty) rows.pop();
+  }
+
+  return rows.length ? rows : [[""]];
+}
+
+// ✅ 옵션: 셀 내부 줄바꿈(Alt+Enter)을 공백으로 치환해서 저장할지
+const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
+
 const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid(
   props,
   ref
@@ -905,29 +963,40 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
       baseColIndex = 0;
     }
 
-    const lines = String(text ?? "")
-      .split(/\r?\n/)
-      .map((l) => l.trimEnd())
-      .filter((l) => l.length > 0);
+    const parsed = parseExcelClipboardTSV(text);
 
-    if (!lines.length) return;
+    // 전부 빈 값이면 무시
+    const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
+    if (!hasAnyValue) return;
 
-    const parsed = lines.map((line) => line.split("\t"));
-    const targetRows = displayRowsRef.current.slice(baseRowIndex, baseRowIndex + parsed.length);
+    // ✅ 빈 행도 엑셀처럼 유지되도록: 전체 블록의 최대 컬럼 수로 행 폭을 맞춰 패딩
+    const maxCols = parsed.reduce((m, row) => Math.max(m, row.length), 0);
+    const matrix = parsed.map((row) => {
+      if (row.length >= maxCols) return row;
+      return [...row, ...Array.from({ length: maxCols - row.length }, () => "")];
+    });
+
+    const targetRows = displayRowsRef.current.slice(baseRowIndex, baseRowIndex + matrix.length);
     if (!targetRows.length) return;
 
     const updates: Array<{ id: number; patch: Record<string, any> }> = [];
 
     for (let i = 0; i < targetRows.length; i++) {
       const row = targetRows[i];
-      const src = parsed[i] ?? [];
+      const src = matrix[i] ?? [];
 
       const patch: Record<string, any> = {};
       for (let j = 0; j < src.length; j++) {
         const colIndex = baseColIndex + j;
         if (colIndex >= viewColumns.length) break;
+
         const key = viewColumns[colIndex];
-        patch[key] = src[j] ?? "";
+
+        const raw = String(src[j] ?? "");
+        const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
+
+        // ✅ 엑셀과 동일 정책: 빈칸은 "지우기"로 취급 → DB에는 null 저장
+        patch[key] = v === "" ? null : v;
       }
 
       if (Object.keys(patch).length) updates.push({ id: row.id, patch });
