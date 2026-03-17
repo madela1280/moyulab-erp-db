@@ -197,7 +197,7 @@ function SimpleRegisterList(props: {
 
         <div className="mt-2">{errorText ? <div className="text-xs text-red-600">{errorText}</div> : null}</div>
 
-        <div className="mt-3">
+        <div className="mt-3 max-h-[520px] overflow-y-auto pr-1">
           {items.length === 0 ? (
             <div className="text-xs text-gray-400">{loading ? "불러오는 중..." : "등록된 항목 없음"}</div>
           ) : (
