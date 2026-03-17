@@ -30,7 +30,13 @@ export type PumpScope = "전체" | "기종" | "기기번호";
 export type ExtendStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
 export type ExtendScope = "전체" | "0차" | `${Exclude<ExtendStep, 0>}차`;
 
-export type RentTypeScope = "전체" | "기기변경" | "재대여" | "서비스";
+export type RentTypeScope =
+  | "전체"
+  | "기기변경"
+  | "재대여"
+  | "서비스"
+  | "대체기기"
+  | "문제기기";
 
 /**
  * 검색 입력(부분일치/자동완성 등 UI 확장 대비)

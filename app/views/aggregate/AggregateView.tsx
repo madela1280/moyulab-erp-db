@@ -57,7 +57,7 @@ export default function AggregateView() {
     for (let i = 1; i <= 15; i++) arr.push(`${i}차` as ExtendScope);
     return arr;
   }, []);
-  const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스"];
+  const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스", "대체기기", "문제기기"];
 
   return (
     <div className="w-full h-full overflow-auto">
