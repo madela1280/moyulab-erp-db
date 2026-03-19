@@ -12,6 +12,30 @@ function formatNumber(n: number | null | undefined) {
   return v.toLocaleString("ko-KR");
 }
 
+function buildColumnTotals(rows: AggregateResultRow[], periods: AggregatePeriodMeta[]) {
+  const totals: Record<string, { 출고: number; 가중: number; 금액: number }> = {};
+  for (const p of periods) totals[p.key] = { 출고: 0, 가중: 0, 금액: 0 };
+
+  for (const r of rows) {
+    if (r.partnerCategory === "소계") continue;
+    for (const p of periods) {
+      const v = r.values[p.key] || { 출고: 0, 가중: 0, 금액: 0 };
+      totals[p.key].출고 += v.출고;
+      totals[p.key].가중 += v.가중;
+      totals[p.key].금액 += v.금액;
+    }
+  }
+
+  const sum = { 출고: 0, 가중: 0, 금액: 0 };
+  for (const p of periods) {
+    sum.출고 += totals[p.key].출고;
+    sum.가중 += totals[p.key].가중;
+    sum.금액 += totals[p.key].금액;
+  }
+
+  return { totals, sum };
+}
+
 function buildGroupRowSpans(rows: AggregateResultRow[]) {
   const spans: Record<number, number> = {};
   let i = 0;
@@ -35,6 +59,7 @@ function ResultTableBlock({
   rows: AggregateResultRow[];
 }) {
   const rowSpans = buildGroupRowSpans(rows);
+  const columnTotals = buildColumnTotals(rows, periods);
 
   return (
     <div className="mb-6">
@@ -44,10 +69,10 @@ function ResultTableBlock({
         <table className="min-w-[900px] w-full border-collapse text-xs">
           <thead>
             <tr>
-              <th className="border px-2 py-1 bg-gray-50" rowSpan={2}>
+              <th className="border px-2 py-1 bg-gray-50" rowSpan={3}>
                 기종
               </th>
-              <th className="border px-2 py-1 bg-gray-50" rowSpan={2}>
+              <th className="border px-2 py-1 bg-gray-50" rowSpan={3}>
                 거래처
               </th>
               {periods.map((p) => (
@@ -61,21 +86,31 @@ function ResultTableBlock({
             </tr>
             <tr>
               {periods.map((p) => (
-                <th key={`${p.key}-sub`} className="border px-2 py-1 bg-gray-50" colSpan={3}>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="text-center">출고</span>
-                    <span className="text-center">가중</span>
-                    <span className="text-center">금액</span>
-                  </div>
-                </th>
+                <span key={`${p.key}-qty`} className="contents">
+                  <th className="border px-2 py-1 bg-gray-50" colSpan={2}>
+                    수량
+                  </th>
+                  <th className="border px-2 py-1 bg-gray-50" rowSpan={2}>
+                    금액
+                  </th>
+                </span>
               ))}
-              <th className="border px-2 py-1 bg-gray-50" colSpan={3}>
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-center">출고</span>
-                  <span className="text-center">가중</span>
-                  <span className="text-center">금액</span>
-                </div>
+              <th className="border px-2 py-1 bg-gray-50" colSpan={2}>
+                수량
               </th>
+              <th className="border px-2 py-1 bg-gray-50" rowSpan={2}>
+                금액
+              </th>
+            </tr>
+            <tr>
+              {periods.map((p) => (
+                <span key={`${p.key}-sub`} className="contents">
+                  <th className="border px-1 py-1 bg-gray-50 min-w-[36px]">출고</th>
+                  <th className="border px-1 py-1 bg-gray-50 min-w-[36px]">가중</th>
+                </span>
+              ))}
+              <th className="border px-1 py-1 bg-gray-50 min-w-[36px]">출고</th>
+              <th className="border px-1 py-1 bg-gray-50 min-w-[36px]">가중</th>
             </tr>
           </thead>
           <tbody>
@@ -93,27 +128,65 @@ function ResultTableBlock({
                   {periods.map((p) => {
                     const v = r.values[p.key] || { 출고: 0, 가중: 0, 금액: 0 };
                     return (
-                      <td key={`${p.key}-${idx}`} className="border px-2 py-1" colSpan={3}>
-                        <div className="grid grid-cols-3 gap-2">
-                          <span className="text-right">{formatNumber(v.출고)}</span>
-                          <span className="text-right">{formatNumber(v.가중)}</span>
-                          <span className="text-right">{formatNumber(v.금액)}</span>
-                        </div>
-                      </td>
+                      <span key={`${p.key}-${idx}`} className="contents">
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatNumber(v.출고)}
+                        </td>
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatNumber(v.가중)}
+                        </td>
+                        <td className="border px-2 py-1 text-right">
+                          {formatNumber(v.금액)}
+                        </td>
+                      </span>
                     );
                   })}
 
-                  <td className="border px-2 py-1" colSpan={3}>
-                    <div className="grid grid-cols-3 gap-2">
-                      <span className="text-right">{formatNumber(r.sum.출고)}</span>
-                      <span className="text-right">{formatNumber(r.sum.가중)}</span>
-                      <span className="text-right">{formatNumber(r.sum.금액)}</span>
-                    </div>
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatNumber(r.sum.출고)}
+                  </td>
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatNumber(r.sum.가중)}
+                  </td>
+                  <td className="border px-2 py-1 text-right">
+                    {formatNumber(r.sum.금액)}
                   </td>
                 </tr>
               );
             })}
           </tbody>
+          <tfoot>
+            <tr>
+              <td className="border px-2 py-1 bg-gray-50 font-semibold text-center" colSpan={2}>
+                합계
+              </td>
+              {periods.map((p) => {
+                const v = columnTotals.totals[p.key];
+                return (
+                  <span key={`total-${p.key}`} className="contents">
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatNumber(v.출고)}
+                    </td>
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatNumber(v.가중)}
+                    </td>
+                    <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                      {formatNumber(v.금액)}
+                    </td>
+                  </span>
+                );
+              })}
+              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                {formatNumber(columnTotals.sum.출고)}
+              </td>
+              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                {formatNumber(columnTotals.sum.가중)}
+              </td>
+              <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                {formatNumber(columnTotals.sum.금액)}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
