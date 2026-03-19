@@ -413,10 +413,8 @@ function buildAggregate(
       // empty return date
       if (bucket === "조리원") {
         end = periodEnd;
-      } else if (endDt) {
-        end = endDt;
       } else {
-        end = periodEnd;
+        end = endDt;
       }
     }
 
@@ -424,6 +422,10 @@ function buildAggregate(
 
     // end < start -> skip
     if (end.getTime() < startDt.getTime()) continue;
+
+    const totalDays =
+      Math.floor((end.getTime() - startDt.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    if (totalDays <= 0) continue;
 
     const pumpModel = row.product_name || "미지정";
 
@@ -442,8 +444,8 @@ function buildAggregate(
         cell.출고 += 1;
       }
 
-      // 가중수량
-      cell.가중 += overlap;
+      // 가중수량(기간기여 비율)
+      cell.가중 += overlap / totalDays;
 
       // 금액
       cell.금액 += overlap * price;
