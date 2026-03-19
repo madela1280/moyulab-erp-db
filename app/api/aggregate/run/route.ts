@@ -350,9 +350,6 @@ function buildAggregate(
     if (!valuesByPump.has(pumpModel)) valuesByPump.set(pumpModel, new Map());
     const map = valuesByPump.get(pumpModel)!;
     if (!map.has(partnerCategory)) {
-      map.set(pumpModel, map); // noop, just to keep ts quiet
-    }
-    if (!map.has(partnerCategory)) {
       map.set(partnerCategory, {
         pumpModel,
         partnerCategory,
