@@ -1,7 +1,7 @@
 // app/views/aggregate/AggregateView.tsx
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useAggregateRunForm } from "@/aggregate/run/useAggregateRunForm";
 import type {
@@ -10,7 +10,9 @@ import type {
   PartnerScope,
   PumpScope,
   RentTypeScope,
+  AggregateRunRequest,
 } from "@/aggregate/run/types.aggregateRun";
+import AggregateResultView from "@/views/aggregate/AggregateResultView";
 
 function FieldLabel(props: { required?: boolean; children: string }) {
   const { children } = props;
@@ -49,6 +51,8 @@ export default function AggregateView() {
     rentTypeScope: "전체",
   });
 
+  const [resultRequest, setResultRequest] = useState<AggregateRunRequest | null>(null);
+
   const granularityOptions: AggregateGranularity[] = ["일별", "월별", "연별"];
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종", "기기번호"];
@@ -58,6 +62,17 @@ export default function AggregateView() {
     return arr;
   }, []);
   const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스", "대체기기", "문제기기"];
+
+  const onConfirm = () => {
+    const r = form.confirm();
+    if (r.ok) {
+      setResultRequest(r.request);
+    }
+  };
+
+  if (resultRequest) {
+    return <AggregateResultView request={resultRequest} onBack={() => setResultRequest(null)} />;
+  }
 
   return (
     <div className="w-full h-full overflow-auto">
@@ -281,7 +296,7 @@ export default function AggregateView() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => form.confirm()}
+                    onClick={onConfirm}
                     className={`px-4 py-2 text-sm rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 ${
                       !form.canConfirm ? "opacity-60" : ""
                     }`}
