@@ -1,3 +1,4 @@
+// app/api/aggregate/run/route.ts
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
@@ -12,7 +13,7 @@ type Period = {
   end: Date;
 };
 
-type CellValue = { 출고: number; 가중: number; 금액: number };
+type CellValue = { 출고: number; 대여일수: number; 금액: number };
 
 type ResultRow = {
   pumpModel: string;
@@ -189,33 +190,27 @@ function shiftByMonthsUTC(d: Date, diff: number) {
   return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), safeDay));
 }
 
-function shiftPeriod(start: Date, end: Date, type: "전년동일기간" | "전월동일기간" | "전주동일기간") {
+function shiftPeriod(start: Date, end: Date, type: "전년동일기간" | "전월동일기간") {
   if (type === "전년동일기간") {
     return {
       start: shiftByMonthsUTC(start, -12),
       end: shiftByMonthsUTC(end, -12),
     };
   }
-  if (type === "전월동일기간") {
-    return {
-      start: shiftByMonthsUTC(start, -1),
-      end: shiftByMonthsUTC(end, -1),
-    };
-  }
-  // 전주
+  // 전월
   return {
-    start: addDaysUTC(start, -7),
-    end: addDaysUTC(end, -7),
+    start: shiftByMonthsUTC(start, -1),
+    end: shiftByMonthsUTC(end, -1),
   };
 }
 
 function initCell(): CellValue {
-  return { 출고: 0, 가중: 0, 금액: 0 };
+  return { 출고: 0, 대여일수: 0, 금액: 0 };
 }
 
 function addCell(a: CellValue, b: CellValue) {
   a.출고 += b.출고;
-  a.가중 += b.가중;
+  a.대여일수 += b.대여일수;
   a.금액 += b.금액;
 }
 
@@ -422,16 +417,10 @@ function buildAggregate(
 
     // end < start -> skip
     if (end.getTime() < startDt.getTime()) continue;
-
-    const totalDays =
-      Math.floor((end.getTime() - startDt.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-    if (totalDays <= 0) continue;
-
+    
     const pumpModel = row.product_name || "미지정";
 
-    const price =
-      pumpPriceMap.get(partnerName)?.get(pumpModel)?.rent ??
-      0;
+    const price = pumpPriceMap.get(partnerName)?.get(pumpModel)?.rent ?? 0;
 
     for (const p of periods) {
       const overlap = overlapDaysInclusive(startDt, end, p.start, p.end);
@@ -444,8 +433,8 @@ function buildAggregate(
         cell.출고 += 1;
       }
 
-      // 가중수량(기간기여 비율)
-      cell.가중 += overlap / totalDays;
+      // 대여일수(기간 겹침일수)
+      cell.대여일수 += overlap;
 
       // 금액
       cell.금액 += overlap * price;
@@ -512,9 +501,9 @@ function buildAggregate(
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
   const headers: string[] = ["기종", "거래처"];
   for (const p of result.periods) {
-    headers.push(`${p.label}_출고`, `${p.label}_가중`, `${p.label}_금액`);
+    headers.push(`${p.label}_출고`, `${p.label}_대여일수`, `${p.label}_금액`);
   }
-  headers.push("합계_출고", "합계_가중", "합계_금액");
+  headers.push("합계_출고", "합계_대여일수", "합계_금액");
 
   const lines: string[] = [];
   lines.push(headers.join(","));
@@ -523,9 +512,9 @@ function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
     const row: string[] = [r.pumpModel, r.partnerCategory];
     for (const p of result.periods) {
       const v = r.values[p.key];
-      row.push(String(v.출고), String(v.가중), String(v.금액));
+      row.push(String(v.출고), String(v.대여일수), String(v.금액));
     }
-    row.push(String(r.sum.출고), String(r.sum.가중), String(r.sum.금액));
+    row.push(String(r.sum.출고), String(r.sum.대여일수), String(r.sum.금액));
     lines.push(row.map((x) => `"${String(x).replaceAll(`"`, `""`)}"`).join(","));
   }
 
@@ -577,7 +566,7 @@ export async function POST(req: Request) {
   const compareResults: any[] = [];
   const compare = body.비교기간 || {};
 
-  (["전년동일기간", "전월동일기간", "전주동일기간"] as const).forEach((key) => {
+  (["전년동일기간", "전월동일기간"] as const).forEach((key) => {
     if ((compare as any)[key]) {
       const shifted = shiftPeriod(start, end, key);
       const cmp = buildAggregate(

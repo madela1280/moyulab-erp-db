@@ -43,7 +43,6 @@ export default function AggregateView() {
       선택안함: true,
       전년동일기간: false,
       전월동일기간: false,
-      전주동일기간: false,
     },
     partnerScope: "전체",
     pumpScope: "전체",
@@ -236,22 +235,7 @@ export default function AggregateView() {
                     >
                       전월동일기간
                     </span>
-                  </label>
-
-                  <label className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.state.compare.전주동일기간}
-                      onChange={() => form.toggleCompare("전주동일기간")}
-                    />
-                    <span
-                      className={
-                        form.state.compare.전주동일기간 ? "font-semibold text-gray-900" : "text-gray-700"
-                      }
-                    >
-                      전주동일기간
-                    </span>
-                  </label>
+                  </label>     
                 </div>
 
                 <ErrorText text={form.lastErrors.compare} />

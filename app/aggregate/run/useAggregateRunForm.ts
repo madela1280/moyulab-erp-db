@@ -109,7 +109,6 @@ export function createDefaultAggregateRunFormState(
       선택안함: true,
       전년동일기간: false,
       전월동일기간: false,
-      전주동일기간: false,
     },
 
     partnerScope: init?.partnerScope ?? "전체",
@@ -124,8 +123,7 @@ export function createDefaultAggregateRunFormState(
 }
 
 function normalizeCompare(next: ComparePeriodOptions): ComparePeriodOptions {
-  const anyOther =
-    !!next.전년동일기간 || !!next.전월동일기간 || !!next.전주동일기간;
+  const anyOther = !!next.전년동일기간 || !!next.전월동일기간;
 
   // 다른 항목이 하나라도 켜졌으면 선택안함은 자동 OFF
   if (anyOther) {
@@ -133,7 +131,6 @@ function normalizeCompare(next: ComparePeriodOptions): ComparePeriodOptions {
       선택안함: false,
       전년동일기간: !!next.전년동일기간,
       전월동일기간: !!next.전월동일기간,
-      전주동일기간: !!next.전주동일기간,
     };
   }
 
@@ -146,7 +143,6 @@ function normalizeCompare(next: ComparePeriodOptions): ComparePeriodOptions {
     선택안함: true,
     전년동일기간: false,
     전월동일기간: false,
-    전주동일기간: false,
   };
 }
 
@@ -176,11 +172,9 @@ function buildSummary(req: AggregateRunRequest): AggregateRunSummary {
   const compareOn = [
     req.비교기간.전년동일기간 ? "전년동일기간" : "",
     req.비교기간.전월동일기간 ? "전월동일기간" : "",
-    req.비교기간.전주동일기간 ? "전주동일기간" : "",
   ].filter(Boolean);
 
-  const compareText =
-    compareOn.length > 0 ? compareOn.join(", ") : "선택안함";
+  const compareText = compareOn.length > 0 ? compareOn.join(", ") : "선택안함";
 
   const filterText = `거래처:${req.필터.거래처} / 유축기:${req.필터.유축기} / 연장:${req.필터.연장} / 대여형태:${req.필터.대여형태}`;
 
@@ -227,10 +221,7 @@ function validate(state: AggregateRunFormState): FieldErrors {
   // 비교기간은 기본 선택안함이라 '필수 미선택' 상황은 거의 없지만 안전장치
   const normalizedCompare = normalizeCompare(state.compare);
   const anySelected =
-    normalizedCompare.선택안함 ||
-    normalizedCompare.전년동일기간 ||
-    normalizedCompare.전월동일기간 ||
-    normalizedCompare.전주동일기간;
+    normalizedCompare.선택안함 || normalizedCompare.전년동일기간 || normalizedCompare.전월동일기간;
 
   if (!anySelected) {
     errors.compare = "비교기간을 선택해 주세요.";
@@ -276,26 +267,22 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     }));
   }, []);
 
-  const toggleCompare = useCallback(
-    (key: keyof ComparePeriodOptions) => {
-      setState((prev) => {
-        if (key === "선택안함") {
-          return {
-            ...prev,
-            compare: normalizeCompare({
-              선택안함: true,
-              전년동일기간: false,
-              전월동일기간: false,
-              전주동일기간: false,
-            }),
-          };
-        }
-        const next = { ...prev.compare, [key]: !prev.compare[key] } as ComparePeriodOptions;
-        return { ...prev, compare: normalizeCompare(next) };
-      });
-    },
-    []
-  );
+  const toggleCompare = useCallback((key: keyof ComparePeriodOptions) => {
+    setState((prev) => {
+      if (key === "선택안함") {
+        return {
+          ...prev,
+          compare: normalizeCompare({
+            선택안함: true,
+            전년동일기간: false,
+            전월동일기간: false,
+          }),
+        };
+      }
+      const next = { ...prev.compare, [key]: !prev.compare[key] } as ComparePeriodOptions;
+      return { ...prev, compare: normalizeCompare(next) };
+    });
+  }, []);
 
   const setPartnerScope = useCallback((v: PartnerScope) => {
     setState((prev) => ({ ...prev, partnerScope: v }));

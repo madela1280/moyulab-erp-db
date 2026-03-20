@@ -10,13 +10,13 @@ export type AggregateGranularity = "일별" | "월별" | "연별";
 /**
  * 비교기간
  * - UI 요구사항: 기본은 "선택안함" 체크
- * - 필요 시 전년/전월/전주를 각각 체크(다중 선택 가능)
+ * - 필요 시 전년/전월을 각각 체크(다중 선택 가능)
+ * - 전주동일기간은 기능 삭제
  */
 export type ComparePeriodOptions = {
   선택안함: boolean;
   전년동일기간: boolean;
   전월동일기간: boolean;
-  전주동일기간: boolean;
 };
 
 export type PartnerScope = "전체" | "보건소" | "조리원" | "온라인" | "개인";
