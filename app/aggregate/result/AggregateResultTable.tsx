@@ -74,39 +74,64 @@ function ResultTableBlock({
       {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
 
       <div className="overflow-auto border rounded bg-white">
-        <table className="min-w-[900px] w-full border-collapse text-xs">
+       <table className="w-max min-w-full border-collapse table-auto text-xs">
          <thead>
             <tr>
-              <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]"
+                rowSpan={2}
+              >
                 기종
               </th>
-              <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]"
+                rowSpan={2}
+              >
                 거래처
               </th>
               {periods.map((p) => (
-                <th key={p.key} className="border px-2 py-1 bg-gray-100" colSpan={3}>
+                <th
+                  key={p.key}
+                  className="border px-2 py-1 bg-gray-100 whitespace-nowrap"
+                  colSpan={3}
+                >
                   {p.label}
                 </th>
               ))}
-              <th className="border px-2 py-1 bg-gray-100" colSpan={3}>
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
                 합계
               </th>
             </tr>
             <tr>
               {periods.flatMap((p) => [
-                <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 min-w-[56px]">
+                <th
+                  key={`${p.key}-out`}
+                  className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]"
+                >
                   출고수량
                 </th>,
-                <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 min-w-[56px]">
+                <th
+                  key={`${p.key}-days`}
+                  className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]"
+                >
                   대여일수
                 </th>,
-                <th key={`${p.key}-amount`} className="border px-2 py-1 bg-gray-100 min-w-[72px]">
+                <th
+                  key={`${p.key}-amount`}
+                  className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]"
+                >
                   금액
                 </th>,
               ])}
-              <th className="border px-1 py-1 bg-gray-100 min-w-[56px]">출고수량</th>
-              <th className="border px-1 py-1 bg-gray-100 min-w-[56px]">대여일수</th>
-              <th className="border px-2 py-1 bg-gray-100 min-w-[72px]">금액</th>
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                출고수량
+              </th>
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                대여일수
+              </th>
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+                금액
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -119,11 +144,16 @@ function ResultTableBlock({
                   className={isSubtotal ? "bg-gray-100" : ""}
                 >
                   {rowSpan > 0 ? (
-                    <td className="border px-2 py-1 align-top text-center" rowSpan={rowSpan}>
+                    <td
+                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      rowSpan={rowSpan}
+                    >
                       {r.pumpModel}
                     </td>
                   ) : null}
-                  <td className="border px-2 py-1">{r.partnerCategory}</td>
+                  <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
+                    {r.partnerCategory}
+                  </td>
 
                   {periods.map((p) => {
                     const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
