@@ -75,12 +75,12 @@ function ResultTableBlock({
 
       <div className="overflow-auto border rounded bg-white">
         <table className="min-w-[900px] w-full border-collapse text-xs">
-          <thead>
+         <thead>
             <tr>
-              <th className="border px-2 py-1 bg-gray-100" rowSpan={3}>
+              <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
                 기종
               </th>
-              <th className="border px-2 py-1 bg-gray-100" rowSpan={3}>
+              <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
                 거래처
               </th>
               {periods.map((p) => (
@@ -93,32 +93,20 @@ function ResultTableBlock({
               </th>
             </tr>
             <tr>
-              {periods.map((p) => (
-                <span key={`${p.key}-qty`} className="contents">
-                  <th className="border px-2 py-1 bg-gray-100" colSpan={2}>
-                    수량
-                  </th>
-                  <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
-                    금액
-                  </th>
-                </span>
-              ))}
-              <th className="border px-2 py-1 bg-gray-100" colSpan={2}>
-                수량
-              </th>
-              <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>
-                금액
-              </th>
-            </tr>
-            <tr>
-              {periods.map((p) => (
-                <span key={`${p.key}-sub`} className="contents">
-                  <th className="border px-1 py-1 bg-gray-100 min-w-[36px]">출고</th>
-                  <th className="border px-1 py-1 bg-gray-100 min-w-[36px]">대여일수</th>
-                </span>
-              ))}
-              <th className="border px-1 py-1 bg-gray-100 min-w-[36px]">출고</th>
-              <th className="border px-1 py-1 bg-gray-100 min-w-[36px]">대여일수</th>
+              {periods.flatMap((p) => [
+                <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 min-w-[56px]">
+                  출고수량
+                </th>,
+                <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 min-w-[56px]">
+                  대여일수
+                </th>,
+                <th key={`${p.key}-amount`} className="border px-2 py-1 bg-gray-100 min-w-[72px]">
+                  금액
+                </th>,
+              ])}
+              <th className="border px-1 py-1 bg-gray-100 min-w-[56px]">출고수량</th>
+              <th className="border px-1 py-1 bg-gray-100 min-w-[56px]">대여일수</th>
+              <th className="border px-2 py-1 bg-gray-100 min-w-[72px]">금액</th>
             </tr>
           </thead>
           <tbody>
