@@ -662,3 +662,4 @@ export async function POST(req: Request) {
     compareResults,
     deviceRows: main.deviceRows || [],
   });   
+}
