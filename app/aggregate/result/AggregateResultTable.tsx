@@ -132,11 +132,7 @@ function BigBarCell({ metric }: { metric: CompareMetric }) {
   );
 }
 
-function GraphHeader({
-  periods,
-}: {
-  periods: AggregatePeriodMeta[];
-}) {
+function GraphHeader({ periods }: { periods: AggregatePeriodMeta[] }) {
   return (
     <thead className="sticky top-0 z-20">
       <tr>
@@ -180,6 +176,7 @@ function GraphRow({
   compareLabel,
   periods,
   sum,
+  isGrandTotal = false,
 }: {
   pumpModel: string;
   compareLabel: string;
@@ -189,11 +186,14 @@ function GraphRow({
     대여일수: CompareMetric;
     금액: CompareMetric;
   };
+  isGrandTotal?: boolean;
 }) {
   return (
-    <tr className="bg-sky-50/40 border-t-2 border-gray-400">
+    <tr className={`bg-sky-50/40 ${isGrandTotal ? "border-t-2 border-gray-600 bg-amber-50/40" : "border-t-2 border-gray-400"}`}>
       <td className="border px-3 py-2 align-top" colSpan={2}>
-        <div className="text-[12px] font-semibold text-gray-800">{pumpModel} 소계 비교</div>
+        <div className="text-[12px] font-semibold text-gray-800">
+          {isGrandTotal ? "합계 비교" : `${pumpModel} 소계 비교`}
+        </div>
         <div className="mt-1 text-[11px] text-gray-600">{compareLabel}</div>
         <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-600">
           <span className="inline-flex items-center gap-1">
@@ -367,6 +367,7 @@ function CompareResultTable({
   rows: AggregateResultRow[];
 }) {
   const rowSpans = buildGroupRowSpans(rows);
+  const columnTotals = buildColumnTotals(rows, periods);
 
   return (
     <div className="mb-4">
@@ -440,6 +441,39 @@ function CompareResultTable({
               );
             })}
           </tbody>
+
+          <tfoot>
+            <tr>
+              <td className="border px-2 py-1 bg-gray-50 font-semibold text-center" colSpan={2}>
+                합계
+              </td>
+              {periods.map((p) => {
+                const v = columnTotals.totals[p.key];
+                return (
+                  <Fragment key={`cmp-total-${p.key}`}>
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatNumber(v.출고)}
+                    </td>
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatRentalDays(v.대여일수)}
+                    </td>
+                    <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                      {formatNumber(v.금액)}
+                    </td>
+                  </Fragment>
+                );
+              })}
+              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                {formatNumber(columnTotals.sum.출고)}
+              </td>
+              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                {formatRentalDays(columnTotals.sum.대여일수)}
+              </td>
+              <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                {formatNumber(columnTotals.sum.금액)}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -468,6 +502,91 @@ function CompareGraphSection({
 
         const pumpOrder = Array.from(compareMap.keys());
 
+        const grandPeriods: ComparePeriod[] = metaPeriods.map((p) => {
+          let outCurrent = 0;
+          let outCompare = 0;
+          let dayCurrent = 0;
+          let dayCompare = 0;
+          let amtCurrent = 0;
+          let amtCompare = 0;
+          let outMax = 0;
+          let dayMax = 0;
+          let amtMax = 0;
+
+          for (const pump of pumpOrder) {
+            const sets = compareMap.get(pump) || [];
+            const set = sets[0];
+            if (!set) continue;
+            const per = set.periods.find((x) => x.key === p.key);
+            if (!per) continue;
+
+            outCurrent += per.출고수량.current;
+            outCompare += per.출고수량.compare;
+            dayCurrent += per.대여일수.current;
+            dayCompare += per.대여일수.compare;
+            amtCurrent += per.금액.current;
+            amtCompare += per.금액.compare;
+
+            outMax = Math.max(outMax, per.출고수량.max);
+            dayMax = Math.max(dayMax, per.대여일수.max);
+            amtMax = Math.max(amtMax, per.금액.max);
+          }
+
+          const outMetric: CompareMetric = {
+            current: outCurrent,
+            compare: outCompare,
+            delta: outCurrent - outCompare,
+            max: Math.max(outCurrent, outCompare, outMax),
+          };
+          const dayMetric: CompareMetric = {
+            current: dayCurrent,
+            compare: dayCompare,
+            delta: dayCurrent - dayCompare,
+            max: Math.max(dayCurrent, dayCompare, dayMax),
+          };
+          const amtMetric: CompareMetric = {
+            current: amtCurrent,
+            compare: amtCompare,
+            delta: amtCurrent - amtCompare,
+            max: Math.max(amtCurrent, amtCompare, amtMax),
+          };
+
+          return {
+            key: p.key,
+            출고수량: outMetric,
+            대여일수: dayMetric,
+            금액: amtMetric,
+          };
+        });
+
+        const sumOutCurrent = grandPeriods.reduce((a, x) => a + x.출고수량.current, 0);
+        const sumOutCompare = grandPeriods.reduce((a, x) => a + x.출고수량.compare, 0);
+        const sumDayCurrent = grandPeriods.reduce((a, x) => a + x.대여일수.current, 0);
+        const sumDayCompare = grandPeriods.reduce((a, x) => a + x.대여일수.compare, 0);
+        const sumAmtCurrent = grandPeriods.reduce((a, x) => a + x.금액.current, 0);
+        const sumAmtCompare = grandPeriods.reduce((a, x) => a + x.금액.compare, 0);
+
+        const grandSum = {
+          출고수량: {
+            current: sumOutCurrent,
+            compare: sumOutCompare,
+            delta: sumOutCurrent - sumOutCompare,
+            max: Math.max(sumOutCurrent, sumOutCompare),
+          },
+          대여일수: {
+            current: sumDayCurrent,
+            compare: sumDayCompare,
+            delta: sumDayCurrent - sumDayCompare,
+            max: Math.max(sumDayCurrent, sumDayCompare),
+          },
+          금액: {
+            current: sumAmtCurrent,
+            compare: sumAmtCompare,
+            delta: sumAmtCurrent - sumAmtCompare,
+            max: Math.max(sumAmtCurrent, sumAmtCompare),
+          },
+        };
+
         return (
           <div key={`${cmp.label}-${cmpIdx}`} className="overflow-auto border rounded bg-white max-h-[70vh]">
             <table className="w-max min-w-full border-collapse table-auto text-xs">
@@ -485,6 +604,14 @@ function CompareGraphSection({
                     />
                   ));
                 })}
+
+                <GraphRow
+                  pumpModel="합계"
+                  compareLabel={cmp.label}
+                  periods={grandPeriods}
+                  sum={grandSum}
+                  isGrandTotal
+                />
               </tbody>
             </table>
           </div>
