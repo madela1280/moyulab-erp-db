@@ -17,6 +17,7 @@ export type AggregateSubtotalComparePeriod = {
 };
 
 export type AggregateSubtotalCompareRowProps = {
+  pumpModel: string;
   compareLabel: string;
   periods: AggregateSubtotalComparePeriod[];
   sum: {
@@ -124,6 +125,7 @@ function MiniCompareBarCell({
 }
 
 export default function AggregateSubtotalCompareRow({
+  pumpModel,
   compareLabel,
   periods,
   sum,
@@ -131,7 +133,7 @@ export default function AggregateSubtotalCompareRow({
   return (
     <tr className="bg-sky-50/40">
       <td className="border px-3 py-2 align-top" colSpan={2}>
-        <div className="text-[11px] font-semibold text-gray-800">비교그래프</div>
+        <div className="text-[11px] font-semibold text-gray-800">{pumpModel} 소계 비교</div>
         <div className="mt-0.5 text-[10px] text-gray-600">{compareLabel}</div>
         <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-gray-500">
           <LegendDot colorClass="bg-blue-500" label="기준" />
