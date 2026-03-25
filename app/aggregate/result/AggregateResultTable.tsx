@@ -360,10 +360,8 @@ function CompareGraphSection({
 }) {
   if (!compareResults?.length) return null;
 
-  const wrapClass = compareResults.length > 1 ? "space-y-0" : "";
-
   return (
-    <div className={wrapClass}>
+    <div className="space-y-0">
       {compareResults.map((cmp, cmpIdx) => {
         const compareMap = buildSubtotalCompareMap({
           mainPeriods: metaPeriods,
