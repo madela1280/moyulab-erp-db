@@ -60,27 +60,20 @@ function buildGroupRowSpans(rows: AggregateResultRow[]) {
   return spans;
 }
 
-function ResultTableBlock({
+function MainResultTable({
   title,
   periods,
   rows,
-  compareResults = [],
 }: {
   title?: string;
   periods: AggregatePeriodMeta[];
   rows: AggregateResultRow[];
-  compareResults?: AggregateCompareResult[];
 }) {
   const rowSpans = buildGroupRowSpans(rows);
   const columnTotals = buildColumnTotals(rows, periods);
-  const subtotalCompareMap = buildSubtotalCompareMap({
-    mainPeriods: periods,
-    rows,
-    compareResults,
-  });
 
   return (
-    <div className="mb-6">
+    <div className="mb-4">
       {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
 
       <div className="overflow-auto border rounded bg-white">
@@ -149,58 +142,44 @@ function ResultTableBlock({
             {rows.map((r, idx) => {
               const rowSpan = rowSpans[idx] || 0;
               const isSubtotal = r.partnerCategory === "소계";
-              const compareSets = isSubtotal ? subtotalCompareMap.get(r.pumpModel) || [] : [];
 
               return (
-                <Fragment key={`${r.pumpModel}-${r.partnerCategory}-${idx}`}>
-                  <tr className={isSubtotal ? "bg-gray-100" : ""}>
-                    {rowSpan > 0 ? (
-                      <td
-                        className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
-                        rowSpan={rowSpan}
-                      >
-                        {r.pumpModel}
-                      </td>
-                    ) : null}
-                    <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
-                      {r.partnerCategory}
+                <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
+                  {rowSpan > 0 ? (
+                    <td
+                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      rowSpan={rowSpan}
+                    >
+                      {r.pumpModel}
                     </td>
+                  ) : null}
+                  <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
+                    {r.partnerCategory}
+                  </td>
 
-                    {periods.map((p) => {
-                      const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
-                      return (
-                        <Fragment key={`${p.key}-${idx}`}>
-                          <td className="border px-1 py-1 text-right min-w-[36px]">
-                            {formatNumber(v.출고)}
-                          </td>
-                          <td className="border px-1 py-1 text-right min-w-[36px]">
-                            {formatRentalDays(v.대여일수)}
-                          </td>
-                          <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
-                        </Fragment>
-                      );
-                    })}
+                  {periods.map((p) => {
+                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
+                    return (
+                      <Fragment key={`${p.key}-${idx}`}>
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatNumber(v.출고)}
+                        </td>
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatRentalDays(v.대여일수)}
+                        </td>
+                        <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+                      </Fragment>
+                    );
+                  })}
 
-                    <td className="border px-1 py-1 text-right min-w-[36px]">
-                      {formatNumber(r.sum.출고)}
-                    </td>
-                    <td className="border px-1 py-1 text-right min-w-[36px]">
-                      {formatRentalDays(r.sum.대여일수)}
-                    </td>
-                    <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
-                  </tr>
-
-                  {isSubtotal &&
-                    compareSets.map((set, sIdx) => (
-                      <AggregateSubtotalCompareRow
-                        key={`${r.pumpModel}-compare-${sIdx}`}
-                        pumpModel={r.pumpModel}
-                        compareLabel={set.compareLabel}
-                        periods={set.periods}
-                        sum={set.sum}
-                      />
-                    ))}
-                </Fragment>
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatNumber(r.sum.출고)}
+                  </td>
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatRentalDays(r.sum.대여일수)}
+                  </td>
+                  <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+                </tr>
               );
             })}
           </tbody>
@@ -243,6 +222,182 @@ function ResultTableBlock({
   );
 }
 
+function CompareResultTable({
+  title,
+  periods,
+  rows,
+}: {
+  title?: string;
+  periods: AggregatePeriodMeta[];
+  rows: AggregateResultRow[];
+}) {
+  const rowSpans = buildGroupRowSpans(rows);
+
+  return (
+    <div className="mb-4">
+      {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
+
+      <div className="overflow-auto border rounded bg-white">
+        <table className="w-max min-w-full border-collapse table-auto text-xs">
+          <thead>
+            <tr>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]"
+                rowSpan={2}
+              >
+                기종
+              </th>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]"
+                rowSpan={2}
+              >
+                거래처
+              </th>
+              {periods.map((p) => (
+                <th
+                  key={p.key}
+                  className="border px-2 py-1 bg-gray-100 whitespace-nowrap"
+                  colSpan={3}
+                >
+                  {p.label}
+                </th>
+              ))}
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+                합계
+              </th>
+            </tr>
+            <tr>
+              {periods.flatMap((p) => [
+                <th
+                  key={`${p.key}-out`}
+                  className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]"
+                >
+                  출고수량
+                </th>,
+                <th
+                  key={`${p.key}-days`}
+                  className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]"
+                >
+                  대여일수
+                </th>,
+                <th
+                  key={`${p.key}-amount`}
+                  className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]"
+                >
+                  금액
+                </th>,
+              ])}
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                출고수량
+              </th>
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                대여일수
+              </th>
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+                금액
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map((r, idx) => {
+              const rowSpan = rowSpans[idx] || 0;
+              const isSubtotal = r.partnerCategory === "소계";
+              return (
+                <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
+                  {rowSpan > 0 ? (
+                    <td
+                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      rowSpan={rowSpan}
+                    >
+                      {r.pumpModel}
+                    </td>
+                  ) : null}
+                  <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
+                    {r.partnerCategory}
+                  </td>
+
+                  {periods.map((p) => {
+                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
+                    return (
+                      <Fragment key={`${p.key}-${idx}`}>
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatNumber(v.출고)}
+                        </td>
+                        <td className="border px-1 py-1 text-right min-w-[36px]">
+                          {formatRentalDays(v.대여일수)}
+                        </td>
+                        <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+                      </Fragment>
+                    );
+                  })}
+
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatNumber(r.sum.출고)}
+                  </td>
+                  <td className="border px-1 py-1 text-right min-w-[36px]">
+                    {formatRentalDays(r.sum.대여일수)}
+                  </td>
+                  <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function CompareGraphSection({
+  metaPeriods,
+  mainRows,
+  compareResults,
+}: {
+  metaPeriods: AggregatePeriodMeta[];
+  mainRows: AggregateResultRow[];
+  compareResults: AggregateCompareResult[];
+}) {
+  if (!compareResults?.length) return null;
+
+  const wrapClass = compareResults.length > 1 ? "space-y-0" : "";
+
+  return (
+    <div className={wrapClass}>
+      {compareResults.map((cmp, cmpIdx) => {
+        const compareMap = buildSubtotalCompareMap({
+          mainPeriods: metaPeriods,
+          rows: mainRows,
+          compareResults: [cmp],
+        });
+
+        const pumpOrder = Array.from(compareMap.keys());
+
+        return (
+          <div key={`${cmp.label}-${cmpIdx}`} className="overflow-auto border rounded bg-white">
+            <table className="w-max min-w-full border-collapse table-auto text-xs">
+              <tbody>
+                {pumpOrder.map((pumpModel) => {
+                  const sets = compareMap.get(pumpModel) || [];
+                  return sets.map((set, setIdx) => (
+                    <AggregateSubtotalCompareRow
+                      key={`${cmp.label}-${pumpModel}-${setIdx}`}
+                      pumpModel={pumpModel}
+                      compareLabel={set.compareLabel}
+                      periods={set.periods}
+                      sum={set.sum}
+                    />
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AggregateResultTable({
   meta,
   rows,
@@ -253,22 +408,27 @@ export function AggregateResultTable({
   compareResults: AggregateCompareResult[];
 }) {
   return (
-    <div className="space-y-6">
-      <ResultTableBlock
+    <div className="space-y-4">
+      <MainResultTable
         title={`유축기 전체 : ${meta.periodStart} ~ ${meta.periodEnd}`}
         periods={meta.periods}
         rows={rows}
-        compareResults={compareResults}
       />
 
       {compareResults?.map((cmp, i) => (
-        <ResultTableBlock
+        <CompareResultTable
           key={`${cmp.label}-${i}`}
           title={`비교: ${cmp.label} (${cmp.periodStart} ~ ${cmp.periodEnd})`}
           periods={cmp.periods}
           rows={cmp.rows}
         />
       ))}
+
+      <CompareGraphSection
+        metaPeriods={meta.periods}
+        mainRows={rows}
+        compareResults={compareResults}
+      />
     </div>
   );
 }
