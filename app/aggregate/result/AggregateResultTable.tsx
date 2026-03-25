@@ -120,7 +120,10 @@ function MainResultTable({
               return (
                 <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
                   {rowSpan > 0 ? (
-                    <td className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]" rowSpan={rowSpan}>
+                    <td
+                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      rowSpan={rowSpan}
+                    >
                       {r.pumpModel}
                     </td>
                   ) : null}
@@ -243,7 +246,10 @@ function CompareResultTable({
               return (
                 <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
                   {rowSpan > 0 ? (
-                    <td className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]" rowSpan={rowSpan}>
+                    <td
+                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      rowSpan={rowSpan}
+                    >
                       {r.pumpModel}
                     </td>
                   ) : null}

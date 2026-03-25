@@ -22,6 +22,15 @@ type ResultRow = {
   sum: CellValue;
 };
 
+type DeviceResultRow = {
+  pumpModel: string;
+  partnerCategory: string;
+  deviceNo: string;
+  rentKind: "구매" | "렌탈" | "";
+  values: Record<string, CellValue>;
+  sum: CellValue;
+};
+
 const PARTNER_BUCKETS = ["온라인", "보건소", "조리원", "개인", "기타"] as const;
 
 const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥스", "프리스타일", "시밀레", "각시밀"] as const;
@@ -180,6 +189,13 @@ function normalizePartnerBucket(name: string) {
   return "기타";
 }
 
+function normalizeRentKind(v: string): "구매" | "렌탈" | "" {
+  const s = String(v ?? "").trim();
+  if (s.includes("구매")) return "구매";
+  if (s.includes("렌탈")) return "렌탈";
+  return "";
+}
+
 function shiftByMonthsUTC(d: Date, diff: number) {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
@@ -253,11 +269,12 @@ async function loadAllRows() {
       u.data->>'거래처분류' AS partner_category,
       u.data->>'수취인명' AS receiver_name,
       u.data->>'제품' AS product_name,
-      u.data->>'기기번호' AS device_no
+      u.data->>'기기번호' AS device_no,
+      u.data->>'대여형태' AS rent_kind
     FROM unified u
   `);
 
-  for (const t of existingTables) {
+ for (const t of existingTables) {
     unionParts.push(`
       SELECT
         x.data->>'시작일' AS start_date,
@@ -266,7 +283,8 @@ async function loadAllRows() {
         x.data->>'거래처분류' AS partner_category,
         x.data->>'수취인명' AS receiver_name,
         x.data->>'제품' AS product_name,
-        x.data->>'기기번호' AS device_no
+        x.data->>'기기번호' AS device_no,
+        x.data->>'대여형태' AS rent_kind
       FROM ${t} x
     `);
   }
@@ -284,6 +302,7 @@ async function loadAllRows() {
     receiver_name: String(x.receiver_name ?? "").trim(),
     product_name: String(x.product_name ?? "").trim(),
     device_no: String(x.device_no ?? "").trim(),
+    rent_kind: String(x.rent_kind ?? "").trim(),
   }));
 }
 
@@ -354,6 +373,7 @@ function buildAggregate(
 ) {
   const periods = buildPeriods(periodStart, periodEnd, granularity);
   const valuesByPump = new Map<string, Map<string, ResultRow>>();
+  const deviceRowsOut: DeviceResultRow[] = [];
 
   function getRow(pumpModel: string, partnerCategory: string) {
     if (!valuesByPump.has(pumpModel)) valuesByPump.set(pumpModel, new Map());
@@ -419,6 +439,8 @@ function buildAggregate(
 
     const price = pumpPriceMap.get(partnerName)?.get(pumpModel)?.rent ?? 0;
 
+    const rentKind = normalizeRentKind((row as any).rent_kind || "");
+
     for (const p of periods) {
       const overlap = overlapDaysInclusive(startDt, end, p.start, p.end);
       if (overlap <= 0) continue;
@@ -436,6 +458,30 @@ function buildAggregate(
       // 금액
       cell.금액 += overlap * price;
     }
+
+    const deviceValues = makeEmptyValues(periods);
+    for (const p of periods) {
+      const overlap = overlapDaysInclusive(startDt, end, p.start, p.end);
+      if (overlap <= 0) continue;
+
+      if (startDt.getTime() >= p.start.getTime() && startDt.getTime() <= p.end.getTime()) {
+        deviceValues[p.key].출고 += 1;
+      }
+      deviceValues[p.key].대여일수 += overlap;
+      deviceValues[p.key].금액 += overlap * price;
+    }
+
+    const deviceSum = initCell();
+    for (const p of periods) addCell(deviceSum, deviceValues[p.key]);
+
+    deviceRowsOut.push({
+      pumpModel,
+      partnerCategory: bucket,
+      deviceNo: row.device_no || "-",
+      rentKind,
+      values: deviceValues,
+      sum: deviceSum,
+    });
   }
 
   // build rows (ordered)
@@ -492,7 +538,7 @@ function buildAggregate(
     rowsOut.push(subtotal);
   }
 
-  return { periods, rows: rowsOut };
+  return { periods, rows: rowsOut, deviceRows: deviceRowsOut };
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
@@ -596,7 +642,7 @@ export async function POST(req: Request) {
     });
   }
 
-    return NextResponse.json({
+  return NextResponse.json({
     ok: true,
     meta: {
       granularity,
@@ -614,5 +660,5 @@ export async function POST(req: Request) {
     },
     rows: main.rows,
     compareResults,
-  });
-}
+    deviceRows: main.deviceRows || [],
+  });   
