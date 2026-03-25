@@ -54,7 +54,8 @@ export default function AggregateView() {
 
   const granularityOptions: AggregateGranularity[] = ["일별", "월별", "연별"];
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
-  const pumpOptions: PumpScope[] = ["전체", "기종", "기기번호"];
+  const pumpOptions: PumpScope[] = ["전체", "기종"];
+  const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
   const extendOptions: ExtendScope[] = useMemo(() => {
     const arr: ExtendScope[] = ["전체", "0차"];
     for (let i = 1; i <= 15; i++) arr.push(`${i}차` as ExtendScope);
@@ -155,6 +156,21 @@ export default function AggregateView() {
                       </option>
                     ))}
                   </select>
+
+                  {form.state.pumpScope === "기종" ? (
+                    <select
+                      value={form.state.searchPump}
+                      onChange={(e) => form.setSearchPump(e.target.value)}
+                      className="border rounded px-2 py-1 text-sm bg-white"
+                    >
+                      <option value="">기종 선택</option>
+                      {pumpModelOptions.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                 </div>
               </Row>
 
@@ -254,26 +270,8 @@ export default function AggregateView() {
                     />
                   </div>
 
-                  <div>
-                    <div className="text-xs text-gray-700 mb-1">유축기</div>
-                    <input
-                      value={form.state.searchPump}
-                      onChange={(e) => form.setSearchPump(e.target.value)}
-                      placeholder="예: 심포니"
-                      className="w-full border rounded px-2 py-1 text-sm bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="text-xs text-gray-700 mb-1">기기번호</div>
-                    <input
-                      value={form.state.searchDeviceNo}
-                      onChange={(e) => form.setSearchDeviceNo(e.target.value)}
-                      placeholder="예: 112315/012"
-                      className="w-full border rounded px-2 py-1 text-sm bg-white"
-                    />
-                  </div>
-                </div>
+                  
+                 </div>
               </Row>
 
               <Row label={<FieldLabel>확인버튼</FieldLabel>}>

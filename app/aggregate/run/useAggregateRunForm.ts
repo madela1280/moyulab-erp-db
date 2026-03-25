@@ -20,43 +20,38 @@ type FieldErrors = Partial<
     | "periodRange"
     | "granularity"
     | "compare"
-    | "dailyRangeTooLong",
+    | "dailyRangeTooLong"
+    | "pumpModelRequired",
     string
   >
 >;
 
 function toISODateString(v: string) {
-  return String(v ?? "").trim(); // 기대: "YYYY-MM-DD"
+  return String(v ?? "").trim();
 }
 
 function parseISODateToUTC(v: string): Date | null {
   const s = toISODateString(v);
   if (!s) return null;
-
-  // "YYYY-MM-DD"만 허용(대략 체크)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return null;
 
   const y = Number(m[1]);
   const mo = Number(m[2]);
   const d = Number(m[3]);
-
   if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
 
-  // UTC 기준 날짜로 생성(타임존 이슈 최소화)
   const dt = new Date(Date.UTC(y, mo - 1, d));
-  // 역검증(예: 2026-02-31 같은 값 걸러내기)
   if (dt.getUTCFullYear() !== y) return null;
   if (dt.getUTCMonth() !== mo - 1) return null;
   if (dt.getUTCDate() !== d) return null;
-
   return dt;
 }
 
 function diffDaysInclusiveUTC(a: Date, b: Date) {
   const ms = b.getTime() - a.getTime();
   const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-  return days + 1; // inclusive
+  return days + 1;
 }
 
 function joinNonEmpty(parts: string[], sep: string) {
@@ -64,38 +59,23 @@ function joinNonEmpty(parts: string[], sep: string) {
 }
 
 export type AggregateRunFormState = {
-  // 기준일자
   periodStart: string;
   periodEnd: string;
-
-  // 필수
   granularity: AggregateGranularity | "";
-
-  // 필수(기본 선택안함 true)
   compare: ComparePeriodOptions;
 
-  // 선택 필터(현재는 값만 유지)
   partnerScope: PartnerScope;
   pumpScope: PumpScope;
   extendScope: ExtendScope;
   rentTypeScope: RentTypeScope;
 
-  // 검색(선택)
   searchPartner: string;
   searchPump: string;
-  searchDeviceNo: string;
 };
 
 export type AggregateRunConfirmResult =
-  | {
-      ok: true;
-      request: AggregateRunRequest;
-      summary: AggregateRunSummary;
-    }
-  | {
-      ok: false;
-      errors: FieldErrors;
-    };
+  | { ok: true; request: AggregateRunRequest; summary: AggregateRunSummary }
+  | { ok: false; errors: FieldErrors };
 
 export function createDefaultAggregateRunFormState(
   init?: Partial<AggregateRunFormState>
@@ -104,7 +84,6 @@ export function createDefaultAggregateRunFormState(
     periodStart: init?.periodStart ?? "",
     periodEnd: init?.periodEnd ?? "",
     granularity: init?.granularity ?? "",
-
     compare: init?.compare ?? {
       선택안함: true,
       전년동일기간: false,
@@ -118,14 +97,11 @@ export function createDefaultAggregateRunFormState(
 
     searchPartner: init?.searchPartner ?? "",
     searchPump: init?.searchPump ?? "",
-    searchDeviceNo: init?.searchDeviceNo ?? "",
   };
 }
 
 function normalizeCompare(next: ComparePeriodOptions): ComparePeriodOptions {
   const anyOther = !!next.전년동일기간 || !!next.전월동일기간;
-
-  // 다른 항목이 하나라도 켜졌으면 선택안함은 자동 OFF
   if (anyOther) {
     return {
       선택안함: false,
@@ -133,12 +109,7 @@ function normalizeCompare(next: ComparePeriodOptions): ComparePeriodOptions {
       전월동일기간: !!next.전월동일기간,
     };
   }
-
-  // 아무것도 안 켜진 상태는 "선택안함"을 기본 ON으로 복구
-  if (!next.선택안함) {
-    return { ...next, 선택안함: true };
-  }
-
+  if (!next.선택안함) return { ...next, 선택안함: true };
   return {
     선택안함: true,
     전년동일기간: false,
@@ -163,7 +134,6 @@ function buildRequest(state: AggregateRunFormState): AggregateRunRequest {
     검색: {
       거래처: state.searchPartner?.trim() || undefined,
       유축기: state.searchPump?.trim() || undefined,
-      기기번호: state.searchDeviceNo?.trim() || undefined,
     },
   };
 }
@@ -175,13 +145,11 @@ function buildSummary(req: AggregateRunRequest): AggregateRunSummary {
   ].filter(Boolean);
 
   const compareText = compareOn.length > 0 ? compareOn.join(", ") : "선택안함";
-
   const filterText = `거래처:${req.필터.거래처} / 유축기:${req.필터.유축기} / 연장:${req.필터.연장} / 대여형태:${req.필터.대여형태}`;
 
   const searchParts = [
     req.검색.거래처 ? `거래처:${req.검색.거래처}` : "",
     req.검색.유축기 ? `유축기:${req.검색.유축기}` : "",
-    req.검색.기기번호 ? `기기번호:${req.검색.기기번호}` : "",
   ].filter(Boolean);
 
   return {
@@ -208,31 +176,30 @@ function validate(state: AggregateRunFormState): FieldErrors {
   if (ps && !ds) errors.periodStart = "시작일 형식이 올바르지 않습니다.";
   if (pe && !de) errors.periodEnd = "종료일 형식이 올바르지 않습니다.";
 
-  if (ds && de) {
-    if (de.getTime() < ds.getTime()) {
-      errors.periodRange = "종료일은 시작일보다 빠를 수 없습니다.";
-    }
+  if (ds && de && de.getTime() < ds.getTime()) {
+    errors.periodRange = "종료일은 시작일보다 빠를 수 없습니다.";
   }
 
   if (!state.granularity) {
     errors.granularity = "집계조건(일별/월별/연별)을 선택해 주세요.";
   }
 
-  // 비교기간은 기본 선택안함이라 '필수 미선택' 상황은 거의 없지만 안전장치
   const normalizedCompare = normalizeCompare(state.compare);
   const anySelected =
     normalizedCompare.선택안함 || normalizedCompare.전년동일기간 || normalizedCompare.전월동일기간;
-
   if (!anySelected) {
     errors.compare = "비교기간을 선택해 주세요.";
   }
 
-  // 일별: 최대 1개월(=31일) 제한
   if (state.granularity === "일별" && ds && de && !errors.periodRange) {
     const days = diffDaysInclusiveUTC(ds, de);
     if (days > 31) {
       errors.dailyRangeTooLong = "일별 집계는 최대 한 달(31일)까지만 가능합니다.";
     }
+  }
+
+  if (state.pumpScope === "기종" && !state.searchPump.trim()) {
+    errors.pumpModelRequired = "유축기=기종일 때는 기종을 선택해 주세요.";
   }
 
   return errors;
@@ -289,7 +256,11 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
   }, []);
 
   const setPumpScope = useCallback((v: PumpScope) => {
-    setState((prev) => ({ ...prev, pumpScope: v }));
+    setState((prev) => ({
+      ...prev,
+      pumpScope: v,
+      searchPump: v === "전체" ? "" : prev.searchPump,
+    }));
   }, []);
 
   const setExtendScope = useCallback((v: ExtendScope) => {
@@ -306,10 +277,6 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
 
   const setSearchPump = useCallback((v: string) => {
     setState((prev) => ({ ...prev, searchPump: v }));
-  }, []);
-
-  const setSearchDeviceNo = useCallback((v: string) => {
-    setState((prev) => ({ ...prev, searchDeviceNo: v }));
   }, []);
 
   const canConfirm = useMemo(() => {
@@ -342,7 +309,6 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     state,
     setState,
 
-    // fields setters
     setPeriodStart,
     setPeriodEnd,
     setGranularity,
@@ -354,14 +320,11 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     setRentTypeScope,
     setSearchPartner,
     setSearchPump,
-    setSearchDeviceNo,
 
-    // derived
     canConfirm,
     lastErrors,
     lastConfirm,
 
-    // actions
     confirm,
     reset,
   };

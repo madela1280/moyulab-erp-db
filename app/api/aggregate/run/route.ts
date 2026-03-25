@@ -389,9 +389,6 @@ function buildAggregate(
     if (filters.유축기 === "기종" && search.유축기) {
       if (!row.product_name.includes(search.유축기)) continue;
     }
-    if (filters.유축기 === "기기번호" && search.기기번호) {
-      if (!row.device_no.includes(search.기기번호)) continue;
-    }
     if (search.거래처 && !partnerName.includes(search.거래처)) {
       continue;
     }
@@ -599,7 +596,7 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({
+    return NextResponse.json({
     ok: true,
     meta: {
       granularity,
@@ -612,6 +609,8 @@ export async function POST(req: Request) {
         end: p.end.toISOString().slice(0, 10),
       })),
       partnerBuckets: PARTNER_BUCKETS,
+      pumpScope: body.필터?.유축기 || "전체",
+      selectedPumpModel: body.검색?.유축기 || "",
     },
     rows: main.rows,
     compareResults,

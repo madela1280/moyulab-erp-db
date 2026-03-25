@@ -28,6 +28,23 @@ export type AggregateCompareResult = {
   rows: AggregateResultRow[];
 };
 
+export type AggregateDeviceRow = {
+  pumpModel: string;
+  partnerCategory: string;
+  deviceNo: string;
+  rentKind?: "구매" | "렌탈" | "";
+  values: Record<string, AggregateCellValue>;
+  sum: AggregateCellValue;
+};
+
+export type AggregateDeviceCompareResult = {
+  label: string;
+  periodStart: string;
+  periodEnd: string;
+  periods: AggregatePeriodMeta[];
+  rows: AggregateDeviceRow[];
+};
+
 export type AggregateRunResponse = {
   ok: true;
   meta: {
@@ -36,7 +53,12 @@ export type AggregateRunResponse = {
     periodEnd: string;
     periods: AggregatePeriodMeta[];
     partnerBuckets: string[];
+    pumpScope?: "전체" | "기종";
+    selectedPumpModel?: string;
   };
   rows: AggregateResultRow[];
   compareResults: AggregateCompareResult[];
+
+  deviceRows?: AggregateDeviceRow[];
+  deviceCompareResults?: AggregateDeviceCompareResult[];
 };
