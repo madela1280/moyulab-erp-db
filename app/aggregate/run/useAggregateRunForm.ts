@@ -71,6 +71,7 @@ export type AggregateRunFormState = {
 
   searchPartner: string;
   searchPump: string;
+  searchDeviceNo: string;
 };
 
 export type AggregateRunConfirmResult =
@@ -97,6 +98,7 @@ export function createDefaultAggregateRunFormState(
 
     searchPartner: init?.searchPartner ?? "",
     searchPump: init?.searchPump ?? "",
+    searchDeviceNo: init?.searchDeviceNo ?? "",
   };
 }
 
@@ -131,9 +133,10 @@ function buildRequest(state: AggregateRunFormState): AggregateRunRequest {
       연장: state.extendScope,
       대여형태: state.rentTypeScope,
     },
-    검색: {
+   검색: {
       거래처: state.searchPartner?.trim() || undefined,
       유축기: state.searchPump?.trim() || undefined,
+      기기번호: state.searchDeviceNo?.trim() || undefined,
     },
   };
 }
@@ -150,6 +153,7 @@ function buildSummary(req: AggregateRunRequest): AggregateRunSummary {
   const searchParts = [
     req.검색.거래처 ? `거래처:${req.검색.거래처}` : "",
     req.검색.유축기 ? `유축기:${req.검색.유축기}` : "",
+    req.검색.기기번호 ? `기기번호:${req.검색.기기번호}` : "",
   ].filter(Boolean);
 
   return {
@@ -279,6 +283,10 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     setState((prev) => ({ ...prev, searchPump: v }));
   }, []);
 
+  const setSearchDeviceNo = useCallback((v: string) => {
+    setState((prev) => ({ ...prev, searchDeviceNo: v }));
+  }, []);
+
   const canConfirm = useMemo(() => {
     const errs = validate(state);
     return Object.keys(errs).length === 0;
@@ -320,6 +328,7 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     setRentTypeScope,
     setSearchPartner,
     setSearchPump,
+    setSearchDeviceNo,
 
     canConfirm,
     lastErrors,

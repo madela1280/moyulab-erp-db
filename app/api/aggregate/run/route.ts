@@ -33,7 +33,7 @@ type DeviceResultRow = {
 
 const PARTNER_BUCKETS = ["온라인", "보건소", "조리원", "개인", "기타"] as const;
 
-const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥스", "프리스타일", "시밀레", "각시밀"] as const;
+const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
 
 function pumpOrderIndex(name: string) {
   const s = String(name ?? "");
@@ -410,6 +410,9 @@ function buildAggregate(
       if (!row.product_name.includes(search.유축기)) continue;
     }
     if (search.거래처 && !partnerName.includes(search.거래처)) {
+      continue;
+    }
+    if (search.기기번호 && !row.device_no.includes(search.기기번호)) {
       continue;
     }
 

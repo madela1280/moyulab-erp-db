@@ -23,7 +23,7 @@ export type PartnerScope = "전체" | "보건소" | "조리원" | "온라인" | 
 
 /**
  * 유축기 선택 축
- * - "기기번호"는 삭제
+ * - "기기번호" 모드는 삭제
  * - "기종" 선택 시에는 검색.유축기에 실제 기종명(심포니/락티나/...)을 넣어 전송
  */
 export type PumpScope = "전체" | "기종";
@@ -41,11 +41,12 @@ export type RentTypeScope =
 
 /**
  * 검색 입력
- * - 기기번호 입력은 삭제
+ * - 거래처/유축기/기기번호(부분검색) 사용
  */
 export type AggregateSearchInput = {
   거래처?: string; // 예: "수원"
   유축기?: string; // 예: "심포니"
+  기기번호?: string; // 예: "112315/012"
 };
 
 export type AggregateRunFilters = {
@@ -79,5 +80,5 @@ export type AggregateRunSummary = {
   집계조건Text: string; // "일별"
   비교기간Text: string; // "선택안함" 또는 "전년동일기간, 전월동일기간"
   필터Text: string; // "거래처:전체 / 유축기:기종 / 연장:전체 / 대여형태:전체"
-  검색Text: string; // "거래처:수원 / 유축기:심포니" 등(없으면 "")
+  검색Text: string; // "거래처:수원 / 유축기:심포니 / 기기번호:112315/012" 등(없으면 "")
 };
