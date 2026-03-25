@@ -7,6 +7,8 @@ import type {
   AggregateResultRow,
   AggregateCompareResult,
 } from "@/aggregate/run/types.aggregateResult";
+import AggregateSubtotalCompareRow from "@/aggregate/result/AggregateSubtotalCompareRow";
+import { buildSubtotalCompareMap } from "@/aggregate/result/buildSubtotalCompareMap";
 
 function formatNumber(n: number | null | undefined) {
   const v = Number(n ?? 0);
@@ -61,21 +63,28 @@ function ResultTableBlock({
   title,
   periods,
   rows,
+  compareResults = [],
 }: {
   title?: string;
   periods: AggregatePeriodMeta[];
   rows: AggregateResultRow[];
+  compareResults?: AggregateCompareResult[];
 }) {
   const rowSpans = buildGroupRowSpans(rows);
   const columnTotals = buildColumnTotals(rows, periods);
+  const subtotalCompareMap = buildSubtotalCompareMap({
+    mainPeriods: periods,
+    rows,
+    compareResults,
+  });
 
   return (
     <div className="mb-6">
       {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
 
       <div className="overflow-auto border rounded bg-white">
-       <table className="w-max min-w-full border-collapse table-auto text-xs">
-         <thead>
+        <table className="w-max min-w-full border-collapse table-auto text-xs">
+          <thead>
             <tr>
               <th
                 className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]"
@@ -134,10 +143,13 @@ function ResultTableBlock({
               </th>
             </tr>
           </thead>
+
           <tbody>
             {rows.map((r, idx) => {
               const rowSpan = rowSpans[idx] || 0;
               const isSubtotal = r.partnerCategory === "소계";
+              const compareSets = isSubtotal ? subtotalCompareMap.get(r.pumpModel) || [] : [];
+
               return (
                 <tr
                   key={`${r.pumpModel}-${r.partnerCategory}-${idx}`}
@@ -158,15 +170,27 @@ function ResultTableBlock({
                   {periods.map((p) => {
                     const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
                     return (
-                      <span key={`${p.key}-${idx}`} className="contents">
-                        <td className="border px-1 py-1 text-right min-w-[36px]">
-                          {formatNumber(v.출고)}
-                        </td>
-                        <td className="border px-1 py-1 text-right min-w-[36px]">
-                          {formatRentalDays(v.대여일수)}
-                        </td>
-                        <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
-                      </span>
+                      <td key={`${p.key}-${idx}-out`} className="border px-1 py-1 text-right min-w-[36px]">
+                        {formatNumber(v.출고)}
+                      </td>
+                    );
+                  })}
+
+                  {periods.map((p) => {
+                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
+                    return (
+                      <td key={`${p.key}-${idx}-days`} className="border px-1 py-1 text-right min-w-[36px]">
+                        {formatRentalDays(v.대여일수)}
+                      </td>
+                    );
+                  })}
+
+                  {periods.map((p) => {
+                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
+                    return (
+                      <td key={`${p.key}-${idx}-amount`} className="border px-2 py-1 text-right">
+                        {formatNumber(v.금액)}
+                      </td>
                     );
                   })}
 
@@ -177,10 +201,21 @@ function ResultTableBlock({
                     {formatRentalDays(r.sum.대여일수)}
                   </td>
                   <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+
+                  {isSubtotal &&
+                    compareSets.map((set, sIdx) => (
+                      <AggregateSubtotalCompareRow
+                        key={`${r.pumpModel}-compare-${sIdx}`}
+                        compareLabel={set.compareLabel}
+                        periods={set.periods}
+                        sum={set.sum}
+                      />
+                    ))}
                 </tr>
               );
             })}
           </tbody>
+
           <tfoot>
             <tr>
               <td className="border px-2 py-1 bg-gray-50 font-semibold text-center" colSpan={2}>
@@ -189,17 +224,34 @@ function ResultTableBlock({
               {periods.map((p) => {
                 const v = columnTotals.totals[p.key];
                 return (
-                  <span key={`total-${p.key}`} className="contents">
-                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
-                      {formatNumber(v.출고)}
-                    </td>
-                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
-                      {formatRentalDays(v.대여일수)}
-                    </td>
-                    <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                      {formatNumber(v.금액)}
-                    </td>
-                  </span>
+                  <td
+                    key={`total-${p.key}-out`}
+                    className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]"
+                  >
+                    {formatNumber(v.출고)}
+                  </td>
+                );
+              })}
+              {periods.map((p) => {
+                const v = columnTotals.totals[p.key];
+                return (
+                  <td
+                    key={`total-${p.key}-days`}
+                    className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]"
+                  >
+                    {formatRentalDays(v.대여일수)}
+                  </td>
+                );
+              })}
+              {periods.map((p) => {
+                const v = columnTotals.totals[p.key];
+                return (
+                  <td
+                    key={`total-${p.key}-amount`}
+                    className="border px-2 py-1 text-right bg-gray-50 font-semibold"
+                  >
+                    {formatNumber(v.금액)}
+                  </td>
                 );
               })}
               <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
@@ -234,6 +286,7 @@ export function AggregateResultTable({
         title={`유축기 전체 : ${meta.periodStart} ~ ${meta.periodEnd}`}
         periods={meta.periods}
         rows={rows}
+        compareResults={compareResults}
       />
 
       {compareResults?.map((cmp, i) => (
