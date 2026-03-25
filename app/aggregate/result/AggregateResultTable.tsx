@@ -206,6 +206,7 @@ function ResultTableBlock({
                     compareSets.map((set, sIdx) => (
                       <AggregateSubtotalCompareRow
                         key={`${r.pumpModel}-compare-${sIdx}`}
+                        pumpModel={r.pumpModel}
                         compareLabel={set.compareLabel}
                         periods={set.periods}
                         sum={set.sum}
