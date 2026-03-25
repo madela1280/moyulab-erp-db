@@ -2,6 +2,7 @@
 
 "use client";
 
+import { Fragment } from "react";
 import type {
   AggregatePeriodMeta,
   AggregateResultRow,
@@ -151,56 +152,43 @@ function ResultTableBlock({
               const compareSets = isSubtotal ? subtotalCompareMap.get(r.pumpModel) || [] : [];
 
               return (
-                <tr
-                  key={`${r.pumpModel}-${r.partnerCategory}-${idx}`}
-                  className={isSubtotal ? "bg-gray-100" : ""}
-                >
-                  {rowSpan > 0 ? (
-                    <td
-                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
-                      rowSpan={rowSpan}
-                    >
-                      {r.pumpModel}
+                <Fragment key={`${r.pumpModel}-${r.partnerCategory}-${idx}`}>
+                  <tr className={isSubtotal ? "bg-gray-100" : ""}>
+                    {rowSpan > 0 ? (
+                      <td
+                        className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                        rowSpan={rowSpan}
+                      >
+                        {r.pumpModel}
+                      </td>
+                    ) : null}
+                    <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
+                      {r.partnerCategory}
                     </td>
-                  ) : null}
-                  <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
-                    {r.partnerCategory}
-                  </td>
 
-                  {periods.map((p) => {
-                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
-                    return (
-                      <td key={`${p.key}-${idx}-out`} className="border px-1 py-1 text-right min-w-[36px]">
-                        {formatNumber(v.출고)}
-                      </td>
-                    );
-                  })}
+                    {periods.map((p) => {
+                      const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
+                      return (
+                        <Fragment key={`${p.key}-${idx}`}>
+                          <td className="border px-1 py-1 text-right min-w-[36px]">
+                            {formatNumber(v.출고)}
+                          </td>
+                          <td className="border px-1 py-1 text-right min-w-[36px]">
+                            {formatRentalDays(v.대여일수)}
+                          </td>
+                          <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+                        </Fragment>
+                      );
+                    })}
 
-                  {periods.map((p) => {
-                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
-                    return (
-                      <td key={`${p.key}-${idx}-days`} className="border px-1 py-1 text-right min-w-[36px]">
-                        {formatRentalDays(v.대여일수)}
-                      </td>
-                    );
-                  })}
-
-                  {periods.map((p) => {
-                    const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
-                    return (
-                      <td key={`${p.key}-${idx}-amount`} className="border px-2 py-1 text-right">
-                        {formatNumber(v.금액)}
-                      </td>
-                    );
-                  })}
-
-                  <td className="border px-1 py-1 text-right min-w-[36px]">
-                    {formatNumber(r.sum.출고)}
-                  </td>
-                  <td className="border px-1 py-1 text-right min-w-[36px]">
-                    {formatRentalDays(r.sum.대여일수)}
-                  </td>
-                  <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+                    <td className="border px-1 py-1 text-right min-w-[36px]">
+                      {formatNumber(r.sum.출고)}
+                    </td>
+                    <td className="border px-1 py-1 text-right min-w-[36px]">
+                      {formatRentalDays(r.sum.대여일수)}
+                    </td>
+                    <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+                  </tr>
 
                   {isSubtotal &&
                     compareSets.map((set, sIdx) => (
@@ -212,7 +200,7 @@ function ResultTableBlock({
                         sum={set.sum}
                       />
                     ))}
-                </tr>
+                </Fragment>
               );
             })}
           </tbody>
@@ -225,34 +213,17 @@ function ResultTableBlock({
               {periods.map((p) => {
                 const v = columnTotals.totals[p.key];
                 return (
-                  <td
-                    key={`total-${p.key}-out`}
-                    className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]"
-                  >
-                    {formatNumber(v.출고)}
-                  </td>
-                );
-              })}
-              {periods.map((p) => {
-                const v = columnTotals.totals[p.key];
-                return (
-                  <td
-                    key={`total-${p.key}-days`}
-                    className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]"
-                  >
-                    {formatRentalDays(v.대여일수)}
-                  </td>
-                );
-              })}
-              {periods.map((p) => {
-                const v = columnTotals.totals[p.key];
-                return (
-                  <td
-                    key={`total-${p.key}-amount`}
-                    className="border px-2 py-1 text-right bg-gray-50 font-semibold"
-                  >
-                    {formatNumber(v.금액)}
-                  </td>
+                  <Fragment key={`total-${p.key}`}>
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatNumber(v.출고)}
+                    </td>
+                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
+                      {formatRentalDays(v.대여일수)}
+                    </td>
+                    <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                      {formatNumber(v.금액)}
+                    </td>
+                  </Fragment>
                 );
               })}
               <td className="border px-1 py-1 text-right bg-gray-50 font-semibold min-w-[36px]">
