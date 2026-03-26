@@ -134,45 +134,6 @@ function BigBarCell({ metric }: { metric: CompareMetric }) {
   );
 }
 
-function GraphHeader({ periods }: { periods: AggregatePeriodMeta[] }) {
-  return (
-    <thead className="sticky top-0 z-20">
-      <tr>
-        <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
-          기종
-        </th>
-        <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
-          거래처
-        </th>
-        {periods.map((p) => (
-          <th key={p.key} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
-            {p.label}
-          </th>
-        ))}
-        <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
-          합계
-        </th>
-      </tr>
-      <tr>
-        {periods.flatMap((p) => [
-          <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-            출고수량
-          </th>,
-          <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-            대여일수
-          </th>,
-          <th key={`${p.key}-amount`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
-            금액
-          </th>,
-        ])}
-        <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">출고수량</th>
-        <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
-        <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
-      </tr>
-    </thead>
-  );
-}
-
 function GraphRow({
   pumpModel,
   compareLabel,
@@ -339,35 +300,68 @@ function CompareGraphSection({
           },
         };
 
-        return (
-          <div key={`${cmp.label}-${cmpIdx}`} className="overflow-auto border rounded bg-white max-h-[70vh]">
-            <table className="w-max min-w-full border-collapse table-auto text-xs">
-              <GraphHeader periods={metaPeriods} />
-              <tbody>
-                {pumpOrder.map((pumpModel) => {
-                  const sets = compareMap.get(pumpModel) || [];
-                  return sets.map((set, setIdx) => (
-                    <GraphRow
-                      key={`${cmp.label}-${pumpModel}-${setIdx}`}
-                      pumpModel={pumpModel}
-                      compareLabel={set.compareLabel}
-                      periods={set.periods}
-                      sum={set.sum}
-                    />
-                  ));
-                })}
+      return (
+  <div key={`${cmp.label}-${cmpIdx}`} className="border rounded bg-white">
+    <table className="w-max min-w-full border-collapse table-auto text-xs">
+      <thead>
+        <tr>
+          <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
+            기종
+          </th>
+          <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
+            거래처
+          </th>
+          {metaPeriods.map((p) => (
+            <th key={p.key} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+              {p.label}
+            </th>
+          ))}
+          <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+            합계
+          </th>
+        </tr>
+        <tr>
+          {metaPeriods.flatMap((p) => [
+            <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+              출고수량
+            </th>,
+            <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+              대여일수
+            </th>,
+            <th key={`${p.key}-amount`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+              금액
+            </th>,
+          ])}
+          <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">출고수량</th>
+          <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
+          <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
+        </tr>
+      </thead>
+      <tbody>
+        {pumpOrder.map((pumpModel) => {
+          const sets = compareMap.get(pumpModel) || [];
+          return sets.map((set, setIdx) => (
+            <GraphRow
+              key={`${cmp.label}-${pumpModel}-${setIdx}`}
+              pumpModel={pumpModel}
+              compareLabel={set.compareLabel}
+              periods={set.periods}
+              sum={set.sum}
+            />
+          ));
+        })}
 
-                <GraphRow
-                  pumpModel="합계"
-                  compareLabel={cmp.label}
-                  periods={grandPeriods}
-                  sum={grandSum}
-                  isGrandTotal
-                />
-              </tbody>
-            </table>
-          </div>
-        );
+        <GraphRow
+          pumpModel="합계"
+          compareLabel={cmp.label}
+          periods={grandPeriods}
+          sum={grandSum}
+          isGrandTotal
+        />
+      </tbody>
+    </table>
+  </div>
+); 
       })}
     </div>
   );
