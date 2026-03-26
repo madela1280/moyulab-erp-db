@@ -381,7 +381,11 @@ function MainResultTable({
 
   return (
     <div className="mb-4">
-      {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
+      {title ? (
+        <div className="sticky top-0 z-30 mb-2 border-b bg-white py-1 text-sm font-semibold">
+          {title}
+        </div>
+      ) : null}
 
       <div className="overflow-auto border rounded bg-white">
         <table className="w-max min-w-full border-collapse table-auto text-xs">
