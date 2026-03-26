@@ -301,12 +301,12 @@ function CompareGraphSection({
         };
 
       return (
-  <div key={`${cmp.label}-${cmpIdx}`} className="border rounded bg-white">
-    <table className="w-max min-w-full border-collapse table-auto text-xs">
-      <thead>
-        <tr>
-          <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
-            기종
+         <div key={`${cmp.label}-${cmpIdx}`} className="border rounded bg-white">
+             <table className="w-max min-w-full border-collapse table-auto text-xs">
+              <thead className="sticky top-0 z-40">
+               <tr>
+                 <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
+                    기종
           </th>
           <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
             거래처
@@ -381,17 +381,13 @@ function MainResultTable({
 
   return (
     <div className="mb-4">
-      {title ? (
-        <div className="sticky top-0 z-30 mb-2 border-b bg-white py-1 text-sm font-semibold">
-          {title}
-        </div>
-      ) : null}
+      {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
 
-      <div className="overflow-auto border rounded bg-white">
-        <table className="w-max min-w-full border-collapse table-auto text-xs">
-          <thead>
-            <tr>
-              <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
+   <div className="overflow-auto border rounded bg-white">
+       <table className="w-max min-w-full border-collapse table-auto text-xs">
+         <thead className="sticky top-0 z-40">
+           <tr>
+             <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
                 기종
               </th>
               <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
@@ -513,12 +509,12 @@ function CompareResultTable({
     <div className="mb-4">
       {title ? <div className="mb-2 text-sm font-semibold">{title}</div> : null}
 
-      <div className="overflow-auto border rounded bg-white">
-        <table className="w-max min-w-full border-collapse table-auto text-xs">
-          <thead>
-            <tr>
+    <div className="overflow-auto border rounded bg-white">
+       <table className="w-max min-w-full border-collapse table-auto text-xs">
+           <thead className="sticky top-0 z-40">
+             <tr>
               <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
-                기종
+                 기종
               </th>
               <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
                 거래처
