@@ -6,6 +6,20 @@ function normalizeName(v: any) {
   return String(v ?? "").trim();
 }
 
+function normalizePumpModelAlias(v: string) {
+  const s = String(v ?? "").trim();
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s;
+}
+
 async function ensurePumpModelsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS agg_pump_models (
@@ -51,12 +65,38 @@ export async function POST(req: Request) {
   await ensurePumpModelsTable();
 
   const body = await req.json().catch(() => null);
-  const name = normalizeName(body?.name);
+  const rawName = normalizeName(body?.name);
+  const name = normalizePumpModelAlias(rawName);
 
   if (!name) return NextResponse.json({ error: "INVALID_NAME" }, { status: 400 });
   if (name.length > 60) return NextResponse.json({ error: "NAME_TOO_LONG" }, { status: 400 });
 
   try {
+    // 별칭 기준 중복도 동일하게 차단
+    const dup = await query(
+      `
+      SELECT id
+      FROM agg_pump_models
+      WHERE
+        CASE
+          WHEN name LIKE '%심포니%' THEN '심포니'
+          WHEN name LIKE '%락티나%' THEN '락티나'
+          WHEN name LIKE '%스윙맥%' OR name LIKE '%스윙맥시%' OR name LIKE '%스윙맥스%' THEN '스윙맥시'
+          WHEN name LIKE '%프리스타일%' THEN '프리스타일'
+          WHEN name LIKE '%스윙%' THEN '스윙'
+          WHEN name LIKE '%시밀래%' OR name LIKE '%시밀레%' THEN '시밀래'
+          WHEN name LIKE '%각시밀%' THEN '각시밀'
+          ELSE name
+        END = $1
+      LIMIT 1
+      `,
+      [name]
+    );
+
+    if ((dup.rows || []).length > 0) {
+      return NextResponse.json({ error: "DUPLICATE_NAME" }, { status: 409 });
+    }
+
     const r = await query(
       `
       INSERT INTO agg_pump_models (name)

@@ -62,6 +62,20 @@ function normalizeName(v: string) {
   return String(v ?? "").trim();
 }
 
+function normalizePumpModelAlias(v: string) {
+  const s = String(v ?? "").trim();
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s;
+}
+
 function normalizeAmountInput(v: string) {
   // "10,000" or " 10000 " -> "10000"
   return String(v ?? "").trim().replaceAll(",", "").replaceAll(" ", "");
@@ -476,12 +490,22 @@ export default function AggregateSettingView() {
     setPumpError(null);
     try {
       const r = await fetchJson(`/api/aggregate/pump-models`);
-      setPumpModels(
-        (r.items || []).map((x: any) => ({
-          id: Number(x.id),
-          label: String(x.name ?? ""),
-        }))
-      );
+
+      // 별칭(스윙맥스/스윙맥시, 시밀레/시밀래 등)을 표준명으로 병합
+      const rawItems = (r.items || []).map((x: any) => ({
+        id: Number(x.id),
+        label: String(x.name ?? ""),
+      }));
+
+      const dedupByCanonical = new Map<string, ListItem>();
+      for (const it of rawItems) {
+        const key = normalizePumpModelAlias(it.label);
+        if (!dedupByCanonical.has(key)) {
+          dedupByCanonical.set(key, { ...it, label: key || it.label });
+        }
+      }
+
+      setPumpModels(Array.from(dedupByCanonical.values()));
     } catch (e: any) {
       setPumpError(e?.message || "유축기 목록 로드 실패");
     } finally {

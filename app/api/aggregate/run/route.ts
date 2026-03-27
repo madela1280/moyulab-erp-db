@@ -50,6 +50,7 @@ type NormalizedEvent = {
   rentKind: "구매" | "렌탈" | "";
   startDt: Date;
   endDt: Date;
+  rawProductName: string;
 };
 
 const PARTNER_BUCKETS = ["온라인", "보건소", "조리원", "개인", "기타"] as const;
@@ -394,8 +395,17 @@ function buildAggregate(
       end.toISOString().slice(0, 10),
     ].join("||");
 
-    if (!normalizedMap.has(dedupKey)) {
-      normalizedMap.set(dedupKey, { pumpModel, partnerName, bucket, deviceNo, rentKind, startDt, endDt: end });
+        if (!normalizedMap.has(dedupKey)) {
+      normalizedMap.set(dedupKey, {
+        pumpModel,
+        partnerName,
+        bucket,
+        deviceNo,
+        rentKind,
+        startDt,
+        endDt: end,
+        rawProductName: String(row.product_name || "").trim(),
+      });
     }
   }
 
@@ -419,8 +429,21 @@ function buildAggregate(
   }
 
   for (const ev of events) {
-    const priceSet = pumpPriceMap.get(ev.partnerName)?.get(ev.pumpModel);
-    const dayPrice = Number(priceSet?.rent ?? 0);
+    const partnerPriceMap = pumpPriceMap.get(ev.partnerName);
+    const directPrice = Number(partnerPriceMap?.get(ev.pumpModel)?.rent ?? 0);
+
+    let dayPrice = directPrice;
+
+    // 설정명 불일치 보정(예: 스윙맥스/스윙맥시, 시밀레/시밀래)
+    if (!dayPrice && partnerPriceMap && partnerPriceMap.size > 0) {
+      const normalizedEventPump = normalizePumpModelName(ev.rawProductName || ev.pumpModel);
+      for (const [modelName, priceObj] of partnerPriceMap.entries()) {
+        if (normalizePumpModelName(modelName) === normalizedEventPump) {
+          dayPrice = Number(priceObj?.rent ?? 0);
+          break;
+        }
+      }
+    } 
 
     const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
     if (!deviceMap.has(deviceKey)) {

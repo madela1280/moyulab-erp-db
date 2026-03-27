@@ -8,6 +8,20 @@ function normalizePartnerName(v: any) {
   return String(v ?? "").trim();
 }
 
+function normalizePumpModelAlias(v: string) {
+  const s = String(v ?? "").trim();
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s;
+}
+
 function toNullableInt(v: any): number | null {
   if (v == null) return null;
   const n = Number(v);
@@ -57,8 +71,13 @@ async function ensureTables() {
 }
 
 async function ensurePumpModel(id: number) {
-  const r = await query(`SELECT 1 FROM agg_pump_models WHERE id=$1`, [id]);
-  return r.rows.length > 0;
+  const r = await query(`SELECT id, name FROM agg_pump_models WHERE id=$1`, [id]);
+  if (r.rows.length <= 0) return null;
+  return {
+    id: Number(r.rows[0].id),
+    name: String(r.rows[0].name ?? ""),
+    normalizedName: normalizePumpModelAlias(String(r.rows[0].name ?? "")),
+  };
 }
 
 async function ensurePrice(id: number, kind: Kind) {
@@ -157,8 +176,38 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "INVALID_PUMP_MODEL_ID" }, { status: 400 });
     }
 
-    if (!(await ensurePumpModel(pump_model_id))) {
+    const model = await ensurePumpModel(pump_model_id);
+    if (!model) {
       return NextResponse.json({ error: "INVALID_PUMP_MODEL" }, { status: 400 });
+    }
+
+    // 같은 거래처 내 별칭(스윙맥스/스윙맥시, 시밀레/시밀래) 충돌 방지
+    const aliasDup = await query(
+      `
+      SELECT p.pump_model_id
+      FROM agg_partner_pump_prices p
+      JOIN agg_pump_models m ON m.id = p.pump_model_id
+      WHERE p.partner_name = $1
+        AND p.pump_model_id <> $2
+        AND (
+          CASE
+            WHEN m.name LIKE '%심포니%' THEN '심포니'
+            WHEN m.name LIKE '%락티나%' THEN '락티나'
+            WHEN m.name LIKE '%스윙맥%' OR m.name LIKE '%스윙맥시%' OR m.name LIKE '%스윙맥스%' THEN '스윙맥시'
+            WHEN m.name LIKE '%프리스타일%' THEN '프리스타일'
+            WHEN m.name LIKE '%스윙%' THEN '스윙'
+            WHEN m.name LIKE '%시밀래%' OR m.name LIKE '%시밀레%' THEN '시밀래'
+            WHEN m.name LIKE '%각시밀%' THEN '각시밀'
+            ELSE m.name
+          END
+        ) = $3
+      LIMIT 1
+      `,
+      [partner_name, pump_model_id, model.normalizedName]
+    );
+
+    if ((aliasDup.rows || []).length > 0) {
+      return NextResponse.json({ error: "DUPLICATE_PUMP_MODEL_ALIAS" }, { status: 409 });
     }
 
     const rentId = toNullableInt(row?.rent_day_price_id);
