@@ -35,16 +35,24 @@ const PARTNER_BUCKETS = ["온라인", "보건소", "조리원", "개인", "기�
 
 const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
 
+function normalizePumpModelName(name: string) {
+  const s = String(name ?? "").trim();
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s || "미지정";
+}
+
 function pumpOrderIndex(name: string) {
-  const s = String(name ?? "");
-  if (s.includes("심포니")) return 0;
-  if (s.includes("락티나")) return 1;
-  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return 3;
-  if (s.includes("프리스타일")) return 4;
-  if (s.includes("스윙")) return 2;
-  if (s.includes("시밀래") || s.includes("시밀레")) return 5;
-  if (s.includes("각시밀")) return 6;
-  return 999;
+  const normalized = normalizePumpModelName(name);
+  const idx = PUMP_ORDER.indexOf(normalized as (typeof PUMP_ORDER)[number]);
+  return idx >= 0 ? idx : 999;
 }
 
 function toISODateString(v: any) {
@@ -407,7 +415,9 @@ function buildAggregate(
 
     // pumpScope + search
     if (filters.유축기 === "기종" && search.유축기) {
-      if (!row.product_name.includes(search.유축기)) continue;
+      const selectedPump = normalizePumpModelName(search.유축기);
+      const rowPump = normalizePumpModelName(row.product_name);
+      if (rowPump !== selectedPump) continue;
     }
     if (search.거래처 && !partnerName.includes(search.거래처)) {
       continue;
@@ -438,7 +448,7 @@ function buildAggregate(
     // end < start -> skip
     if (end.getTime() < startDt.getTime()) continue;
     
-    const pumpModel = row.product_name || "미지정";
+    const pumpModel = normalizePumpModelName(row.product_name);
 
     const price = pumpPriceMap.get(partnerName)?.get(pumpModel)?.rent ?? 0;
 

@@ -644,7 +644,7 @@ export function AggregateResultTable({
   }>;
 }) {
   if (meta?.pumpScope === "기종" && meta?.selectedPumpModel) {
-    const blocks = buildDeviceGroupRows({
+        const blocks = buildDeviceGroupRows({
       periods: meta.periods,
       items: deviceRows,
       pumpOrder: [meta.selectedPumpModel],

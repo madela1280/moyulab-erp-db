@@ -22,6 +22,20 @@ type BuildDeviceGroupRowsInput = {
 
 const DEFAULT_PARTNER_ORDER = ["온라인", "보건소", "조리원", "개인", "기타", "미출고"];
 
+function normalizePumpModelName(name: string) {
+  const s = String(name ?? "").trim();
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s || "미지정";
+}
+
 function emptyCell(): DeviceCellValue {
   return { 출고: 0, 대여일수: 0, 금액: 0 };
 }
@@ -122,7 +136,7 @@ export function buildDeviceGroupRows(input: BuildDeviceGroupRowsInput): DeviceRe
   const partnerOrder = input.partnerOrder && input.partnerOrder.length > 0 ? input.partnerOrder : DEFAULT_PARTNER_ORDER;
 
   const normalizedItems: RawDeviceAggItem[] = (input.items || []).map((it) => ({
-    pumpModel: normalizeText(it.pumpModel),
+    pumpModel: normalizePumpModelName(it.pumpModel),
     partnerCategory: normalizeText(it.partnerCategory) || "기타",
     deviceNo: normalizeText(it.deviceNo) || "-",
     rentKind: it.rentKind === "구매" || it.rentKind === "렌탈" ? it.rentKind : "",
@@ -134,7 +148,10 @@ export function buildDeviceGroupRows(input: BuildDeviceGroupRowsInput): DeviceRe
 
   const pumpOrder =
     input.pumpOrder && input.pumpOrder.length > 0
-      ? input.pumpOrder.filter((x) => pumpSet.has(x))
+      ? input.pumpOrder
+          .map((x) => normalizePumpModelName(x))
+          .filter((x, idx, arr) => arr.indexOf(x) === idx)
+          .filter((x) => pumpSet.has(x))
       : Array.from(pumpSet).sort((a, b) => a.localeCompare(b, "ko"));
 
   const blocks: DeviceResultBlock[] = [];
