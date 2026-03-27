@@ -551,7 +551,30 @@ function buildAggregate(
     rowsOut.push(subtotal);
   }
 
-  return { periods, rows: rowsOut, deviceRows: deviceRowsOut };
+  const dedupedDeviceRowsMap = new Map<string, DeviceResultRow>();
+
+  for (const r of deviceRowsOut) {
+    const key = `${r.pumpModel}||${r.partnerCategory}||${r.deviceNo}||${r.rentKind}`;
+    const prev = dedupedDeviceRowsMap.get(key);
+
+    if (!prev) {
+      dedupedDeviceRowsMap.set(key, {
+        ...r,
+        values: { ...r.values },
+        sum: { ...r.sum },
+      });
+      continue;
+    }
+
+    for (const p of periods) {
+      addCell(prev.values[p.key], r.values[p.key] || initCell());
+    }
+    const nextSum = initCell();
+    for (const p of periods) addCell(nextSum, prev.values[p.key] || initCell());
+    prev.sum = nextSum;
+  }
+
+  return { periods, rows: rowsOut, deviceRows: Array.from(dedupedDeviceRowsMap.values()) };
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
