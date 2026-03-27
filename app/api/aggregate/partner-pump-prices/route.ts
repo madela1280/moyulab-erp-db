@@ -8,6 +8,19 @@ function normalizePartnerName(v: any) {
   return String(v ?? "").trim();
 }
 
+function partnerAliases(name: string) {
+  const s = String(name ?? "").trim();
+  const out = new Set<string>();
+  if (s) out.add(s);
+
+  // 보건소 계열 fallback alias
+  if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
+    out.add("보건소");
+  }
+
+  return Array.from(out);
+}
+
 function normalizePumpModelAlias(v: string) {
   const s = String(v ?? "").trim();
 
@@ -108,6 +121,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "INVALID_PARTNER_NAME" }, { status: 400 });
   }
 
+  const aliases = partnerAliases(partner_name);
+
   const r = await query(
     `
     SELECT
@@ -117,11 +132,11 @@ export async function GET(req: Request) {
       MAX(CASE WHEN p.kind='extend' THEN p.price_id ELSE NULL END) AS extend_day_price_id
     FROM agg_partner_pump_prices p
     JOIN agg_pump_models m ON m.id = p.pump_model_id
-    WHERE p.partner_name = $1
+    WHERE p.partner_name = ANY($1::text[])
     GROUP BY m.id, m.name
     ORDER BY m.name ASC, m.id ASC
     `,
-    [partner_name]
+    [aliases]
   );
 
   return NextResponse.json({
@@ -181,13 +196,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "INVALID_PUMP_MODEL" }, { status: 400 });
     }
 
-    // 같은 거래처 내 별칭(스윙맥스/스윙맥시, 시밀레/시밀래) 충돌 방지
+    const aliases = partnerAliases(partner_name);
+
+    // 같은 거래처(별칭 포함) 내 별칭(스윙맥스/스윙맥시, 시밀레/시밀래) 충돌 방지
     const aliasDup = await query(
       `
       SELECT p.pump_model_id
       FROM agg_partner_pump_prices p
       JOIN agg_pump_models m ON m.id = p.pump_model_id
-      WHERE p.partner_name = $1
+      WHERE p.partner_name = ANY($1::text[])
         AND p.pump_model_id <> $2
         AND (
           CASE
@@ -203,7 +220,7 @@ export async function POST(req: Request) {
         ) = $3
       LIMIT 1
       `,
-      [partner_name, pump_model_id, model.normalizedName]
+      [aliases, pump_model_id, model.normalizedName]
     );
 
     if ((aliasDup.rows || []).length > 0) {
@@ -213,29 +230,31 @@ export async function POST(req: Request) {
     const rentId = toNullableInt(row?.rent_day_price_id);
     const extId = toNullableInt(row?.extend_day_price_id);
 
-    // rent
+        // rent
     if (rentId != null) {
       if (!(await ensurePrice(rentId, "rent"))) {
         return NextResponse.json({ error: "INVALID_RENT_PRICE" }, { status: 400 });
       }
 
-      await query(
-        `
-        INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
-        VALUES ($1, $2, 'rent', $3, now())
-        ON CONFLICT (partner_name, pump_model_id, kind)
-        DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
-        `,
-        [partner_name, pump_model_id, rentId]
-      );
+      for (const key of aliases) {
+        await query(
+          `
+          INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
+          VALUES ($1, $2, 'rent', $3, now())
+          ON CONFLICT (partner_name, pump_model_id, kind)
+          DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
+          `,
+          [key, pump_model_id, rentId]
+        );
+      }
       updated += 1;
     } else {
       await query(
         `
         DELETE FROM agg_partner_pump_prices
-        WHERE partner_name=$1 AND pump_model_id=$2 AND kind='rent'
+        WHERE partner_name = ANY($1::text[]) AND pump_model_id=$2 AND kind='rent'
         `,
-        [partner_name, pump_model_id]
+        [aliases, pump_model_id]
       );
     }
 
@@ -245,23 +264,25 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "INVALID_EXTEND_PRICE" }, { status: 400 });
       }
 
-      await query(
-        `
-        INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
-        VALUES ($1, $2, 'extend', $3, now())
-        ON CONFLICT (partner_name, pump_model_id, kind)
-        DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
-        `,
-        [partner_name, pump_model_id, extId]
-      );
+      for (const key of aliases) {
+        await query(
+          `
+          INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
+          VALUES ($1, $2, 'extend', $3, now())
+          ON CONFLICT (partner_name, pump_model_id, kind)
+          DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
+          `,
+          [key, pump_model_id, extId]
+        );
+      }
       updated += 1;
     } else {
       await query(
         `
         DELETE FROM agg_partner_pump_prices
-        WHERE partner_name=$1 AND pump_model_id=$2 AND kind='extend'
+        WHERE partner_name = ANY($1::text[]) AND pump_model_id=$2 AND kind='extend'
         `,
-        [partner_name, pump_model_id]
+        [aliases, pump_model_id]
       );
     }
   }
@@ -287,12 +308,14 @@ export async function DELETE(req: Request) {
   if (!partner_name) return NextResponse.json({ error: "INVALID_PARTNER_NAME" }, { status: 400 });
   if (!pump_model_id) return NextResponse.json({ error: "INVALID_PUMP_MODEL_ID" }, { status: 400 });
 
+  const aliases = partnerAliases(partner_name);
+
   await query(
     `
     DELETE FROM agg_partner_pump_prices
-    WHERE partner_name=$1 AND pump_model_id=$2
+    WHERE partner_name = ANY($1::text[]) AND pump_model_id=$2
     `,
-    [partner_name, pump_model_id]
+    [aliases, pump_model_id]
   );
 
   return NextResponse.json({ ok: true });

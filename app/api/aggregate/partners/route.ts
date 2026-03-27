@@ -6,6 +6,15 @@ function normalizeString(v: any) {
   return String(v ?? "").trim();
 }
 
+function normalizePartnerAlias(name: string) {
+  const s = String(name ?? "").trim();
+
+  // 보건소 계열(예: 영통구/권선구/장안구...)은 공통 키 "보건소"로도 매핑 가능하게
+  if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) return "보건소";
+
+  return s;
+}
+
 // ✅ 거래처 목록 생성 규칙:
 // - 거래처분류가 "조리원*" 으로 시작하면 partner_name = 수취인명(비어있으면 거래처분류로 fallback)
 // - 그 외는 partner_name = 거래처분류
@@ -92,11 +101,22 @@ export async function GET() {
 
   const r = await query(sql);
 
+  const rawPartners = (r.rows || []).map((x: any) => ({
+    partner_name: normalizeString(x.partner_name),
+    is_configured: !!x.is_configured,
+  }));
+
+  // 표시는 원본 유지, 내부 정렬/중복 판단은 alias 기준도 함께 반영
+  const seen = new Set<string>();
+  const partners = rawPartners.filter((p) => {
+    const key = `${p.partner_name}||${normalizePartnerAlias(p.partner_name)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   return NextResponse.json({
     ok: true,
-    partners: (r.rows || []).map((x: any) => ({
-      partner_name: normalizeString(x.partner_name),
-      is_configured: !!x.is_configured,
-    })),
+    partners,
   });
 }

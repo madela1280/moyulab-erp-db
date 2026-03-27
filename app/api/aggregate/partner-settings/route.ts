@@ -6,6 +6,19 @@ function normalizePartnerName(v: any) {
   return String(v ?? "").trim();
 }
 
+function partnerAliases(name: string) {
+  const s = String(name ?? "").trim();
+  const out = new Set<string>();
+  if (s) out.add(s);
+
+  // 보건소 계열 별칭(영통구/권선구/장안구... -> 보건소)
+  if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
+    out.add("보건소");
+  }
+
+  return Array.from(out);
+}
+
 function toNullableInt(v: any): number | null {
   if (v == null) return null;
   const n = Number(v);
@@ -71,6 +84,8 @@ async function ensurePumpModel(id: number) {
 async function loadPumpPrices(partner_name: string) {
   await ensurePumpPriceTables();
 
+  const aliases = partnerAliases(partner_name);
+
   const r = await query(
     `
     SELECT
@@ -80,11 +95,11 @@ async function loadPumpPrices(partner_name: string) {
       MAX(CASE WHEN p.kind='extend' THEN p.price_id ELSE NULL END) AS extend_day_price_id
     FROM agg_partner_pump_prices p
     JOIN agg_pump_models m ON m.id = p.pump_model_id
-    WHERE p.partner_name = $1
+    WHERE p.partner_name = ANY($1::text[])
     GROUP BY m.id, m.name
     ORDER BY m.name ASC, m.id ASC
     `,
-    [partner_name]
+    [aliases]
   );
 
   return (r.rows || []).map((x: any) => ({
@@ -240,26 +255,31 @@ export async function POST(req: Request) {
       const extId = toNullableInt(row?.extend_day_price_id);
 
       // rent upsert/delete
+      const aliases = partnerAliases(partner_name);
+
       if (rentId != null) {
         if (!(await ensurePrice(rentId, "rent", "day"))) {
           return NextResponse.json({ error: "INVALID_RENT_PRICE" }, { status: 400 });
         }
-        await query(
-          `
-          INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
-          VALUES ($1, $2, 'rent', $3, now())
-          ON CONFLICT (partner_name, pump_model_id, kind)
-          DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
-          `,
-          [partner_name, pump_model_id, rentId]
-        );
+
+        for (const key of aliases) {
+          await query(
+            `
+            INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
+            VALUES ($1, $2, 'rent', $3, now())
+            ON CONFLICT (partner_name, pump_model_id, kind)
+            DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
+            `,
+            [key, pump_model_id, rentId]
+          );
+        }
       } else {
         await query(
           `
           DELETE FROM agg_partner_pump_prices
-          WHERE partner_name=$1 AND pump_model_id=$2 AND kind='rent'
+          WHERE partner_name = ANY($1::text[]) AND pump_model_id=$2 AND kind='rent'
           `,
-          [partner_name, pump_model_id]
+          [aliases, pump_model_id]
         );
       }
 
@@ -268,22 +288,25 @@ export async function POST(req: Request) {
         if (!(await ensurePrice(extId, "extend", "day"))) {
           return NextResponse.json({ error: "INVALID_EXTEND_PRICE" }, { status: 400 });
         }
-        await query(
-          `
-          INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
-          VALUES ($1, $2, 'extend', $3, now())
-          ON CONFLICT (partner_name, pump_model_id, kind)
-          DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
-          `,
-          [partner_name, pump_model_id, extId]
-        );
+
+        for (const key of aliases) {
+          await query(
+            `
+            INSERT INTO agg_partner_pump_prices (partner_name, pump_model_id, kind, price_id, updated_at)
+            VALUES ($1, $2, 'extend', $3, now())
+            ON CONFLICT (partner_name, pump_model_id, kind)
+            DO UPDATE SET price_id = EXCLUDED.price_id, updated_at = now()
+            `,
+            [key, pump_model_id, extId]
+          );
+        }
       } else {
         await query(
           `
           DELETE FROM agg_partner_pump_prices
-          WHERE partner_name=$1 AND pump_model_id=$2 AND kind='extend'
+          WHERE partner_name = ANY($1::text[]) AND pump_model_id=$2 AND kind='extend'
           `,
-          [partner_name, pump_model_id]
+          [aliases, pump_model_id]
         );
       }
     }

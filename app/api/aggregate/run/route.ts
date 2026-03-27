@@ -320,20 +320,35 @@ async function loadPumpPriceMap() {
 
   const map = new Map<string, Map<string, { rent: number; extend: number }>>();
 
+  function partnerKeys(raw: string) {
+    const s = String(raw ?? "").trim();
+    const keys = new Set<string>();
+    if (s) keys.add(s);
+    // 보건소 fallback: "~구", "~시", "~군" 제거한 상위 키도 허용
+    if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
+      const head = s.slice(0, -1).trim();
+      if (head) keys.add(head);
+    }
+    return Array.from(keys);
+  }
+
   for (const row of r.rows || []) {
-    const partner = String(row.partner_name ?? "").trim();
+    const partnerRaw = String(row.partner_name ?? "").trim();
     const pump = String(row.pump_model_name ?? "").trim();
     const kind = String(row.kind ?? "") as PriceKind;
     const amount = Number(row.amount ?? 0);
-    if (!partner || !pump) continue;
+    if (!partnerRaw || !pump) continue;
 
-    if (!map.has(partner)) map.set(partner, new Map());
-    const pumpMap = map.get(partner)!;
-    if (!pumpMap.has(pump)) pumpMap.set(pump, { rent: 0, extend: 0 });
+    const keys = partnerKeys(partnerRaw);
+    for (const partner of keys) {
+      if (!map.has(partner)) map.set(partner, new Map());
+      const pumpMap = map.get(partner)!;
+      if (!pumpMap.has(pump)) pumpMap.set(pump, { rent: 0, extend: 0 });
 
-    const p = pumpMap.get(pump)!;
-    if (kind === "rent") p.rent = amount;
-    if (kind === "extend") p.extend = amount;
+      const p = pumpMap.get(pump)!;
+      if (kind === "rent") p.rent = amount;
+      if (kind === "extend") p.extend = amount;
+    }
   }
 
   return map;
@@ -429,7 +444,11 @@ function buildAggregate(
   }
 
   for (const ev of events) {
-    const partnerPriceMap = pumpPriceMap.get(ev.partnerName);
+   const partnerPriceMap =
+      pumpPriceMap.get(ev.partnerName) ||
+      (ev.partnerName.endsWith("구") || ev.partnerName.endsWith("시") || ev.partnerName.endsWith("군")
+        ? pumpPriceMap.get(ev.partnerName.slice(0, -1).trim())
+        : undefined);
     const directPrice = Number(partnerPriceMap?.get(ev.pumpModel)?.rent ?? 0);
 
     let dayPrice = directPrice;
