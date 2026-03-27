@@ -601,8 +601,8 @@ function buildAggregate(
     ].join("||");
 
     if (!dedupedMainMap.has(key)) {
-      dedupedMainMap.set(key, { startDt, end, pumpModel, bucket, partnerName, rentKind });
-    }
+      dedupedMainMap.set(key, { startDt, endDt: end, pumpModel, bucket, partnerName, rentKind });
+    } 
   }
 
   // rowsOut 재구성(중복 제거 기준 데이터로 재계산)
