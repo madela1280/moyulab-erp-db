@@ -278,11 +278,11 @@ async function loadAllRows() {
       u.data->>'수취인명' AS receiver_name,
       u.data->>'제품' AS product_name,
       u.data->>'기기번호' AS device_no,
-      u.data->>'대여형태' AS rent_kind
+      COALESCE(NULLIF(u.data->>'구매/렌탈',''), u.data->>'대여형태') AS rent_kind
     FROM unified u
   `);
 
- for (const t of existingTables) {
+  for (const t of existingTables) {
     unionParts.push(`
       SELECT
         x.data->>'시작일' AS start_date,
@@ -292,7 +292,7 @@ async function loadAllRows() {
         x.data->>'수취인명' AS receiver_name,
         x.data->>'제품' AS product_name,
         x.data->>'기기번호' AS device_no,
-        x.data->>'대여형태' AS rent_kind
+        COALESCE(NULLIF(x.data->>'구매/렌탈',''), x.data->>'대여형태') AS rent_kind
       FROM ${t} x
     `);
   }
@@ -639,10 +639,17 @@ export async function POST(req: Request) {
         label: key,
         periodStart: shifted.start.toISOString().slice(0, 10),
         periodEnd: shifted.end.toISOString().slice(0, 10),
-        ...cmp,
+        periods: cmp.periods.map((p) => ({
+          key: p.key,
+          label: p.label,
+          start: p.start.toISOString().slice(0, 10),
+          end: p.end.toISOString().slice(0, 10),
+        })),
+        rows: cmp.rows,
+        deviceRows: cmp.deviceRows || [],
       });
     }
-  });
+  }); 
 
   if (format === "csv") {
     const csv = toCSV(main);

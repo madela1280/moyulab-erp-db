@@ -643,19 +643,42 @@ export function AggregateResultTable({
     sum: { 출고: number; 대여일수: number; 금액: number };
   }>;
 }) {
-  if (meta?.pumpScope === "기종" && meta?.selectedPumpModel) {
-        const blocks = buildDeviceGroupRows({
+    if (meta?.pumpScope === "기종" && meta?.selectedPumpModel) {
+    const blocks = buildDeviceGroupRows({
       periods: meta.periods,
       items: deviceRows,
       pumpOrder: [meta.selectedPumpModel],
     });
 
+    const compareBlocks = (compareResults || []).map((cmp) => ({
+      label: cmp.label,
+      periodStart: cmp.periodStart,
+      periodEnd: cmp.periodEnd,
+      blocks: buildDeviceGroupRows({
+        periods: cmp.periods,
+        items: (cmp as any).deviceRows || [],
+        pumpOrder: [meta.selectedPumpModel],
+      }),
+      periods: cmp.periods,
+    }));
+
     return (
-      <AggregateResultTableByDevice
-        title={`유축기 기종 : ${meta.selectedPumpModel} (${meta.periodStart} ~ ${meta.periodEnd})`}
-        periods={meta.periods}
-        blocks={blocks}
-      />
+      <div className="space-y-4">
+        <AggregateResultTableByDevice
+          title={`유축기 기종 : ${meta.selectedPumpModel} (${meta.periodStart} ~ ${meta.periodEnd})`}
+          periods={meta.periods}
+          blocks={blocks}
+        />
+
+        {compareBlocks.map((cmp, idx) => (
+          <AggregateResultTableByDevice
+            key={`${cmp.label}-${idx}`}
+            title={`비교: ${cmp.label} (${cmp.periodStart} ~ ${cmp.periodEnd})`}
+            periods={cmp.periods}
+            blocks={cmp.blocks}
+          />
+        ))}
+      </div>
     );
   }
 

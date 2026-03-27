@@ -56,8 +56,10 @@ function buildPartnerRowSpans(rows: DeviceResultRow[]) {
 
 function rowClassByType(t: DeviceResultRow["rowType"]) {
   if (t === "subtotal") return "bg-gray-100";
-  if (t === "grandTotal") return "bg-gray-50 font-semibold";
-  if (t === "bottomPurchase" || t === "bottomRental" || t === "bottomSum") return "bg-amber-50";
+  if (t === "grandTotal") return "bg-gray-50 font-semibold border-t-[3px] border-gray-500";
+  if (t === "bottomPurchase" || t === "bottomRental" || t === "bottomSum") {
+    return "bg-amber-50 font-semibold border-t-[3px] border-amber-400";
+  }
   return "";
 }
 
@@ -132,24 +134,34 @@ export default function AggregateResultTableByDevice({
                   const rowSpan = partnerSpans[idx] || 0;
                   const cls = rowClassByType(r.rowType);
 
+                  const isTotalLike =
+                    r.rowType === "grandTotal" ||
+                    r.rowType === "bottomPurchase" ||
+                    r.rowType === "bottomRental" ||
+                    r.rowType === "bottomSum";
+
+                  const tdBase = isTotalLike ? "border px-3 py-[6px] whitespace-nowrap" : "border px-3 py-1 whitespace-nowrap";
+                  const tdNum = isTotalLike ? "border px-1 py-[6px] text-right" : "border px-1 py-1 text-right";
+                  const tdAmt = isTotalLike ? "border px-2 py-[6px] text-right" : "border px-2 py-1 text-right";
+
                   return (
                     <tr key={`${block.pumpModel}-${idx}`} className={cls}>
                       {r.rowType === "device" ? (
                         <>
                           {showPartnerCell ? (
                             <td
-                              className="border px-3 py-1 whitespace-nowrap align-top"
+                              className={`${tdBase} align-top`}
                               rowSpan={rowSpan}
                             >
                               {r.partnerCategory}
                             </td>
                           ) : null}
-                          <td className="border px-3 py-1 whitespace-nowrap">{r.deviceNo}</td>
+                          <td className={tdBase}>{r.deviceNo}</td>
                         </>
                       ) : (
                         <>
-                          <td className="border px-3 py-1 whitespace-nowrap">{r.partnerCategory || rowLabelByType(r.rowType)}</td>
-                          <td className="border px-3 py-1 whitespace-nowrap">{rowLabelByType(r.rowType)}</td>
+                          <td className={tdBase}>{r.partnerCategory || rowLabelByType(r.rowType)}</td>
+                          <td className={tdBase}>{rowLabelByType(r.rowType)}</td>
                         </>
                       )}
 
@@ -157,16 +169,16 @@ export default function AggregateResultTableByDevice({
                         const v = r.values[p.key] || { 출고: 0, 대여일수: 0, 금액: 0 };
                         return (
                           <Fragment key={`${block.pumpModel}-${idx}-${p.key}`}>
-                            <td className="border px-1 py-1 text-right">{formatNumber(v.출고)}</td>
-                            <td className="border px-1 py-1 text-right">{formatDays(v.대여일수)}</td>
-                            <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+                            <td className={tdNum}>{formatNumber(v.출고)}</td>
+                            <td className={tdNum}>{formatDays(v.대여일수)}</td>
+                            <td className={tdAmt}>{formatNumber(v.금액)}</td>
                           </Fragment>
                         );
                       })}
 
-                      <td className="border px-1 py-1 text-right">{formatNumber(r.sum.출고)}</td>
-                      <td className="border px-1 py-1 text-right">{formatDays(r.sum.대여일수)}</td>
-                      <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
+                      <td className={tdNum}>{formatNumber(r.sum.출고)}</td>
+                      <td className={tdNum}>{formatDays(r.sum.대여일수)}</td>
+                      <td className={tdAmt}>{formatNumber(r.sum.금액)}</td>
                     </tr>
                   );
                 })}
