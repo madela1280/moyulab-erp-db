@@ -64,6 +64,55 @@ function normalizeText(v: any) {
   return String(v ?? "").trim();
 }
 
+function parseLeadingLetterAndNumber(deviceNo: string) {
+  const s = normalizeText(deviceNo).toUpperCase();
+  const m = /^([A-Z])\s*([0-9]+)$/.exec(s);
+  if (!m) return { letter: "", num: Number.POSITIVE_INFINITY };
+  return { letter: m[1], num: Number(m[2]) };
+}
+
+function compareDeviceNoByPump(pump: string, aDeviceNo: string, bDeviceNo: string) {
+  const a = normalizeText(aDeviceNo);
+  const b = normalizeText(bDeviceNo);
+
+  // 1) 락티나: 6자리 우선 -> 7자리, 이후 숫자 오름차순
+  if (pump.includes("락티나")) {
+    const aDigits = a.replace(/\D/g, "");
+    const bDigits = b.replace(/\D/g, "");
+    const aLen = aDigits.length;
+    const bLen = bDigits.length;
+
+    const aGroup = aLen === 6 ? 0 : aLen === 7 ? 1 : 2;
+    const bGroup = bLen === 6 ? 0 : bLen === 7 ? 1 : 2;
+    if (aGroup !== bGroup) return aGroup - bGroup;
+
+    const aNum = Number(aDigits || Number.POSITIVE_INFINITY);
+    const bNum = Number(bDigits || Number.POSITIVE_INFINITY);
+    if (aNum !== bNum) return aNum - bNum;
+
+    return a.localeCompare(b, "ko");
+  }
+
+  // 2) 스윙/스윙맥시/프리스타일/시밀래/각시밀: 첫 영문 뒤 숫자 기준
+  if (
+    pump.includes("스윙") ||
+    pump.includes("프리스타일") ||
+    pump.includes("시밀래") ||
+    pump.includes("각시밀")
+  ) {
+    const pa = parseLeadingLetterAndNumber(a);
+    const pb = parseLeadingLetterAndNumber(b);
+
+    if (pa.num !== pb.num) return pa.num - pb.num;
+    if (pa.letter !== pb.letter) return pa.letter.localeCompare(pb.letter, "ko");
+
+    return a.localeCompare(b, "ko");
+  }
+
+  // 기본
+  return a.localeCompare(b, "ko");
+}
+
 function makeDeviceRow(
   periods: AggregatePeriodMeta[],
   partnerCategory: string,
@@ -166,7 +215,7 @@ export function buildDeviceGroupRows(input: BuildDeviceGroupRowsInput): DeviceRe
 
       const deviceRows = partnerItems
         .slice()
-        .sort((a, b) => a.deviceNo.localeCompare(b.deviceNo, "ko"))
+        .sort((a, b) => compareDeviceNoByPump(pump, a.deviceNo, b.deviceNo))
         .map((it) => makeDeviceRow(periods, partner, it.deviceNo, it.values));
 
       rows.push(...deviceRows);
@@ -186,7 +235,7 @@ export function buildDeviceGroupRows(input: BuildDeviceGroupRowsInput): DeviceRe
       const partnerItems = pumpItems.filter((x) => x.partnerCategory === partner);
       const deviceRows = partnerItems
         .slice()
-        .sort((a, b) => a.deviceNo.localeCompare(b.deviceNo, "ko"))
+        .sort((a, b) => compareDeviceNoByPump(pump, a.deviceNo, b.deviceNo))
         .map((it) => makeDeviceRow(periods, partner, it.deviceNo, it.values));
 
       rows.push(...deviceRows);
