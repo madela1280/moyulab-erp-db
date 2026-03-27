@@ -450,9 +450,15 @@ function buildAggregate(
     
     const pumpModel = normalizePumpModelName(row.product_name);
 
-    const price = pumpPriceMap.get(partnerName)?.get(pumpModel)?.rent ?? 0;
-
     const rentKind = normalizeRentKind((row as any).rent_kind || "");
+
+    const priceSet = pumpPriceMap.get(partnerName)?.get(pumpModel);
+    const price =
+      rentKind === "구매"
+        ? 0
+        : rentKind === "렌탈"
+        ? Number(priceSet?.rent ?? 0)
+        : Number(priceSet?.rent ?? 0);
 
     for (const p of periods) {
       const overlap = overlapDaysInclusive(startDt, end, p.start, p.end);
@@ -551,6 +557,136 @@ function buildAggregate(
     rowsOut.push(subtotal);
   }
 
+   // 전역(전체/기종 공통) 합계도 중복 병합 기준으로 재계산되도록
+  // source 중복(unified + recovery*)으로 동일 건이 2번 잡히는 문제를 방지한다.
+  const dedupedMainMap = new Map<string, { startDt: Date; endDt: Date; pumpModel: string; bucket: string; partnerName: string; rentKind: "구매" | "렌탈" | "" }>();
+
+  for (const row of rows) {
+    const startDt = parseDateFlexible(row.start_date);
+    if (!startDt) continue;
+
+    const returnDt = parseDateFlexible(row.return_date);
+    const endDt = parseDateFlexible(row.end_date);
+
+    const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
+    const l1 = partnerCatMap.get(partnerName) || row.partner_category || "";
+    const bucket = normalizePartnerBucket(l1);
+
+    if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
+
+    const pumpModel = normalizePumpModelName(row.product_name);
+    if (filters.유축기 === "기종" && search.유축기) {
+      const selectedPump = normalizePumpModelName(search.유축기);
+      if (pumpModel !== selectedPump) continue;
+    }
+    if (search.거래처 && !partnerName.includes(search.거래처)) continue;
+    if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
+
+    let end: Date | null = null;
+    if (returnDt) end = addDaysUTC(returnDt, -1);
+    else if (isNonEmptyText(row.return_date)) end = endDt || null;
+    else end = bucket === "조리원" ? periodEnd : endDt || null;
+
+    if (!end) continue;
+    if (end.getTime() < startDt.getTime()) continue;
+
+    const rentKind = normalizeRentKind((row as any).rent_kind || "");
+    const key = [
+      pumpModel,
+      bucket,
+      String(row.device_no || "-").trim(),
+      startDt.toISOString().slice(0, 10),
+      end.toISOString().slice(0, 10),
+      rentKind,
+    ].join("||");
+
+    if (!dedupedMainMap.has(key)) {
+      dedupedMainMap.set(key, { startDt, end, pumpModel, bucket, partnerName, rentKind });
+    }
+  }
+
+  // rowsOut 재구성(중복 제거 기준 데이터로 재계산)
+  const rebuiltByPump = new Map<string, Map<string, ResultRow>>();
+  function getRebuiltRow(pumpModel: string, partnerCategory: string) {
+    if (!rebuiltByPump.has(pumpModel)) rebuiltByPump.set(pumpModel, new Map());
+    const map = rebuiltByPump.get(pumpModel)!;
+    if (!map.has(partnerCategory)) {
+      map.set(partnerCategory, {
+        pumpModel,
+        partnerCategory,
+        values: makeEmptyValues(periods),
+        sum: initCell(),
+      });
+    }
+    return map.get(partnerCategory)!;
+  }
+
+  for (const item of dedupedMainMap.values()) {
+    const priceSet = pumpPriceMap.get(item.partnerName)?.get(item.pumpModel);
+    const price =
+      item.rentKind === "구매"
+        ? 0
+        : item.rentKind === "렌탈"
+        ? Number(priceSet?.rent ?? 0)
+        : Number(priceSet?.rent ?? 0);
+
+    for (const p of periods) {
+      const overlap = overlapDaysInclusive(item.startDt, item.endDt, p.start, p.end);
+      if (overlap <= 0) continue;
+
+      const cell = getRebuiltRow(item.pumpModel, item.bucket).values[p.key];
+      if (item.startDt.getTime() >= p.start.getTime() && item.startDt.getTime() <= p.end.getTime()) {
+        cell.출고 += 1;
+      }
+      cell.대여일수 += overlap;
+      cell.금액 += overlap * price;
+    }
+  }
+
+  const rebuiltPumpModels = Array.from(rebuiltByPump.keys()).sort((a, b) => {
+    const ai = pumpOrderIndex(a);
+    const bi = pumpOrderIndex(b);
+    if (ai !== bi) return ai - bi;
+    return a.localeCompare(b, "ko");
+  });
+
+  const rebuiltRowsOut: ResultRow[] = [];
+  for (const pump of rebuiltPumpModels) {
+    const rowMap = rebuiltByPump.get(pump)!;
+
+    for (const b of PARTNER_BUCKETS) {
+      if (!rowMap.has(b)) {
+        rowMap.set(b, {
+          pumpModel: pump,
+          partnerCategory: b,
+          values: makeEmptyValues(periods),
+          sum: initCell(),
+        });
+      }
+    }
+
+    for (const r of rowMap.values()) {
+      const sum = initCell();
+      for (const p of periods) addCell(sum, r.values[p.key]);
+      r.sum = sum;
+    }
+
+    for (const b of PARTNER_BUCKETS) rebuiltRowsOut.push(rowMap.get(b)!);
+
+    const subtotal: ResultRow = {
+      pumpModel: pump,
+      partnerCategory: "소계",
+      values: makeEmptyValues(periods),
+      sum: initCell(),
+    };
+    for (const b of PARTNER_BUCKETS) {
+      const r = rowMap.get(b)!;
+      for (const p of periods) addCell(subtotal.values[p.key], r.values[p.key]);
+    }
+    for (const p of periods) addCell(subtotal.sum, subtotal.values[p.key]);
+    rebuiltRowsOut.push(subtotal);
+  }
+
   const dedupedDeviceRowsMap = new Map<string, DeviceResultRow>();
 
   for (const r of deviceRowsOut) {
@@ -574,7 +710,7 @@ function buildAggregate(
     prev.sum = nextSum;
   }
 
-  return { periods, rows: rowsOut, deviceRows: Array.from(dedupedDeviceRowsMap.values()) };
+  return { periods, rows: rebuiltRowsOut, deviceRows: Array.from(dedupedDeviceRowsMap.values()) };
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
