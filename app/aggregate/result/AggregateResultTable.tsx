@@ -647,7 +647,7 @@ export function AggregateResultTable({
     const blocks = buildDeviceGroupRows({
       periods: meta.periods,
       items: deviceRows,
-      pumpOrder: [meta.selectedPumpModel],
+      pumpOrder: meta.selectedPumpModel ? [meta.selectedPumpModel] : [],
     });
 
     const compareBlocks = (compareResults || []).map((cmp) => ({
@@ -657,7 +657,7 @@ export function AggregateResultTable({
       blocks: buildDeviceGroupRows({
         periods: cmp.periods,
         items: (cmp as any).deviceRows || [],
-        pumpOrder: [meta.selectedPumpModel],
+        pumpOrder: meta.selectedPumpModel ? [meta.selectedPumpModel] : [],
       }),
       periods: cmp.periods,
     }));
