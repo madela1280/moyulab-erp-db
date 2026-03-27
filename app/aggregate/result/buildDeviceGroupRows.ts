@@ -195,15 +195,13 @@ export function buildDeviceGroupRows(input: BuildDeviceGroupRowsInput): DeviceRe
 
     rows.push(makeGrandTotalRow(periods, rows));
 
-    // 심포니/락티나 전용: 맨아래 구매/렌탈/합계
+    // 심포니/락티나 전용: 맨아래 구매/렌탈만 표시(합계 중복 제거)
     if (pump.includes("심포니") || pump.includes("락티나")) {
       const purchaseItems = pumpItems.filter((x) => x.rentKind === "구매");
       const rentalItems = pumpItems.filter((x) => x.rentKind === "렌탈");
-      const allItems = pumpItems;
 
       rows.push(makeBottomRow(periods, "bottomPurchase", purchaseItems));
       rows.push(makeBottomRow(periods, "bottomRental", rentalItems));
-      rows.push(makeBottomRow(periods, "bottomSum", allItems));
     }
 
     blocks.push({

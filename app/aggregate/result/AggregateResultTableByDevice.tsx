@@ -56,9 +56,9 @@ function buildPartnerRowSpans(rows: DeviceResultRow[]) {
 
 function rowClassByType(t: DeviceResultRow["rowType"]) {
   if (t === "subtotal") return "bg-gray-100";
-  if (t === "grandTotal") return "bg-gray-50 font-semibold border-t-[3px] border-gray-500";
+  if (t === "grandTotal") return "bg-gray-50 font-semibold border-t-2 border-gray-400";
   if (t === "bottomPurchase" || t === "bottomRental" || t === "bottomSum") {
-    return "bg-amber-50 font-semibold border-t-[3px] border-amber-400";
+    return "bg-amber-50 font-semibold border-t-2 border-amber-300";
   }
   return "";
 }
