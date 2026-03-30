@@ -453,42 +453,52 @@ for (const ev of events) {
   const normalizedPartner = String(ev.partnerName || "").trim();
   const normalizedPump = normalizePumpModelName(ev.pumpModel || ev.rawProductName || "");
 
-  const partnerKeys = new Set<string>();
-  if (normalizedPartner) partnerKeys.add(normalizedPartner);
+  const partnerKeys: string[] = [];
 
-  // 보건소 버킷이면 조회키를 강제로 보건소 기준으로 통일
-  if (ev.bucket === "보건소") partnerKeys.add("보건소");
+  // 1순위: 보건소 bucket은 무조건 보건소 키 우선(근본 해결)
+  if (ev.bucket === "보건소") {
+    partnerKeys.push("보건소");
+  }
 
-  // suffix alias (영통구/수원시/xx군)
+  // 2순위: 원본 partner
+  if (normalizedPartner) {
+    partnerKeys.push(normalizedPartner);
+  }
+
+  // 3순위: suffix/head alias
   if (
     normalizedPartner.endsWith("구") ||
     normalizedPartner.endsWith("시") ||
     normalizedPartner.endsWith("군")
   ) {
-    partnerKeys.add("보건소");
     const head = normalizedPartner.slice(0, -1).trim();
-    if (head) partnerKeys.add(head);
+    if (head) partnerKeys.push(head);
   }
 
-  let partnerPriceMap: Map<string, { rent: number; extend: number }> | undefined;
-  for (const key of partnerKeys) {
-    const found = pumpPriceMap.get(key);
-    if (found) {
-      partnerPriceMap = found;
-      break;
-    }
-  }
+  // 중복 제거(순서 유지)
+  const orderedPartnerKeys = Array.from(new Set(partnerKeys));
 
-  let dayPrice = Number(partnerPriceMap?.get(normalizedPump)?.rent ?? 0);
+  let dayPrice = 0;
 
-  if (!dayPrice && partnerPriceMap && partnerPriceMap.size > 0) {
-    const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
-    for (const [modelName, priceObj] of partnerPriceMap.entries()) {
-      if (normalizePumpModelName(modelName) === target) {
-        dayPrice = Number(priceObj?.rent ?? 0);
-        break;
+  for (const key of orderedPartnerKeys) {
+    const partnerPriceMap = pumpPriceMap.get(key);
+    if (!partnerPriceMap) continue;
+
+    // 모델 exact(normalized)
+    dayPrice = Number(partnerPriceMap.get(normalizedPump)?.rent ?? 0);
+
+    // 모델 alias fallback
+    if (!dayPrice) {
+      const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
+      for (const [modelName, priceObj] of partnerPriceMap.entries()) {
+        if (normalizePumpModelName(modelName) === target) {
+          dayPrice = Number(priceObj?.rent ?? 0);
+          break;
+        }
       }
     }
+
+    if (dayPrice > 0) break;
   }
 
   if (!dayPrice) {
