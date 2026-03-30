@@ -393,41 +393,45 @@ function buildAggregate(
     if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
 
     let end: Date | null = null;
-    if (returnDt) end = addDaysUTC(returnDt, -1); // 규정A
-    else if (isNonEmptyText(row.return_date)) end = endDt || null; // 규정B
-    else end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
+if (returnDt) {
+  end = addDaysUTC(returnDt, -1); // 규정A
+} else if (isNonEmptyText(row.return_date)) {
+  end = endDt || null; // 규정B
+} else {
+  end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
+}
 
-    if (!end) continue;
-    if (end.getTime() < startDt.getTime()) continue;
+if (!end) continue;
+if (end.getTime() < startDt.getTime()) continue;
 
     const rentKind = normalizeRentKind(row.rent_kind || "");
     const deviceNo = String(row.device_no || "-").trim() || "-";
 
-    const dedupKey = [
-      pumpModel,
-      partnerName,
-      bucket,
-      deviceNo,
-      rentKind,
-      startDt.toISOString().slice(0, 10),
-      end.toISOString().slice(0, 10),
-    ].join("||");
+const dedupKey = [
+  normalizePumpModelName(row.product_name), // 원본 제품 기준
+  normalizePartnerName(row.partner_category, row.receiver_name), // 원본 partner 기준
+  String(row.partner_category || "").trim(), // bucket 말고 원본 분류도 포함
+  String(row.device_no || "").trim() || "-",
+  normalizeRentKind(row.rent_kind || ""),
+  startDt.toISOString().slice(0, 10),
+  end.toISOString().slice(0, 10),
+].join("||");
 
-        if (!normalizedMap.has(dedupKey)) {
-      normalizedMap.set(dedupKey, {
-        pumpModel,
-        partnerName,
-        bucket,
-        deviceNo,
-        rentKind,
-        startDt,
-        endDt: end,
-        rawProductName: String(row.product_name || "").trim(),
-      });
-    }
-  }
+if (!normalizedMap.has(dedupKey)) {
+  normalizedMap.set(dedupKey, {
+    pumpModel,
+    partnerName,
+    bucket,
+    deviceNo,
+    rentKind,
+    startDt,
+    endDt: end,
+    rawProductName: String(row.product_name || "").trim(),
+  });
+}
+} // <- for (const row of rows) 닫기
 
-  const events = Array.from(normalizedMap.values());
+const events = Array.from(normalizedMap.values());
 
   const valuesByPump = new Map<string, Map<string, ResultRow>>();
   const deviceMap = new Map<string, DeviceResultRow>();
