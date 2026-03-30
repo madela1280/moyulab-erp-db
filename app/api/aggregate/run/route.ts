@@ -453,18 +453,34 @@ for (const ev of events) {
   const normalizedPartner = String(ev.partnerName || "").trim();
   const normalizedPump = normalizePumpModelName(ev.pumpModel || ev.rawProductName || "");
 
-  // 1) exact partner
-  let partnerPriceMap = pumpPriceMap.get(normalizedPartner);
+  const partnerKeys = new Set<string>();
+  if (normalizedPartner) partnerKeys.add(normalizedPartner);
 
-  // 2) 보건소 alias fallback
-  if (!partnerPriceMap && (normalizedPartner.endsWith("구") || normalizedPartner.endsWith("시") || normalizedPartner.endsWith("군"))) {
-    partnerPriceMap = pumpPriceMap.get("보건소");
+  // 보건소 버킷이면 조회키를 강제로 보건소 기준으로 통일
+  if (ev.bucket === "보건소") partnerKeys.add("보건소");
+
+  // suffix alias (영통구/수원시/xx군)
+  if (
+    normalizedPartner.endsWith("구") ||
+    normalizedPartner.endsWith("시") ||
+    normalizedPartner.endsWith("군")
+  ) {
+    partnerKeys.add("보건소");
+    const head = normalizedPartner.slice(0, -1).trim();
+    if (head) partnerKeys.add(head);
   }
 
-  // 3) model exact(normalized)
+  let partnerPriceMap: Map<string, { rent: number; extend: number }> | undefined;
+  for (const key of partnerKeys) {
+    const found = pumpPriceMap.get(key);
+    if (found) {
+      partnerPriceMap = found;
+      break;
+    }
+  }
+
   let dayPrice = Number(partnerPriceMap?.get(normalizedPump)?.rent ?? 0);
 
-  // 4) model alias normalized fallback
   if (!dayPrice && partnerPriceMap && partnerPriceMap.size > 0) {
     const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
     for (const [modelName, priceObj] of partnerPriceMap.entries()) {
