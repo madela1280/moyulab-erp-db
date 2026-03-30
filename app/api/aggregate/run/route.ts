@@ -408,13 +408,12 @@ if (end.getTime() < startDt.getTime()) continue;
     const deviceNo = String(row.device_no || "-").trim() || "-";
 
 const dedupKey = [
-  normalizePumpModelName(row.product_name), // 원본 제품 기준
-  normalizePartnerName(row.partner_category, row.receiver_name), // 원본 partner 기준
-  String(row.partner_category || "").trim(), // bucket 말고 원본 분류도 포함
-  String(row.device_no || "").trim() || "-",
-  normalizeRentKind(row.rent_kind || ""),
-  startDt.toISOString().slice(0, 10),
-  end.toISOString().slice(0, 10),
+  String(row.device_no || "").trim() || "-",          // 기기번호
+  startDt.toISOString().slice(0, 10),                 // 시작일
+  end.toISOString().slice(0, 10),                     // end
+  normalizePumpModelName(row.product_name),           // 제품(정규화)
+  normalizePartnerName(row.partner_category, row.receiver_name), // 거래처키(정규화)
+  normalizeRentKind(row.rent_kind || ""),             // 대여형태
 ].join("||");
 
 if (!normalizedMap.has(dedupKey)) {
