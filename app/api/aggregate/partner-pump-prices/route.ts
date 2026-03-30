@@ -16,6 +16,8 @@ function partnerAliases(name: string) {
   // 보건소 계열 fallback alias
   if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
     out.add("보건소");
+    const head = s.slice(0, -1).trim();
+    if (head) out.add(head);
   }
 
   return Array.from(out);

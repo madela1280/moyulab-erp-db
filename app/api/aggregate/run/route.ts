@@ -321,20 +321,23 @@ async function loadPumpPriceMap() {
   const map = new Map<string, Map<string, { rent: number; extend: number }>>();
 
   function partnerKeys(raw: string) {
-    const s = String(raw ?? "").trim();
-    const keys = new Set<string>();
-    if (s) keys.add(s);
-    // 보건소 fallback: "~구", "~시", "~군" 제거한 상위 키도 허용
-    if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
-      const head = s.slice(0, -1).trim();
-      if (head) keys.add(head);
-    }
-    return Array.from(keys);
+  const s = String(raw ?? "").trim();
+  const keys = new Set<string>();
+  if (s) keys.add(s);
+
+  if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
+    keys.add("보건소");
+    const head = s.slice(0, -1).trim();
+    if (head) keys.add(head);
   }
+
+  return Array.from(keys);
+}
 
   for (const row of r.rows || []) {
     const partnerRaw = String(row.partner_name ?? "").trim();
-    const pump = String(row.pump_model_name ?? "").trim();
+    const pumpRaw = String(row.pump_model_name ?? "").trim();
+    const pump = normalizePumpModelName(pumpRaw); // 모델명 표준화
     const kind = String(row.kind ?? "") as PriceKind;
     const amount = Number(row.amount ?? 0);
     if (!partnerRaw || !pump) continue;
@@ -442,27 +445,46 @@ function buildAggregate(
     }
     return byPartner.get(partnerCategory)!;
   }
+  
+let priceMissCount = 0;
+const priceMissSamples: Array<{ partnerName: string; pumpModel: string; rawProductName: string }> = [];
 
-  for (const ev of events) {
-   const partnerPriceMap =
-      pumpPriceMap.get(ev.partnerName) ||
-      (ev.partnerName.endsWith("구") || ev.partnerName.endsWith("시") || ev.partnerName.endsWith("군")
-        ? pumpPriceMap.get(ev.partnerName.slice(0, -1).trim())
-        : undefined);
-    const directPrice = Number(partnerPriceMap?.get(ev.pumpModel)?.rent ?? 0);
+for (const ev of events) {
+  const normalizedPartner = String(ev.partnerName || "").trim();
+  const normalizedPump = normalizePumpModelName(ev.pumpModel || ev.rawProductName || "");
 
-    let dayPrice = directPrice;
+  // 1) exact partner
+  let partnerPriceMap = pumpPriceMap.get(normalizedPartner);
 
-    // 설정명 불일치 보정(예: 스윙맥스/스윙맥시, 시밀레/시밀래)
-    if (!dayPrice && partnerPriceMap && partnerPriceMap.size > 0) {
-      const normalizedEventPump = normalizePumpModelName(ev.rawProductName || ev.pumpModel);
-      for (const [modelName, priceObj] of partnerPriceMap.entries()) {
-        if (normalizePumpModelName(modelName) === normalizedEventPump) {
-          dayPrice = Number(priceObj?.rent ?? 0);
-          break;
-        }
+  // 2) 보건소 alias fallback
+  if (!partnerPriceMap && (normalizedPartner.endsWith("구") || normalizedPartner.endsWith("시") || normalizedPartner.endsWith("군"))) {
+    partnerPriceMap = pumpPriceMap.get("보건소");
+  }
+
+  // 3) model exact(normalized)
+  let dayPrice = Number(partnerPriceMap?.get(normalizedPump)?.rent ?? 0);
+
+  // 4) model alias normalized fallback
+  if (!dayPrice && partnerPriceMap && partnerPriceMap.size > 0) {
+    const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
+    for (const [modelName, priceObj] of partnerPriceMap.entries()) {
+      if (normalizePumpModelName(modelName) === target) {
+        dayPrice = Number(priceObj?.rent ?? 0);
+        break;
       }
-    } 
+    }
+  }
+
+  if (!dayPrice) {
+    priceMissCount += 1;
+    if (priceMissSamples.length < 20) {
+      priceMissSamples.push({
+        partnerName: ev.partnerName,
+        pumpModel: ev.pumpModel,
+        rawProductName: ev.rawProductName,
+      });
+    }
+  }
 
     const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
     if (!deviceMap.has(deviceKey)) {
@@ -548,7 +570,7 @@ function buildAggregate(
     r.sum = s;
   }
 
-  return { periods, rows: rowsOut, deviceRows };
+  return { periods, rows: rowsOut, deviceRows, priceMissCount, priceMissSamples };
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
@@ -636,20 +658,22 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    meta: {
-      granularity,
-      periodStart: ps,
-      periodEnd: pe,
-      periods: main.periods.map((p) => ({
-        key: p.key,
-        label: p.label,
-        start: p.start.toISOString().slice(0, 10),
-        end: p.end.toISOString().slice(0, 10),
-      })),
-      partnerBuckets: PARTNER_BUCKETS,
-      pumpScope: body.필터?.유축기 || "전체",
-      selectedPumpModel: body.검색?.유축기 || "",
-    },
+ meta: {
+  granularity,
+  periodStart: ps,
+  periodEnd: pe,
+  periods: main.periods.map((p) => ({
+    key: p.key,
+    label: p.label,
+    start: p.start.toISOString().slice(0, 10),
+    end: p.end.toISOString().slice(0, 10),
+  })),
+  partnerBuckets: PARTNER_BUCKETS,
+  pumpScope: body.필터?.유축기 || "전체",
+  selectedPumpModel: body.검색?.유축기 || "",
+  priceMissCount: main.priceMissCount || 0,
+  priceMissSamples: main.priceMissSamples || [],
+},
     rows: main.rows,
     compareResults,
     deviceRows: main.deviceRows || [],

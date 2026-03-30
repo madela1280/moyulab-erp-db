@@ -11,9 +11,11 @@ function partnerAliases(name: string) {
   const out = new Set<string>();
   if (s) out.add(s);
 
-  // 보건소 계열 별칭(영통구/권선구/장안구... -> 보건소)
+  // 보건소 계열 별칭(영통구/권선구/장안구... -> 보건소 + head)
   if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
     out.add("보건소");
+    const head = s.slice(0, -1).trim();
+    if (head) out.add(head);
   }
 
   return Array.from(out);
