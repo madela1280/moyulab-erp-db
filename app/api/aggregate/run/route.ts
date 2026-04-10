@@ -398,8 +398,17 @@ const endDt = parseDateFlexible(row.end_date);
 if (isTextLike(row.request_date)) continue;
 
 const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
-const l1 = partnerCatMap.get(partnerName) || row.partner_category || "";
-const bucket = normalizePartnerBucket(l1);
+
+// 세팅 우선: partnerName(조리원은 수취인명)로 L1 조회, 없으면 원본 거래처분류로 2차 조회
+const l1FromSettings =
+  partnerCatMap.get(partnerName) ||
+  partnerCatMap.get(String(row.partner_category || "").trim()) ||
+  "";
+
+const bucket = normalizePartnerBucket(l1FromSettings || row.partner_category || "");
+
+// 세팅 미존재 건은 집계 제외(재현성 고정)
+if (!l1FromSettings) continue;
 
 if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
 
@@ -497,39 +506,39 @@ for (const ev of events) {
   // 중복 제거(순서 유지)
   const orderedPartnerKeys = Array.from(new Set(partnerKeys));
 
-  let dayPrice = 0;
+let dayPrice = 0;
 
-  for (const key of orderedPartnerKeys) {
-    const partnerPriceMap = pumpPriceMap.get(key);
-    if (!partnerPriceMap) continue;
+for (const key of orderedPartnerKeys) {
+  const partnerPriceMap = pumpPriceMap.get(key);
+  if (!partnerPriceMap) continue;
 
-    // 모델 exact(normalized)
-    dayPrice = Number(partnerPriceMap.get(normalizedPump)?.rent ?? 0);
-
-    // 모델 alias fallback
-    if (!dayPrice) {
-      const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
-      for (const [modelName, priceObj] of partnerPriceMap.entries()) {
-        if (normalizePumpModelName(modelName) === target) {
-          dayPrice = Number(priceObj?.rent ?? 0);
-          break;
-        }
-      }
-    }
-
-    if (dayPrice > 0) break;
-  }
+  dayPrice = Number(partnerPriceMap.get(normalizedPump)?.rent ?? 0);
 
   if (!dayPrice) {
-    priceMissCount += 1;
-    if (priceMissSamples.length < 20) {
-      priceMissSamples.push({
-        partnerName: ev.partnerName,
-        pumpModel: ev.pumpModel,
-        rawProductName: ev.rawProductName,
-      });
+    const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
+    for (const [modelName, priceObj] of partnerPriceMap.entries()) {
+      if (normalizePumpModelName(modelName) === target) {
+        dayPrice = Number(priceObj?.rent ?? 0);
+        break;
+      }
     }
   }
+
+  if (dayPrice > 0) break;
+}
+
+// 세팅 단가 없는 건은 집계 제외(강제)
+if (!dayPrice) {
+  priceMissCount += 1;
+  if (priceMissSamples.length < 20) {
+    priceMissSamples.push({
+      partnerName: ev.partnerName,
+      pumpModel: ev.pumpModel,
+      rawProductName: ev.rawProductName,
+    });
+  }
+  continue;
+}
 
     const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
     if (!deviceMap.has(deviceKey)) {
