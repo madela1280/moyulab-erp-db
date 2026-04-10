@@ -208,6 +208,18 @@ function normalizeRentKind(v: string): "구매" | "렌탈" | "" {
   return "";
 }
 
+function isTextLike(v: any) {
+  const raw = String(v ?? "").trim();
+  if (!raw) return false;
+  return parseDateFlexible(raw) === null;
+}
+
+function normalizePersonKey(rawReceiver: string, rawPartnerCategory: string) {
+  const recv = String(rawReceiver ?? "").trim();
+  const cat = String(rawPartnerCategory ?? "").trim();
+  return recv || cat || "-";
+}
+
 function shiftByMonthsUTC(d: Date, diff: number) {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
@@ -375,22 +387,25 @@ function buildAggregate(
     const startDt = parseDateFlexible(row.start_date);
     if (!startDt) continue;
 
-    const returnDt = parseDateFlexible(row.return_date);
-    const endDt = parseDateFlexible(row.end_date);
+const returnDt = parseDateFlexible(row.return_date);
+const endDt = parseDateFlexible(row.end_date);
 
-    const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
-    const l1 = partnerCatMap.get(partnerName) || row.partner_category || "";
-    const bucket = normalizePartnerBucket(l1);
+// 반납요청일(=return_date)이 "문자"인 건은 매출 집계 제외
+if (isTextLike(row.return_date)) continue;
 
-    if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
+const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
+const l1 = partnerCatMap.get(partnerName) || row.partner_category || "";
+const bucket = normalizePartnerBucket(l1);
 
-    const pumpModel = normalizePumpModelName(row.product_name);
-    if (filters.유축기 === "기종" && search.유축기) {
-      const selectedPump = normalizePumpModelName(search.유축기);
-      if (pumpModel !== selectedPump) continue;
-    }
-    if (search.거래처 && !partnerName.includes(search.거래처)) continue;
-    if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
+if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
+
+const pumpModel = normalizePumpModelName(row.product_name);
+if (filters.유축기 === "기종" && search.유축기) {
+  const selectedPump = normalizePumpModelName(search.유축기);
+  if (pumpModel !== selectedPump) continue;
+}
+if (search.거래처 && !partnerName.includes(search.거래처)) continue;
+if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
 
     let end: Date | null = null;
 if (returnDt) {
@@ -408,12 +423,9 @@ if (end.getTime() < startDt.getTime()) continue;
     const deviceNo = String(row.device_no || "-").trim() || "-";
 
 const dedupKey = [
-  String(row.device_no || "").trim() || "-",          // 기기번호
-  startDt.toISOString().slice(0, 10),                 // 시작일
-  end.toISOString().slice(0, 10),                     // end
-  normalizePumpModelName(row.product_name),           // 제품(정규화)
-  normalizePartnerName(row.partner_category, row.receiver_name), // 거래처키(정규화)
-  normalizeRentKind(row.rent_kind || ""),             // 대여형태
+  normalizePersonKey(row.receiver_name, row.partner_category), // 동일인
+  `${startDt.toISOString().slice(0, 10)}~${end.toISOString().slice(0, 10)}`, // 동일기간
+  String(row.device_no || "").trim() || "-", // 동일기기
 ].join("||");
 
 if (!normalizedMap.has(dedupKey)) {
