@@ -33,7 +33,8 @@ type DeviceResultRow = {
 
 type RawRow = {
   start_date: string;
-  return_date: string;
+  request_date: string;   // 반납요청일(문자 제외 규칙용)
+  complete_date: string;  // 반납완료일(end 계산용)
   end_date: string;
   partner_category: string;
   receiver_name: string;
@@ -214,10 +215,9 @@ function isTextLike(v: any) {
   return parseDateFlexible(raw) === null;
 }
 
-function normalizePersonKey(rawReceiver: string, rawPartnerCategory: string) {
+function normalizePersonKey(rawReceiver: string) {
   const recv = String(rawReceiver ?? "").trim();
-  const cat = String(rawPartnerCategory ?? "").trim();
-  return recv || cat || "-";
+  return recv || "-";
 }
 
 function shiftByMonthsUTC(d: Date, diff: number) {
@@ -267,44 +267,47 @@ async function loadAllRows(): Promise<RawRow[]> {
   const unionParts: string[] = [];
 
   unionParts.push(`
-    SELECT
-      u.data->>'시작일' AS start_date,
-      u.data->>'반납완료일' AS return_date,
-      u.data->>'종료일' AS end_date,
-      u.data->>'거래처분류' AS partner_category,
-      u.data->>'수취인명' AS receiver_name,
-      u.data->>'제품' AS product_name,
-      u.data->>'기기번호' AS device_no,
-      COALESCE(NULLIF(u.data->>'구매/렌탈',''), u.data->>'대여형태') AS rent_kind
-    FROM unified u
-  `);
+  SELECT
+    u.data->>'시작일' AS start_date,
+    u.data->>'반납요청일' AS request_date,
+    u.data->>'반납완료일' AS complete_date,
+    u.data->>'종료일' AS end_date,
+    u.data->>'거래처분류' AS partner_category,
+    u.data->>'수취인명' AS receiver_name,
+    u.data->>'제품' AS product_name,
+    u.data->>'기기번호' AS device_no,
+    COALESCE(NULLIF(u.data->>'구매/렌탈',''), u.data->>'대여형태') AS rent_kind
+  FROM unified u
+`);
 
-  for (const t of existingTables) {
-    unionParts.push(`
-      SELECT
-        x.data->>'시작일' AS start_date,
-        x.data->>'반납완료일' AS return_date,
-        x.data->>'종료일' AS end_date,
-        x.data->>'거래처분류' AS partner_category,
-        x.data->>'수취인명' AS receiver_name,
-        x.data->>'제품' AS product_name,
-        x.data->>'기기번호' AS device_no,
-        COALESCE(NULLIF(x.data->>'구매/렌탈',''), x.data->>'대여형태') AS rent_kind
-      FROM ${t} x
-    `);
-  }
+ for (const t of existingTables) {
+  unionParts.push(`
+    SELECT
+      x.data->>'시작일' AS start_date,
+      x.data->>'반납요청일' AS request_date,
+      x.data->>'반납완료일' AS complete_date,
+      x.data->>'종료일' AS end_date,
+      x.data->>'거래처분류' AS partner_category,
+      x.data->>'수취인명' AS receiver_name,
+      x.data->>'제품' AS product_name,
+      x.data->>'기기번호' AS device_no,
+      COALESCE(NULLIF(x.data->>'구매/렌탈',''), x.data->>'대여형태') AS rent_kind
+    FROM ${t} x
+  `);
+} 
 
   const r = await query(`${unionParts.join("\nUNION ALL\n")}`);
   return (r.rows || []).map((x: any) => ({
-    start_date: String(x.start_date ?? "").trim(),
-    return_date: String(x.return_date ?? "").trim(),
-    end_date: String(x.end_date ?? "").trim(),
-    partner_category: String(x.partner_category ?? "").trim(),
-    receiver_name: String(x.receiver_name ?? "").trim(),
-    product_name: String(x.product_name ?? "").trim(),
-    device_no: String(x.device_no ?? "").trim(),
-    rent_kind: String(x.rent_kind ?? "").trim(),
-  }));
+  start_date: String(x.start_date ?? "").trim(),
+  request_date: String(x.request_date ?? "").trim(),
+  complete_date: String(x.complete_date ?? "").trim(),
+  end_date: String(x.end_date ?? "").trim(),
+  partner_category: String(x.partner_category ?? "").trim(),
+  receiver_name: String(x.receiver_name ?? "").trim(),
+  product_name: String(x.product_name ?? "").trim(),
+  device_no: String(x.device_no ?? "").trim(),
+  rent_kind: String(x.rent_kind ?? "").trim(),
+}));
 }
 
 async function loadPartnerCategoryMap() {
@@ -387,11 +390,12 @@ function buildAggregate(
     const startDt = parseDateFlexible(row.start_date);
     if (!startDt) continue;
 
-const returnDt = parseDateFlexible(row.return_date);
+const requestDt = parseDateFlexible(row.request_date);
+const completeDt = parseDateFlexible(row.complete_date);
 const endDt = parseDateFlexible(row.end_date);
 
-// 반납요청일(=return_date)이 "문자"인 건은 매출 집계 제외
-if (isTextLike(row.return_date)) continue;
+// 반납요청일이 문자/기타면 집계 제외
+if (isTextLike(row.request_date)) continue;
 
 const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
 const l1 = partnerCatMap.get(partnerName) || row.partner_category || "";
@@ -407,14 +411,14 @@ if (filters.유축기 === "기종" && search.유축기) {
 if (search.거래처 && !partnerName.includes(search.거래처)) continue;
 if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
 
-    let end: Date | null = null;
-if (returnDt) {
-  end = addDaysUTC(returnDt, -1); // 규정A
-} else if (isNonEmptyText(row.return_date)) {
+let end: Date | null = null;
+if (completeDt) {
+  end = addDaysUTC(completeDt, -1); // 규정A
+} else if (isNonEmptyText(row.complete_date)) {
   end = endDt || null; // 규정B
 } else {
   end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
-}
+}   
 
 if (!end) continue;
 if (end.getTime() < startDt.getTime()) continue;
@@ -423,7 +427,7 @@ if (end.getTime() < startDt.getTime()) continue;
     const deviceNo = String(row.device_no || "-").trim() || "-";
 
 const dedupKey = [
-  normalizePersonKey(row.receiver_name, row.partner_category), // 동일인
+  normalizePersonKey(row.receiver_name), // 동일인(수취인명만)
   `${startDt.toISOString().slice(0, 10)}~${end.toISOString().slice(0, 10)}`, // 동일기간
   String(row.device_no || "").trim() || "-", // 동일기기
 ].join("||");
