@@ -386,13 +386,6 @@ function buildAggregate(
 
   const normalizedMap = new Map<string, NormalizedEvent>();
 
-// [진단] 조리원 분기 점검용 카운터 (임시)
-let debugNurseryTotal = 0;
-let debugNurseryEndByToday = 0;
-let debugNurseryEndByComplete = 0;
-let debugNurseryEndByFallbackEndDate = 0;
-let debugMissingSetting = 0;
-
 for (const row of rows) {
     const startDt = parseDateFlexible(row.start_date);
     if (!startDt) continue;
@@ -416,10 +409,7 @@ const l1FromSettings = l1ByPartnerName || l1ByRawCategory || "";
 const bucket = normalizePartnerBucket(l1FromSettings);
 
 // 세팅 미존재 건은 집계 제외(재현성 고정)
-if (!l1FromSettings) {
-  debugMissingSetting += 1;
-  continue;
-}
+if (!l1FromSettings) continue;
 
 if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
 
@@ -439,13 +429,6 @@ if (completeDt) {
 } else {
   // complete_date가 완전 공백일 때만 진입
   end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
-}
-
-if (bucket === "조리원") {
-  debugNurseryTotal += 1;
-  if (completeDt) debugNurseryEndByComplete += 1;
-  else if (!isNonEmptyText(row.complete_date)) debugNurseryEndByToday += 1;
-  else debugNurseryEndByFallbackEndDate += 1;
 }
 
 if (!end) continue;
@@ -650,13 +633,6 @@ if (!dayPrice) {
   deviceRows,
   priceMissCount,
   priceMissSamples,
-  debug: {
-    nurseryTotal: debugNurseryTotal,
-    nurseryEndByToday: debugNurseryEndByToday,
-    nurseryEndByComplete: debugNurseryEndByComplete,
-    nurseryEndByFallbackEndDate: debugNurseryEndByFallbackEndDate,
-    missingSettingCount: debugMissingSetting,
-  },
 };
 }
 
@@ -760,7 +736,6 @@ export async function POST(req: Request) {
   selectedPumpModel: body.검색?.유축기 || "",
   priceMissCount: main.priceMissCount || 0,
   priceMissSamples: main.priceMissSamples || [],
-  debug: (main as any).debug || null,
 },
     rows: main.rows,
     compareResults,
