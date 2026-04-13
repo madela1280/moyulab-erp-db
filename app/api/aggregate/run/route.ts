@@ -122,6 +122,11 @@ function addDaysUTC(d: Date, days: number) {
   return dt;
 }
 
+function getServerTodayUTC() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 function startOfMonthUTC(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
@@ -383,6 +388,7 @@ function buildAggregate(
   search: AggregateRunRequest["검색"]
 ) {
   const periods = buildPeriods(periodStart, periodEnd, granularity);
+  const serverToday = getServerTodayUTC();
 
   const normalizedMap = new Map<string, NormalizedEvent>();
 
@@ -423,12 +429,12 @@ if (search.기기번호 && !String(row.device_no || "").includes(search.기기�
 
 let end: Date | null = null;
 if (completeDt) {
-  end = addDaysUTC(completeDt, -1); // 규정A
+  end = addDaysUTC(completeDt, -1); // 반납완료일이 있으면 반납완료일-1일
 } else if (isNonEmptyText(row.complete_date)) {
-  end = endDt || null; // 규정B
+  end = endDt || null; // 반납완료일이 문자/기타면 종료일
 } else {
-  // complete_date가 완전 공백일 때만 진입
-  end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
+  // 반납완료일이 비어 있을 때만 조리원은 오늘(server today), 그 외는 종료일
+  end = bucket === "조리원" ? serverToday : endDt || null;
 }
 
 if (!end) continue;
