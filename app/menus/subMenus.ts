@@ -20,5 +20,5 @@ export const SUB_MENUS: Record<TopMenu, string[]> = {
   BBB: ["BBB"],
 
   // ✅ 집계 카테고리: 소카테고리 2개(설정/집계)
-  집계: ["설정", "집계"],
+  집계: ["집계", "설정"],
 };
