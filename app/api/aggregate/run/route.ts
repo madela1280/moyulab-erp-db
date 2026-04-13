@@ -405,7 +405,8 @@ const l1FromSettings =
   partnerCatMap.get(String(row.partner_category || "").trim()) ||
   "";
 
-const bucket = normalizePartnerBucket(l1FromSettings || row.partner_category || "");
+// 세팅 강제: bucket은 반드시 세팅 L1만으로 결정
+const bucket = normalizePartnerBucket(l1FromSettings);
 
 // 세팅 미존재 건은 집계 제외(재현성 고정)
 if (!l1FromSettings) continue;
