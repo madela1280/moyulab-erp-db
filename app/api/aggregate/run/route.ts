@@ -386,7 +386,14 @@ function buildAggregate(
 
   const normalizedMap = new Map<string, NormalizedEvent>();
 
-  for (const row of rows) {
+// [진단] 조리원 분기 점검용 카운터 (임시)
+let debugNurseryTotal = 0;
+let debugNurseryEndByToday = 0;
+let debugNurseryEndByComplete = 0;
+let debugNurseryEndByFallbackEndDate = 0;
+let debugMissingSetting = 0;
+
+for (const row of rows) {
     const startDt = parseDateFlexible(row.start_date);
     if (!startDt) continue;
 
@@ -400,16 +407,19 @@ if (isTextLike(row.request_date)) continue;
 const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
 
 // 세팅 우선: partnerName(조리원은 수취인명)로 L1 조회, 없으면 원본 거래처분류로 2차 조회
-const l1FromSettings =
-  partnerCatMap.get(partnerName) ||
-  partnerCatMap.get(String(row.partner_category || "").trim()) ||
-  "";
+const rawPartnerCategory = String(row.partner_category || "").trim();
+const l1ByPartnerName = partnerCatMap.get(partnerName) || "";
+const l1ByRawCategory = partnerCatMap.get(rawPartnerCategory) || "";
+const l1FromSettings = l1ByPartnerName || l1ByRawCategory || "";
 
-// 세팅 강제: bucket은 반드시 세팅 L1만으로 결정
+// bucket은 세팅 L1만 사용(강제)
 const bucket = normalizePartnerBucket(l1FromSettings);
 
 // 세팅 미존재 건은 집계 제외(재현성 고정)
-if (!l1FromSettings) continue;
+if (!l1FromSettings) {
+  debugMissingSetting += 1;
+  continue;
+}
 
 if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
 
@@ -427,8 +437,16 @@ if (completeDt) {
 } else if (isNonEmptyText(row.complete_date)) {
   end = endDt || null; // 규정B
 } else {
+  // complete_date가 완전 공백일 때만 진입
   end = bucket === "조리원" ? periodEnd : endDt || null; // 규정C
-}   
+}
+
+if (bucket === "조리원") {
+  debugNurseryTotal += 1;
+  if (completeDt) debugNurseryEndByComplete += 1;
+  else if (!isNonEmptyText(row.complete_date)) debugNurseryEndByToday += 1;
+  else debugNurseryEndByFallbackEndDate += 1;
+}
 
 if (!end) continue;
 if (end.getTime() < startDt.getTime()) continue;
@@ -454,6 +472,7 @@ if (!normalizedMap.has(dedupKey)) {
     rawProductName: String(row.product_name || "").trim(),
   });
 }
+
 } // <- for (const row of rows) 닫기
 
 const events = Array.from(normalizedMap.values());
@@ -625,7 +644,20 @@ if (!dayPrice) {
     r.sum = s;
   }
 
-  return { periods, rows: rowsOut, deviceRows, priceMissCount, priceMissSamples };
+ return {
+  periods,
+  rows: rowsOut,
+  deviceRows,
+  priceMissCount,
+  priceMissSamples,
+  debug: {
+    nurseryTotal: debugNurseryTotal,
+    nurseryEndByToday: debugNurseryEndByToday,
+    nurseryEndByComplete: debugNurseryEndByComplete,
+    nurseryEndByFallbackEndDate: debugNurseryEndByFallbackEndDate,
+    missingSettingCount: debugMissingSetting,
+  },
+};
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
@@ -728,6 +760,7 @@ export async function POST(req: Request) {
   selectedPumpModel: body.검색?.유축기 || "",
   priceMissCount: main.priceMissCount || 0,
   priceMissSamples: main.priceMissSamples || [],
+  debug: (main as any).debug || null,
 },
     rows: main.rows,
     compareResults,
