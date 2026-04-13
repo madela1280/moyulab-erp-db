@@ -52,6 +52,7 @@ type NormalizedEvent = {
   startDt: Date;
   endDt: Date;
   rawProductName: string;
+  personKey: string;
 };
 
 const PARTNER_BUCKETS = ["온라인", "보건소", "조리원", "개인", "기타"] as const;
@@ -388,9 +389,9 @@ function buildAggregate(
   search: AggregateRunRequest["검색"]
 ) {
   const periods = buildPeriods(periodStart, periodEnd, granularity);
-  const serverToday = getServerTodayUTC();
+  const serverTodayEnd = addDaysUTC(getServerTodayUTC(), -1);
 
-  const normalizedMap = new Map<string, NormalizedEvent>();
+  const normalizedEvents: NormalizedEvent[] = [];
 
 for (const row of rows) {
     const startDt = parseDateFlexible(row.start_date);
@@ -429,12 +430,12 @@ if (search.기기번호 && !String(row.device_no || "").includes(search.기기�
 
 let end: Date | null = null;
 if (completeDt) {
-  end = addDaysUTC(completeDt, -1); // 반납완료일이 있으면 반납완료일-1일
+  end = addDaysUTC(completeDt, -1); // 규정A
 } else if (isNonEmptyText(row.complete_date)) {
-  end = endDt || null; // 반납완료일이 문자/기타면 종료일
+  end = endDt || null; // 규정B
 } else {
-  // 반납완료일이 비어 있을 때만 조리원은 오늘(server today), 그 외는 종료일
-  end = bucket === "조리원" ? serverToday : endDt || null;
+  // complete_date가 완전 공백이면 조리원은 오늘-1일, 그 외는 종료일
+  end = bucket === "조리원" ? serverTodayEnd : endDt || null; // 규정C
 }
 
 if (!end) continue;
@@ -442,29 +443,20 @@ if (end.getTime() < startDt.getTime()) continue;
 
     const rentKind = normalizeRentKind(row.rent_kind || "");
     const deviceNo = String(row.device_no || "-").trim() || "-";
+    const personKey = normalizePersonKey(row.receiver_name);
 
-const dedupKey = [
-  normalizePersonKey(row.receiver_name), // 동일인(수취인명만)
-  `${startDt.toISOString().slice(0, 10)}~${end.toISOString().slice(0, 10)}`, // 동일기간
-  String(row.device_no || "").trim() || "-", // 동일기기
-].join("||");
-
-if (!normalizedMap.has(dedupKey)) {
-  normalizedMap.set(dedupKey, {
-    pumpModel,
-    partnerName,
-    bucket,
-    deviceNo,
-    rentKind,
-    startDt,
-    endDt: end,
-    rawProductName: String(row.product_name || "").trim(),
-  });
-}
-
-} // <- for (const row of rows) 닫기
-
-const events = Array.from(normalizedMap.values());
+    normalizedEvents.push({
+      pumpModel,
+      partnerName,
+      bucket,
+      deviceNo,
+      rentKind,
+      startDt,
+      endDt: end,
+      rawProductName: String(row.product_name || "").trim(),
+      personKey,
+    });
+}  
 
   const valuesByPump = new Map<string, Map<string, ResultRow>>();
   const deviceMap = new Map<string, DeviceResultRow>();
@@ -485,8 +477,10 @@ const events = Array.from(normalizedMap.values());
   
 let priceMissCount = 0;
 const priceMissSamples: Array<{ partnerName: string; pumpModel: string; rawProductName: string }> = [];
+const countedDedupKeys = new Set<string>();
 
-for (const ev of events) {
+for (const ev of normalizedEvents) {
+
   const normalizedPartner = String(ev.partnerName || "").trim();
   const normalizedPump = normalizePumpModelName(ev.pumpModel || ev.rawProductName || "");
 
@@ -548,6 +542,15 @@ if (!dayPrice) {
   }
   continue;
 }
+
+const dedupKey = [
+  ev.personKey,
+  `${ev.startDt.toISOString().slice(0, 10)}~${ev.endDt.toISOString().slice(0, 10)}`,
+  ev.deviceNo || "-",
+].join("||");
+
+if (countedDedupKeys.has(dedupKey)) continue;
+countedDedupKeys.add(dedupKey);
 
     const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
     if (!deviceMap.has(deviceKey)) {
