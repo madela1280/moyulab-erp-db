@@ -57,11 +57,7 @@ export default function AggregateView() {
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
-  const extendOptions: ExtendScope[] = useMemo(() => {
-    const arr: ExtendScope[] = ["전체", "0차"];
-    for (let i = 1; i <= 15; i++) arr.push(`${i}차` as ExtendScope);
-    return arr;
-  }, []);
+  const extendOptions: ExtendScope[] = useMemo(() => ["전체"], []);
   const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스", "대체기기", "문제기기"];
 
   const onConfirm = () => {
@@ -71,8 +67,8 @@ export default function AggregateView() {
     }
   };
 
-    if (resultRequest) {
-    const isExtendMode = resultRequest.필터?.연장 !== "전체";
+  if (resultRequest) {
+    const isExtendMode = resultRequest.필터?.연장 === "전체";
     if (isExtendMode) {
       return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
     }
