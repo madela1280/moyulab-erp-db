@@ -189,21 +189,22 @@ export function AggregateResultTableExtend({
               })}
 
               <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                {formatNumber(totals.total.출고수량)}
+                  {formatNumber(totals.total.출고수량)}
               </td>
               <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                {formatNumber(totals.total.대여일수)}
+                 {formatNumber(totals.total.대여일수)}
               </td>
               <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                {formatNumber(totals.total.금액)}
+                 {formatNumber(totals.total.금액)}
               </td>
               <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                {formatNumber(totals.total.비중치)}
+                 {formatNumber(totals.total.비중치)}
               </td>
-            </tr>
-          </tfoot>
-          </table>
-        </div>
-      </div>
-  );
-}
+                               </tr>
+                             </tfoot>
+                           </table>
+                         </div>
+                       </div>
+                     </div>
+              );
+              }
