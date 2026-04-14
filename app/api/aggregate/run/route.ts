@@ -543,14 +543,18 @@ if (!dayPrice) {
   continue;
 }
 
-const dedupKey = [
+const dedupKeyParts = [
   ev.personKey,
   `${ev.startDt.toISOString().slice(0, 10)}~${ev.endDt.toISOString().slice(0, 10)}`,
   ev.deviceNo || "-",
-].join("||");
+];
 
-if (countedDedupKeys.has(dedupKey)) continue;
-countedDedupKeys.add(dedupKey);
+// 조리원만 수취인명+기기번호+대여기간 기준 dedup 적용
+if (ev.bucket === "조리원") {
+  const dedupKey = dedupKeyParts.join("||");
+  if (countedDedupKeys.has(dedupKey)) continue;
+  countedDedupKeys.add(dedupKey);
+}
 
     const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
     if (!deviceMap.has(deviceKey)) {
