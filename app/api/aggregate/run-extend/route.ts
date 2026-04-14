@@ -7,12 +7,14 @@ import type {
   AggregateExtendResultRow,
   AggregateExtendPeriodMeta,
 } from "@/aggregate/run/types.aggregateExtendResult";
+import { parseExtendValue } from "@/aggregate/extend/parseExtendValue";
+import { calcExtendPeriods } from "@/aggregate/extend/calcExtendPeriods";
+import { normalizeAggregateRow, type AggregateRawRow } from "@/aggregate/extend/normalizeAggregateRow";
+import { makeDedupKey } from "@/aggregate/extend/dedupKey";
 
 type Cell = { 출고수량: number; 대여일수: number; 금액: number };
 
-type RawUnified = {
-  data: Record<string, any>;
-};
+type RawUnionRow = AggregateRawRow;
 
 const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
 const PARTNERS = ["온라인", "보건소", "개인", "기타"] as const; // 조리원 제외
@@ -84,7 +86,7 @@ function parseExtendStepFromFieldKey(k: string): number | null {
   return n;
 }
 
-function getPresentSteps(rows: RawUnified[]) {
+function getPresentSteps(rows: Array<{ data: Record<string, any> }>) {
   const set = new Set<number>();
   set.add(0);
 
@@ -110,19 +112,6 @@ function parseAmount(v: any) {
   const s = String(v ?? "").replaceAll(",", "").trim();
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
-}
-
-// 연장 셀 포맷 예: "30/계좌이체/20000/26.01.02"
-function parseExtendCell(raw: any) {
-  const s = String(raw ?? "").trim();
-  if (!s) return { days: 0, amount: 0 };
-  const parts = s.split("/");
-  const days = Number(String(parts[0] ?? "").trim());
-  const amount = parseAmount(parts[2] ?? 0);
-  return {
-    days: Number.isFinite(days) ? days : 0,
-    amount: Number.isFinite(amount) ? amount : 0,
-  };
 }
 
 function pumpOrderIndex(name: string) {
@@ -184,15 +173,65 @@ function toCsv(resp: AggregateRunExtendResponse) {
   return "\uFEFF" + lines.join("\n");
 }
 
-async function loadUnifiedRows(): Promise<RawUnified[]> {
-  const r = await query(
-    `
-    SELECT data
-    FROM unified
-    WHERE data IS NOT NULL
-    `
+// removed: loadUnifiedRows (미사용 함수)
+
+async function loadAllRowsForExtend(): Promise<RawUnionRow[]> {
+  const candidates = ["recovery1", "recovery2", "recovery_complete_1", "recovery_complete_2", "recovery_recovery1", "recovery_recovery2"];
+
+  const existR = await query(
+    `SELECT t.name
+     FROM unnest($1::text[]) AS t(name)
+     WHERE to_regclass('public.' || t.name) IS NOT NULL`,
+    [candidates]
   );
-  return (r.rows || []).map((x: any) => ({ data: x.data || {} }));
+  const existingTables = (existR.rows || []).map((x: any) => String(x?.name || "").trim()).filter(Boolean);
+
+  const unionParts: string[] = [];
+  unionParts.push(`
+    SELECT
+      u.data->>'시작일' AS start_date,
+      u.data->>'반납요청일' AS request_date,
+      u.data->>'반납완료일' AS complete_date,
+      u.data->>'종료일' AS end_date,
+      u.data->>'거래처분류' AS partner_category,
+      u.data->>'수취인명' AS receiver_name,
+      u.data->>'제품' AS product_name,
+      u.data->>'기기번호' AS device_no,
+      COALESCE(NULLIF(u.data->>'구매/렌탈',''), u.data->>'대여형태') AS rent_kind,
+      u.data AS data
+    FROM unified u
+  `);
+
+  for (const t of existingTables) {
+    unionParts.push(`
+      SELECT
+        x.data->>'시작일' AS start_date,
+        x.data->>'반납요청일' AS request_date,
+        x.data->>'반납완료일' AS complete_date,
+        x.data->>'종료일' AS end_date,
+        x.data->>'거래처분류' AS partner_category,
+        x.data->>'수취인명' AS receiver_name,
+        x.data->>'제품' AS product_name,
+        x.data->>'기기번호' AS device_no,
+        COALESCE(NULLIF(x.data->>'구매/렌탈',''), x.data->>'대여형태') AS rent_kind,
+        x.data AS data
+      FROM ${t} x
+    `);
+  }
+
+  const r = await query(`${unionParts.join("\nUNION ALL\n")}`);
+  return (r.rows || []).map((x: any) => ({
+    start_date: String(x.start_date ?? "").trim(),
+    request_date: String(x.request_date ?? "").trim(),
+    complete_date: String(x.complete_date ?? "").trim(),
+    end_date: String(x.end_date ?? "").trim(),
+    partner_category: String(x.partner_category ?? "").trim(),
+    receiver_name: String(x.receiver_name ?? "").trim(),
+    product_name: String(x.product_name ?? "").trim(),
+    device_no: String(x.device_no ?? "").trim(),
+    rent_kind: String(x.rent_kind ?? "").trim(),
+    data: x.data || {},
+  }));
 }
 
 export async function POST(req: Request) {
@@ -217,8 +256,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "INVALID_PERIOD_RANGE" }, { status: 400 });
   }
 
-  const unifiedRows = await loadUnifiedRows();
-  const presentSteps = getPresentSteps(unifiedRows); // 0차 포함 + 실제 존재 차수만
+  const allRows = await loadAllRowsForExtend();
+  const presentSteps = getPresentSteps(allRows.map((x) => ({ data: x.data || {} }))); // 0차 포함 + 실제 존재 차수만
   const periods = makePeriodsFromSteps(presentSteps);
   const rows = makeRowsSkeleton(periods);
 
@@ -227,36 +266,62 @@ export async function POST(req: Request) {
     rowMap.set(`${r.pumpModel}||${r.partnerCategory}`, r);
   }
 
-  for (const item of unifiedRows) {
-    const d = item.data || {};
-    const partner = normalizePartnerBucket(d["거래처분류"]);
+   const dedupSet = new Set<string>();
+
+  for (const raw of allRows) {
+    const normalized = normalizeAggregateRow(raw);
+    if (!normalized.ok || !normalized.value) continue;
+
+    const ev = normalized.value;
+    const partner = normalizePartnerBucket(ev.partnerCategory);
     if (partner === "조리원") continue;
 
-    const pump = normalizePumpModelName(d["제품"]);
+    const pump = normalizePumpModelName(ev.productName);
+    const target = rowMap.get(`${pump}||${partner}`);
+    if (!target) continue;
 
-    const startDt = toDateOnly(d["시작일"]);
-    const endDt = toDateOnly(d["종료일"]);
-    if (!startDt || !endDt) continue;
+    const dedupKey = makeDedupKey({
+      deviceNo: ev.deviceNo,
+      receiverName: ev.receiverName,
+      start: ev.start,
+      end: ev.end,
+    });
+    if (dedupSet.has(dedupKey)) continue;
+    dedupSet.add(dedupKey);
 
+    const stepDaysMap: Record<number, number> = {};
     for (const step of presentSteps) {
       const key = stepKey(step);
-      const cellRaw = d[key];
-      const hasStepValue = step === 0 ? true : String(cellRaw ?? "").trim().length > 0;
-      if (!hasStepValue) continue;
+      if (step === 0) {
+        const raw0 = ev.sourceData?.[key];
+        const parsed0 = parseExtendValue(raw0);
+        if (parsed0.days > 0) stepDaysMap[0] = parsed0.days;
+        continue;
+      }
+      const parsed = parseExtendValue(ev.sourceData?.[key]);
+      if (parsed.days > 0) stepDaysMap[step] = parsed.days;
+    }
 
-      const parsed = step === 0 ? { days: overlapDaysInclusive(startDt, endDt, periodStart, periodEnd), amount: 0 } : parseExtendCell(cellRaw);
-      if (parsed.days <= 0 && parsed.amount <= 0) continue;
+    const extendPeriods = calcExtendPeriods({
+      startDate: ev.start,
+      stepDaysMap,
+    });
 
-      const target = rowMap.get(`${pump}||${partner}`);
-      if (!target) continue;
+    for (const ep of extendPeriods) {
+      const key = ep.key;
+      if (!target.values[key]) continue;
+
+      const overlap = overlapDaysInclusive(ep.start, ep.end, periodStart, periodEnd);
+      if (overlap <= 0) continue;
 
       const v = target.values[key] || emptyCell();
-      v.출고수량 += 1;
-      v.대여일수 += parsed.days;
-      v.금액 += parsed.amount;
+      v.출고수량 += ep.start.getTime() >= periodStart.getTime() && ep.start.getTime() <= periodEnd.getTime() ? 1 : 0;
+      v.대여일수 += overlap;
+      const amountToken = String(ev.sourceData?.[key] ?? "").split("/")[2] ?? "0";
+      v.금액 += parseAmount(amountToken);
       target.values[key] = v;
     }
-  }
+  } 
 
   // 소계/합계 계산
   for (const pump of [...PUMP_ORDER].sort((a, b) => pumpOrderIndex(a) - pumpOrderIndex(b))) {
