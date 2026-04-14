@@ -71,14 +71,20 @@ export function AggregateResultTableExtend({
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-      <div className="overflow-auto border rounded bg-white">
+      <div className="overflow-auto border rounded bg-white relative">
         <table className="w-max min-w-full border-collapse table-auto text-xs">
           <thead className="sticky top-0 z-40">
             <tr>
-              <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px]" rowSpan={2}>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-50"
+                rowSpan={2}
+              >
                 기종
               </th>
-              <th className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px]" rowSpan={2}>
+              <th
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50"
+                rowSpan={2}
+              >
                 거래처
               </th>
 
@@ -121,14 +127,20 @@ export function AggregateResultTableExtend({
                 <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
                   {rowSpan > 0 ? (
                     <td
-                      className="border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px]"
+                      className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
+                        isSubtotal ? "bg-gray-100" : "bg-white"
+                      }`}
                       rowSpan={rowSpan}
                     >
                       {r.pumpModel}
                     </td>
                   ) : null}
 
-                  <td className="border px-3 py-1 whitespace-nowrap min-w-[96px]">
+                  <td
+                    className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 ${
+                      isSubtotal ? "bg-gray-100" : "bg-white"
+                    }`}
+                  >
                     {r.partnerCategory}
                   </td>
 
@@ -154,7 +166,7 @@ export function AggregateResultTableExtend({
 
           <tfoot>
             <tr>
-              <td className="border px-2 py-1 bg-gray-50 font-semibold text-center" colSpan={2}>
+              <td className="border px-2 py-1 bg-gray-50 font-semibold text-center sticky left-0 z-40" colSpan={2}>
                 합계
               </td>
 
