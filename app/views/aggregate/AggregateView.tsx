@@ -68,7 +68,7 @@ export default function AggregateView() {
   };
 
   if (resultRequest) {
-    const isExtendMode = resultRequest.필터?.연장 === "전체";
+    const isExtendMode = resultRequest.필터?.연장 !== "전체";
     if (isExtendMode) {
       return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
     }

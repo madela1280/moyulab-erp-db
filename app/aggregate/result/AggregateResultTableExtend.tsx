@@ -72,7 +72,7 @@ export function AggregateResultTableExtend({
       </div>
 
       <div className="border rounded bg-white relative">
-        <div className="max-h-[70vh] overflow-auto">
+        <div className="max-h-[82vh] overflow-auto">
           <table className="w-max min-w-full border-collapse table-auto text-xs">
             <thead className="sticky top-0 z-40 bg-gray-100">
             <tr>
