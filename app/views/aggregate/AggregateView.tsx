@@ -13,6 +13,7 @@ import type {
   AggregateRunRequest,
 } from "@/aggregate/run/types.aggregateRun";
 import AggregateResultView from "@/views/aggregate/AggregateResultView";
+import AggregateResultExtendView from "@/views/aggregate/AggregateResultExtendView";
 
 function FieldLabel(props: { required?: boolean; children: string }) {
   const { children } = props;
@@ -70,7 +71,11 @@ export default function AggregateView() {
     }
   };
 
-  if (resultRequest) {
+    if (resultRequest) {
+    const isExtendMode = resultRequest.필터?.연장 !== "전체";
+    if (isExtendMode) {
+      return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
+    }
     return <AggregateResultView request={resultRequest} onBack={() => setResultRequest(null)} />;
   }
 
