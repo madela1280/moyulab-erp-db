@@ -39,12 +39,13 @@ function ErrorText(props: { text?: string | null }) {
 }
 
 export default function AggregateView() {
-  const form = useAggregateRunForm({
+ const form = useAggregateRunForm({
     compare: {
       선택안함: true,
       전년동일기간: false,
       전월동일기간: false,
     },
+    aggregateTarget: "유축기",
     partnerScope: "전체",
     pumpScope: "전체",
     extendScope: "전체",
@@ -54,6 +55,7 @@ export default function AggregateView() {
   const [resultRequest, setResultRequest] = useState<AggregateRunRequest | null>(null);
 
   const granularityOptions: AggregateGranularity[] = ["일별", "월별", "연별"];
+  const targetOptions = ["유축기", "연장"] as const;
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
@@ -67,13 +69,13 @@ export default function AggregateView() {
     }
   };
 
-   if (resultRequest) {
-    const isExtendMode = resultRequest.필터?.연장 !== "전체";
+  if (resultRequest) {
+    const isExtendMode = resultRequest.필터?.집계타입 === "연장";
     if (isExtendMode) {
       return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
     }
     return <AggregateResultView request={resultRequest} onBack={() => setResultRequest(null)} />;
-  }
+  } 
 
   return (
     <div className="w-full h-full overflow-auto">
@@ -126,6 +128,22 @@ export default function AggregateView() {
                 </div>
 
                 <ErrorText text={form.lastErrors.granularity} />
+              </Row>
+
+              <Row label={<FieldLabel>집계타입</FieldLabel>}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={form.state.aggregateTarget}
+                    onChange={(e) => form.setAggregateTarget(e.target.value as "유축기" | "연장")}
+                    className="border rounded px-2 py-1 text-sm bg-white"
+                  >
+                    {targetOptions.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </Row>
 
               <Row label={<FieldLabel>거래처</FieldLabel>}>

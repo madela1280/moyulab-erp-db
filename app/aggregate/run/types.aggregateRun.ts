@@ -49,7 +49,10 @@ export type AggregateSearchInput = {
   기기번호?: string; // 예: "112315/012"
 };
 
+export type AggregateTarget = "유축기" | "연장";
+
 export type AggregateRunFilters = {
+  집계타입: AggregateTarget;
   거래처: PartnerScope;
   유축기: PumpScope;
   연장: ExtendScope;
