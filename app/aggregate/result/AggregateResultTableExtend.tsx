@@ -71,9 +71,10 @@ export function AggregateResultTableExtend({
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-      <div className="overflow-auto border rounded bg-white relative">
-        <table className="w-max min-w-full border-collapse table-auto text-xs">
-          <thead className="sticky top-0 z-40">
+      <div className="border rounded bg-white relative">
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="w-max min-w-full border-collapse table-auto text-xs">
+            <thead className="sticky top-0 z-40 bg-gray-100">
             <tr>
               <th
                 className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-50"
@@ -201,8 +202,8 @@ export function AggregateResultTableExtend({
               </td>
             </tr>
           </tfoot>
-        </table>
+          </table>
+        </div>
       </div>
-    </div>
   );
 }
