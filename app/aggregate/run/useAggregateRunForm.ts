@@ -64,6 +64,7 @@ export type AggregateRunFormState = {
   granularity: AggregateGranularity | "";
   compare: ComparePeriodOptions;
 
+  aggregateTarget: "유축기" | "연장";
   partnerScope: PartnerScope;
   pumpScope: PumpScope;
   extendScope: ExtendScope;
@@ -91,6 +92,7 @@ export function createDefaultAggregateRunFormState(
       전월동일기간: false,
     },
 
+    aggregateTarget: init?.aggregateTarget ?? "유축기",
     partnerScope: init?.partnerScope ?? "전체",
     pumpScope: init?.pumpScope ?? "전체",
     extendScope: init?.extendScope ?? "전체",
@@ -256,6 +258,10 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     });
   }, []);
 
+   const setAggregateTarget = useCallback((v: "유축기" | "연장") => {
+    setState((prev) => ({ ...prev, aggregateTarget: v }));
+  }, []);
+
   const setPartnerScope = useCallback((v: PartnerScope) => {
     setState((prev) => ({ ...prev, partnerScope: v }));
   }, []);
@@ -323,6 +329,7 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     setGranularity,
     setCompare,
     toggleCompare,
+    setAggregateTarget,
     setPartnerScope,
     setPumpScope,
     setExtendScope,
