@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useAggregateRunForm } from "@/aggregate/run/useAggregateRunForm";
 import type {
   AggregateGranularity,
+  ExtendScope,
   PartnerScope,
   PumpScope,
   RentTypeScope,
@@ -56,8 +57,7 @@ export default function AggregateView() {
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
-  const aggregateTargetOptions = ["유축기", "연장"] as const;
-  const [aggregateTarget, setAggregateTarget] = useState<"유축기" | "연장">("유축기");
+  const extendOptions: ExtendScope[] = useMemo(() => ["전체"], []);
   const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스", "대체기기", "문제기기"];
 
   const onConfirm = () => {
@@ -67,8 +67,9 @@ export default function AggregateView() {
     }
   };
 
-  if (resultRequest) {
-    if (aggregateTarget === "연장") {
+   if (resultRequest) {
+    const isExtendMode = resultRequest.필터?.연장 !== "전체";
+    if (isExtendMode) {
       return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
     }
     return <AggregateResultView request={resultRequest} onBack={() => setResultRequest(null)} />;
@@ -174,14 +175,14 @@ export default function AggregateView() {
                 </div>
               </Row>
 
-              <Row label={<FieldLabel>집계대상</FieldLabel>}>
+              <Row label={<FieldLabel>연장</FieldLabel>}>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
-                    value={aggregateTarget}
-                    onChange={(e) => setAggregateTarget(e.target.value as "유축기" | "연장")}
+                    value={form.state.extendScope}
+                    onChange={(e) => form.setExtendScope(e.target.value as ExtendScope)}
                     className="border rounded px-2 py-1 text-sm bg-white"
                   >
-                    {aggregateTargetOptions.map((x) => (
+                    {extendOptions.map((x) => (
                       <option key={x} value={x}>
                         {x}
                       </option>
