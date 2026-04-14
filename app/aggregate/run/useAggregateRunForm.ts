@@ -128,6 +128,7 @@ function buildRequest(state: AggregateRunFormState): AggregateRunRequest {
     집계조건: state.granularity as AggregateGranularity,
     비교기간: normalizeCompare(state.compare),
     필터: {
+      집계타입: state.aggregateTarget,
       거래처: state.partnerScope,
       유축기: state.pumpScope,
       연장: state.extendScope,
