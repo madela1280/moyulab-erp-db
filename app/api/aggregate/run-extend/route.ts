@@ -9,7 +9,11 @@ import type {
 } from "@/aggregate/run/types.aggregateExtendResult";
 import { parseExtendValue } from "@/aggregate/extend/parseExtendValue";
 import { calcExtendPeriods } from "@/aggregate/extend/calcExtendPeriods";
-import { normalizeAggregateRow, type AggregateRawRow } from "@/aggregate/extend/normalizeAggregateRow";
+import {
+  normalizeAggregateRow,
+  type AggregateRawRow,
+  type NormalizedAggregateRow,
+} from "@/aggregate/extend/normalizeAggregateRow";
 import { makeDedupKey } from "@/aggregate/extend/dedupKey";
 
 type Cell = { 출고수량: number; 대여일수: number; 금액: number };
@@ -49,6 +53,13 @@ function normalizePartnerBucket(v: any) {
   if (s.startsWith("조리원")) return "조리원";
   if (s === "온라인" || s === "보건소" || s === "개인") return s;
   return "기타";
+}
+
+function normalizePartnerName(rawCategory: string, rawReceiver: string) {
+  const cat = String(rawCategory ?? "").trim();
+  const recv = String(rawReceiver ?? "").trim();
+  if (cat.startsWith("조리원")) return recv || cat;
+  return cat;
 }
 
 function overlapDaysInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -106,12 +117,6 @@ function getPresentSteps(rows: Array<{ data: Record<string, any> }>) {
 
 function makePeriodsFromSteps(steps: number[]): AggregateExtendPeriodMeta[] {
   return steps.map((s) => ({ key: stepKey(s), label: stepLabel(s) }));
-}
-
-function parseAmount(v: any) {
-  const s = String(v ?? "").replaceAll(",", "").trim();
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
 }
 
 function pumpOrderIndex(name: string) {
@@ -173,10 +178,127 @@ function toCsv(resp: AggregateRunExtendResponse) {
   return "\uFEFF" + lines.join("\n");
 }
 
-// removed: loadUnifiedRows (미사용 함수)
+async function loadPartnerCategoryMap() {
+  const r = await query(
+    `SELECT s.partner_name, c1.name AS l1_name
+     FROM agg_partner_settings s
+     LEFT JOIN agg_partner_categories c1 ON c1.id = s.partner_cat_l1_id`
+  );
+
+  const map = new Map<string, string>();
+  for (const row of r.rows || []) {
+    const name = String(row.partner_name ?? "").trim();
+    const l1 = String(row.l1_name ?? "").trim();
+    if (name) map.set(name, l1);
+  }
+  return map;
+}
+
+async function loadPriceMap() {
+  const r = await query(
+    `SELECT p.partner_name, m.name AS pump_model_name, p.kind, pr.amount
+     FROM agg_partner_pump_prices p
+     JOIN agg_pump_models m ON m.id = p.pump_model_id
+     JOIN agg_prices pr ON pr.id = p.price_id`
+  );
+
+  const map = new Map<string, Map<string, { rent: number; extend: number }>>();
+
+  for (const row of r.rows || []) {
+    const partner = String(row.partner_name ?? "").trim();
+    const pump = normalizePumpModelName(String(row.pump_model_name ?? "").trim());
+    const kind = String(row.kind ?? "").trim();
+    const amount = Number(row.amount ?? 0);
+
+    if (!partner || !pump) continue;
+    if (!map.has(partner)) map.set(partner, new Map());
+
+    const pumpMap = map.get(partner)!;
+    if (!pumpMap.has(pump)) pumpMap.set(pump, { rent: 0, extend: 0 });
+
+    const price = pumpMap.get(pump)!;
+    if (kind === "rent") price.rent = amount;
+    if (kind === "extend") price.extend = amount;
+  }
+
+  return map;
+}
+
+function buildPartnerPriceKeys(partnerName: string, bucket: string) {
+  const s = String(partnerName ?? "").trim();
+  const keys = new Set<string>();
+
+  if (bucket === "보건소") keys.add("보건소");
+  if (s) keys.add(s);
+
+  if (s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) {
+    const head = s.slice(0, -1).trim();
+    if (head) keys.add(head);
+  }
+
+  return Array.from(keys);
+}
+
+function resolvePricePair(params: {
+  pumpPriceMap: Map<string, Map<string, { rent: number; extend: number }>>;
+  partnerName: string;
+  bucket: string;
+  pumpModel: string;
+}) {
+  const { pumpPriceMap, partnerName, bucket, pumpModel } = params;
+  const partnerKeys = buildPartnerPriceKeys(partnerName, bucket);
+
+  for (const key of partnerKeys) {
+    const partnerPriceMap = pumpPriceMap.get(key);
+    if (!partnerPriceMap) continue;
+
+    const direct = partnerPriceMap.get(pumpModel);
+    if (direct && (Number(direct.rent ?? 0) > 0 || Number(direct.extend ?? 0) > 0)) {
+      return {
+        rent: Number(direct.rent ?? 0),
+        extend: Number(direct.extend ?? 0),
+      };
+    }
+
+    for (const [modelName, priceObj] of partnerPriceMap.entries()) {
+      if (normalizePumpModelName(modelName) === pumpModel) {
+        const rent = Number(priceObj?.rent ?? 0);
+        const extend = Number(priceObj?.extend ?? 0);
+        if (rent > 0 || extend > 0) {
+          return { rent, extend };
+        }
+      }
+    }
+  }
+
+  return { rent: 0, extend: 0 };
+}
+
+function getSelectedSteps(
+  extendScope: AggregateRunRequest["필터"]["연장"] | undefined,
+  presentSteps: number[]
+) {
+  if (!extendScope || extendScope === "전체") {
+    return presentSteps.length > 0 ? presentSteps : [0];
+  }
+
+  if (extendScope === "0차") return [0];
+
+  const m = String(extendScope).match(/^(\d+)차$/);
+  if (!m) return presentSteps.length > 0 ? presentSteps : [0];
+
+  return [Number(m[1])];
+}
 
 async function loadAllRowsForExtend(): Promise<RawUnionRow[]> {
-  const candidates = ["recovery1", "recovery2", "recovery_complete_1", "recovery_complete_2", "recovery_recovery1", "recovery_recovery2"];
+  const candidates = [
+    "recovery1",
+    "recovery2",
+    "recovery_complete_1",
+    "recovery_complete_2",
+    "recovery_recovery1",
+    "recovery_recovery2",
+  ];
 
   const existR = await query(
     `SELECT t.name
@@ -184,7 +306,9 @@ async function loadAllRowsForExtend(): Promise<RawUnionRow[]> {
      WHERE to_regclass('public.' || t.name) IS NOT NULL`,
     [candidates]
   );
-  const existingTables = (existR.rows || []).map((x: any) => String(x?.name || "").trim()).filter(Boolean);
+  const existingTables = (existR.rows || [])
+    .map((x: any) => String(x?.name || "").trim())
+    .filter(Boolean);
 
   const unionParts: string[] = [];
   unionParts.push(`
@@ -261,8 +385,76 @@ export async function POST(req: Request) {
   }
 
   const allRows = await loadAllRowsForExtend();
-  const presentSteps = getPresentSteps(allRows.map((x) => ({ data: x.data || {} }))); // 0차 포함 + 실제 존재 차수만
-  const periods = makePeriodsFromSteps(presentSteps);
+  const partnerCatMap = await loadPartnerCategoryMap();
+  const priceMap = await loadPriceMap();
+
+  const filters = body.필터;
+  const search = body.검색 || {};
+
+  const preparedRows: Array<{
+    ev: NormalizedAggregateRow;
+    bucket: string;
+    partnerName: string;
+    pumpModel: string;
+    rentDayPrice: number;
+    extendDayPrice: number;
+  }> = [];
+
+  for (const raw of allRows) {
+    const normalized = normalizeAggregateRow(raw);
+    if (!normalized.ok || !normalized.value) continue;
+
+    const ev = normalized.value;
+    const rawPartnerCategory = String(ev.partnerCategory ?? "").trim();
+    const partnerName = normalizePartnerName(rawPartnerCategory, ev.receiverName);
+
+    const l1ByPartnerName = partnerCatMap.get(partnerName) || "";
+    const l1ByRawCategory = partnerCatMap.get(rawPartnerCategory) || "";
+    const l1FromSettings = l1ByPartnerName || l1ByRawCategory || "";
+    if (!l1FromSettings) continue;
+
+    const bucket = normalizePartnerBucket(l1FromSettings);
+    if (bucket === "조리원") continue;
+    if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
+
+    const pumpModel = normalizePumpModelName(ev.productName);
+    if (filters.유축기 === "기종" && search.유축기) {
+      const selectedPump = normalizePumpModelName(search.유축기);
+      if (pumpModel !== selectedPump) continue;
+    }
+
+    if (search.거래처 && !partnerName.includes(String(search.거래처))) continue;
+    if (search.기기번호 && !String(ev.deviceNo || "").includes(String(search.기기번호))) continue;
+
+    if (filters.대여형태 !== "전체") {
+      const rentKind = String(ev.rentKind ?? "").trim();
+      if (!rentKind.includes(filters.대여형태)) continue;
+    }
+
+    const pricePair = resolvePricePair({
+      pumpPriceMap: priceMap,
+      partnerName,
+      bucket,
+      pumpModel,
+    });
+
+    if (pricePair.rent <= 0 && pricePair.extend <= 0) continue;
+
+    preparedRows.push({
+      ev,
+      bucket,
+      partnerName,
+      pumpModel,
+      rentDayPrice: pricePair.rent,
+      extendDayPrice: pricePair.extend,
+    });
+  }
+
+  const presentStepsAll = getPresentSteps(preparedRows.map((x) => ({ data: x.ev.sourceData || {} })));
+  const selectedSteps = getSelectedSteps(filters.연장, presentStepsAll);
+  const selectedStepSet = new Set(selectedSteps);
+
+  const periods = makePeriodsFromSteps(selectedSteps);
   const rows = makeRowsSkeleton(periods);
 
   const rowMap = new Map<string, AggregateExtendResultRow>();
@@ -270,18 +462,11 @@ export async function POST(req: Request) {
     rowMap.set(`${r.pumpModel}||${r.partnerCategory}`, r);
   }
 
-   const dedupSet = new Set<string>();
+  const dedupSet = new Set<string>();
 
-  for (const raw of allRows) {
-    const normalized = normalizeAggregateRow(raw);
-    if (!normalized.ok || !normalized.value) continue;
-
-    const ev = normalized.value;
-    const partner = normalizePartnerBucket(ev.partnerCategory);
-    if (partner === "조리원") continue;
-
-    const pump = normalizePumpModelName(ev.productName);
-    const target = rowMap.get(`${pump}||${partner}`);
+  for (const item of preparedRows) {
+    const { ev, bucket, pumpModel, rentDayPrice, extendDayPrice } = item;
+    const target = rowMap.get(`${pumpModel}||${bucket}`);
     if (!target) continue;
 
     const dedupKey = makeDedupKey({
@@ -294,15 +479,11 @@ export async function POST(req: Request) {
     dedupSet.add(dedupKey);
 
     const stepDaysMap: Record<number, number> = {};
-    for (const step of presentSteps) {
-      const key = stepKey(step);
-      if (step === 0) {
-        const raw0 = ev.sourceData?.[key];
-        const parsed0 = parseExtendValue(raw0);
-        if (parsed0.days > 0) stepDaysMap[0] = parsed0.days;
-        continue;
-      }
-      const parsed = parseExtendValue(ev.sourceData?.[key]);
+    for (const [fieldKey, fieldValue] of Object.entries(ev.sourceData || {})) {
+      const step = parseExtendStepFromFieldKey(fieldKey);
+      if (step == null) continue;
+
+      const parsed = parseExtendValue(fieldValue);
       if (parsed.days > 0) stepDaysMap[step] = parsed.days;
     }
 
@@ -312,22 +493,36 @@ export async function POST(req: Request) {
     });
 
     for (const ep of extendPeriods) {
+      if (!selectedStepSet.has(ep.step)) continue;
+
       const key = ep.key;
       if (!target.values[key]) continue;
 
-      const overlap = overlapDaysInclusive(ep.start, ep.end, periodStart, periodEnd);
+      const effectiveEnd =
+        ep.end.getTime() > ev.end.getTime() ? new Date(ev.end.getTime()) : ep.end;
+
+      if (effectiveEnd.getTime() < ep.start.getTime()) continue;
+
+      const overlap = overlapDaysInclusive(ep.start, effectiveEnd, periodStart, periodEnd);
       if (overlap <= 0) continue;
 
+      const dayPrice = ep.step === 0 ? rentDayPrice : extendDayPrice;
+      if (dayPrice <= 0) continue;
+
       const v = target.values[key] || emptyCell();
-      v.출고수량 += ep.start.getTime() >= periodStart.getTime() && ep.start.getTime() <= periodEnd.getTime() ? 1 : 0;
+
+      if (ep.start.getTime() >= periodStart.getTime() && ep.start.getTime() <= periodEnd.getTime()) {
+        v.출고수량 += 1;
+      }
+
       v.대여일수 += overlap;
-      const amountToken = String(ev.sourceData?.[key] ?? "").split("/")[2] ?? "0";
-      v.금액 += parseAmount(amountToken);
+      v.금액 += overlap * dayPrice;
       target.values[key] = v;
     }
-  } 
+  }
 
-  // 소계/합계 계산
+  const sumPeriods = periods.filter((p) => p.key !== "0차연장");
+
   for (const pump of [...PUMP_ORDER].sort((a, b) => pumpOrderIndex(a) - pumpOrderIndex(b))) {
     const subtotal = rowMap.get(`${pump}||소계`);
     if (!subtotal) continue;
@@ -337,7 +532,7 @@ export async function POST(req: Request) {
       if (!r) continue;
 
       r.sum = emptyCell();
-      for (const p of periods) addCell(r.sum, r.values[p.key] || emptyCell());
+      for (const p of sumPeriods) addCell(r.sum, r.values[p.key] || emptyCell());
 
       for (const p of periods) {
         const sv = subtotal.values[p.key] || emptyCell();
@@ -349,7 +544,7 @@ export async function POST(req: Request) {
     }
 
     subtotal.sum = emptyCell();
-    for (const p of periods) addCell(subtotal.sum, subtotal.values[p.key] || emptyCell());
+    for (const p of sumPeriods) addCell(subtotal.sum, subtotal.values[p.key] || emptyCell());
   }
 
   const response: AggregateRunExtendResponse = {
