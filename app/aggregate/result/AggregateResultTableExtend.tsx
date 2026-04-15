@@ -83,7 +83,7 @@ export function AggregateResultTableExtend({
                 기종
               </th>
               <th
-                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50"
+                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50 shadow-[inset_-1px_0_0_0_#d1d5db]"
                 rowSpan={2}
               >
                 거래처
@@ -138,7 +138,7 @@ export function AggregateResultTableExtend({
                   ) : null}
 
                   <td
-                    className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 ${
+                    className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
                       isSubtotal ? "bg-gray-100" : "bg-white"
                     }`}
                   >
@@ -167,7 +167,10 @@ export function AggregateResultTableExtend({
 
           <tfoot>
             <tr>
-              <td className="border px-2 py-1 bg-gray-50 font-semibold text-center sticky left-0 z-40" colSpan={2}>
+              <td
+                className="border px-2 py-1 bg-gray-50 font-semibold text-center sticky left-0 z-40 shadow-[inset_-1px_0_0_0_#d1d5db]"
+                colSpan={2}
+              >
                 합계
               </td>
 

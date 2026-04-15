@@ -44,7 +44,7 @@ export default function AggregateResultExtendView({
         {error ? <div className="text-xs text-red-600">{error}</div> : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-3">
+      <div className="flex-1 min-h-0 overflow-hidden p-3">
         {result ? (
           <AggregateResultTableExtend meta={result.meta} rows={result.rows} />
         ) : (
