@@ -244,6 +244,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as AggregateRunRequest | null;
   if (!body) return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
 
+  if (body?.필터?.집계타입 !== "연장") {
+    return NextResponse.json({ error: "INVALID_AGGREGATE_TARGET_FOR_RUN_EXTEND" }, { status: 400 });
+  }
+
   const periodStartRaw = String(body?.기준일자?.periodStart ?? "").trim();
   const periodEndRaw = String(body?.기준일자?.periodEnd ?? "").trim();
   const periodStart = toDateOnly(periodStartRaw);

@@ -681,6 +681,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as AggregateRunRequest | null;
   if (!body) return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
 
+  if (body?.필터?.집계타입 && body.필터.집계타입 !== "유축기") {
+    return NextResponse.json({ error: "INVALID_AGGREGATE_TARGET_FOR_RUN" }, { status: 400 });
+  }
+
   const ps = toISODateString(body.기준일자?.periodStart);
   const pe = toISODateString(body.기준일자?.periodEnd);
   const start = parseDateFlexible(ps);
