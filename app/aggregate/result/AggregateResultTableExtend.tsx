@@ -66,14 +66,14 @@ export function AggregateResultTableExtend({
   const totals = buildTotals(rows, meta.periods);
 
   return (
-    <div className="space-y-3">
-      <div className="text-sm font-semibold">
+    <div className="h-full min-h-0 flex flex-col gap-3">
+      <div className="text-sm font-semibold shrink-0">
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-      <div className="border rounded bg-white relative">
-        <div className="max-h-[82vh] overflow-auto">
-          <table className="w-max min-w-full border-collapse table-auto text-xs">
+      <div className="border rounded bg-white relative flex-1 min-h-0 overflow-hidden">
+        <div className="h-full min-h-0 overflow-auto">
+          <table className="w-max min-w-full border-collapse table-auto text-xs">  
             <thead className="sticky top-0 z-40 bg-gray-100">
             <tr>
               <th
