@@ -49,6 +49,8 @@ export type AggregateSearchInput = {
   기기번호?: string; // 예: "112315/012"
 };
 
+export type AggregateViewAxis = "거래처" | "유축기" | "연장" | "대여형태";
+
 export type AggregateTarget = "유축기" | "연장";
 
 export type AggregateRunFilters = {

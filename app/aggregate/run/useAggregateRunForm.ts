@@ -6,6 +6,7 @@ import type {
   AggregateGranularity,
   AggregateRunRequest,
   AggregateRunSummary,
+  AggregateViewAxis,
   ComparePeriodOptions,
   ExtendScope,
   PartnerScope,
@@ -64,7 +65,7 @@ export type AggregateRunFormState = {
   granularity: AggregateGranularity | "";
   compare: ComparePeriodOptions;
 
-  aggregateTarget: "유축기" | "연장";
+  activeAxis: AggregateViewAxis;
   partnerScope: PartnerScope;
   pumpScope: PumpScope;
   extendScope: ExtendScope;
@@ -92,7 +93,7 @@ export function createDefaultAggregateRunFormState(
       전월동일기간: false,
     },
 
-    aggregateTarget: init?.aggregateTarget ?? "유축기",
+    activeAxis: init?.activeAxis ?? "거래처",
     partnerScope: init?.partnerScope ?? "전체",
     pumpScope: init?.pumpScope ?? "전체",
     extendScope: init?.extendScope ?? "전체",
@@ -130,13 +131,13 @@ function buildRequest(state: AggregateRunFormState): AggregateRunRequest {
     집계조건: state.granularity as AggregateGranularity,
     비교기간: normalizeCompare(state.compare),
     필터: {
-      집계타입: state.aggregateTarget,
+      집계타입: state.activeAxis === "연장" ? "연장" : "유축기",
       거래처: state.partnerScope,
       유축기: state.pumpScope,
       연장: state.extendScope,
       대여형태: state.rentTypeScope,
     },
-   검색: {
+    검색: {
       거래처: state.searchPartner?.trim() || undefined,
       유축기: state.searchPump?.trim() || undefined,
       기기번호: state.searchDeviceNo?.trim() || undefined,
@@ -258,8 +259,8 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     });
   }, []);
 
-   const setAggregateTarget = useCallback((v: "유축기" | "연장") => {
-    setState((prev) => ({ ...prev, aggregateTarget: v }));
+  const setActiveAxis = useCallback((v: AggregateViewAxis) => {
+    setState((prev) => ({ ...prev, activeAxis: v }));
   }, []);
 
   const setPartnerScope = useCallback((v: PartnerScope) => {
@@ -329,7 +330,7 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     setGranularity,
     setCompare,
     toggleCompare,
-    setAggregateTarget,
+    setActiveAxis,
     setPartnerScope,
     setPumpScope,
     setExtendScope,

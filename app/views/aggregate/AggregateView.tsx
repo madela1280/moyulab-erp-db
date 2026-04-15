@@ -24,6 +24,25 @@ function FieldLabel(props: { required?: boolean; children: string }) {
   );
 }
 
+function AxisLabel(props: {
+  active: boolean;
+  children: string;
+  onClick: () => void;
+}) {
+  const { active, children, onClick } = props;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full h-full px-3 py-2 text-left text-sm font-semibold border-r ${
+        active ? "bg-blue-50 text-blue-700" : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Row(props: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[180px_1fr] border-b last:border-b-0">
@@ -45,7 +64,7 @@ export default function AggregateView() {
       전년동일기간: false,
       전월동일기간: false,
     },
-    aggregateTarget: "유축기",
+    activeAxis: "거래처",
     partnerScope: "전체",
     pumpScope: "전체",
     extendScope: "전체",
@@ -55,7 +74,6 @@ export default function AggregateView() {
   const [resultRequest, setResultRequest] = useState<AggregateRunRequest | null>(null);
 
   const granularityOptions: AggregateGranularity[] = ["일별", "월별", "연별"];
-  const targetOptions = ["유축기", "연장"] as const;
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
@@ -129,28 +147,25 @@ export default function AggregateView() {
 
                 <ErrorText text={form.lastErrors.granularity} />
               </Row>
-
-              <Row label={<FieldLabel>집계타입</FieldLabel>}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={form.state.aggregateTarget}
-                    onChange={(e) => form.setAggregateTarget(e.target.value as "유축기" | "연장")}
-                    className="border rounded px-2 py-1 text-sm bg-white"
+              
+              <Row
+                label={
+                  <AxisLabel
+                    active={form.state.activeAxis === "거래처"}
+                    onClick={() => form.setActiveAxis("거래처")}
                   >
-                    {targetOptions.map((x) => (
-                      <option key={x} value={x}>
-                        {x}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </Row>
-
-              <Row label={<FieldLabel>거래처</FieldLabel>}>
+                    거래처
+                  </AxisLabel>
+                }
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={form.state.partnerScope}
-                    onChange={(e) => form.setPartnerScope(e.target.value as PartnerScope)}
+                    onClick={() => form.setActiveAxis("거래처")}
+                    onChange={(e) => {
+                      form.setActiveAxis("거래처");
+                      form.setPartnerScope(e.target.value as PartnerScope);
+                    }}
                     className="border rounded px-2 py-1 text-sm bg-white"
                   >
                     {partnerOptions.map((x) => (
@@ -162,11 +177,24 @@ export default function AggregateView() {
                 </div>
               </Row>
 
-              <Row label={<FieldLabel>유축기</FieldLabel>}>
+              <Row
+                label={
+                  <AxisLabel
+                    active={form.state.activeAxis === "유축기"}
+                    onClick={() => form.setActiveAxis("유축기")}
+                  >
+                    유축기
+                  </AxisLabel>
+                }
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={form.state.pumpScope}
-                    onChange={(e) => form.setPumpScope(e.target.value as PumpScope)}
+                    onClick={() => form.setActiveAxis("유축기")}
+                    onChange={(e) => {
+                      form.setActiveAxis("유축기");
+                      form.setPumpScope(e.target.value as PumpScope);
+                    }}
                     className="border rounded px-2 py-1 text-sm bg-white"
                   >
                     {pumpOptions.map((x) => (
@@ -179,7 +207,11 @@ export default function AggregateView() {
                   {form.state.pumpScope === "기종" ? (
                     <select
                       value={form.state.searchPump}
-                      onChange={(e) => form.setSearchPump(e.target.value)}
+                      onClick={() => form.setActiveAxis("유축기")}
+                      onChange={(e) => {
+                        form.setActiveAxis("유축기");
+                        form.setSearchPump(e.target.value);
+                      }}
                       className="border rounded px-2 py-1 text-sm bg-white"
                     >
                       <option value="">기종 선택</option>
@@ -193,11 +225,24 @@ export default function AggregateView() {
                 </div>
               </Row>
 
-              <Row label={<FieldLabel>연장</FieldLabel>}>
+              <Row
+                label={
+                  <AxisLabel
+                    active={form.state.activeAxis === "연장"}
+                    onClick={() => form.setActiveAxis("연장")}
+                  >
+                    연장
+                  </AxisLabel>
+                }
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={form.state.extendScope}
-                    onChange={(e) => form.setExtendScope(e.target.value as ExtendScope)}
+                    onClick={() => form.setActiveAxis("연장")}
+                    onChange={(e) => {
+                      form.setActiveAxis("연장");
+                      form.setExtendScope(e.target.value as ExtendScope);
+                    }}
                     className="border rounded px-2 py-1 text-sm bg-white"
                   >
                     {extendOptions.map((x) => (
@@ -209,11 +254,24 @@ export default function AggregateView() {
                 </div>
               </Row>
 
-              <Row label={<FieldLabel>대여형태</FieldLabel>}>
+              <Row
+                label={
+                  <AxisLabel
+                    active={form.state.activeAxis === "대여형태"}
+                    onClick={() => form.setActiveAxis("대여형태")}
+                  >
+                    대여형태
+                  </AxisLabel>
+                }
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={form.state.rentTypeScope}
-                    onChange={(e) => form.setRentTypeScope(e.target.value as RentTypeScope)}
+                    onClick={() => form.setActiveAxis("대여형태")}
+                    onChange={(e) => {
+                      form.setActiveAxis("대여형태");
+                      form.setRentTypeScope(e.target.value as RentTypeScope);
+                    }}
                     className="border rounded px-2 py-1 text-sm bg-white"
                   >
                     {rentTypeOptions.map((x) => (
