@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 // CSV 생성(동적 컬럼 포함)
 // 1) 기본 컬럼 순서(unifiedColumns) 유지
 // 2) 데이터에만 존재하는 추가 컬럼은 뒤에 붙임
-const baseHeader = [...unifiedColumns];
+const baseHeader: string[] = [...unifiedColumns];
 const extraKeySet = new Set<string>();
 
 for (const row of filtered) {
