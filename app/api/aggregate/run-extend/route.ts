@@ -16,7 +16,7 @@ import {
 } from "@/aggregate/extend/normalizeAggregateRow";
 import { makeDedupKey } from "@/aggregate/extend/dedupKey";
 
-type Cell = { 출고수량: number; 대여일수: number; 금액: number };
+type Cell = { 출고수량: number; 수량: number; 대여일수: number; 금액: number };
 
 type RawUnionRow = AggregateRawRow;
 
@@ -70,11 +70,12 @@ function overlapDaysInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date
 }
 
 function emptyCell(): Cell {
-  return { 출고수량: 0, 대여일수: 0, 금액: 0 };
+  return { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
 }
 
 function addCell(a: Cell, b: Cell) {
   a.출고수량 += b.출고수량;
+  a.수량 += b.수량;
   a.대여일수 += b.대여일수;
   a.금액 += b.금액;
 }
@@ -159,8 +160,14 @@ function makeRowsSkeleton(periods: AggregateExtendPeriodMeta[]): AggregateExtend
 function toCsv(resp: AggregateRunExtendResponse) {
   const headers = ["기종", "거래처"];
   for (const p of resp.meta.periods) {
-    headers.push(`${p.label}_출고수량`, `${p.label}_대여일수`, `${p.label}_금액`);
-  }
+  const isZero = p.key === "0차연장";
+  headers.push(
+    `${p.label}_${isZero ? "출고수량" : "수량"}`,
+    `${p.label}_대여일수`,
+    `${p.label}_금액`
+  );
+}
+
   headers.push("합계_출고수량", "합계_대여일수", "합계_금액", "비중치");
 
   const lines = [headers.join(",")];
@@ -168,9 +175,10 @@ function toCsv(resp: AggregateRunExtendResponse) {
   for (const r of resp.rows) {
     const row: string[] = [r.pumpModel, r.partnerCategory];
     for (const p of resp.meta.periods) {
-      const v = r.values[p.key] || emptyCell();
-      row.push(String(v.출고수량), String(v.대여일수), String(v.금액));
-    }
+  const v = r.values[p.key] || emptyCell();
+  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+  row.push(String(count), String(v.대여일수), String(v.금액));
+}
     row.push(String(r.sum.출고수량), String(r.sum.대여일수), String(r.sum.금액), String(r.weight));
     lines.push(row.map((x) => `"${String(x).replaceAll(`"`, `""`)}"`).join(","));
   }
@@ -511,13 +519,19 @@ export async function POST(req: Request) {
 
       const v = target.values[key] || emptyCell();
 
-      if (ep.start.getTime() >= periodStart.getTime() && ep.start.getTime() <= periodEnd.getTime()) {
-        v.출고수량 += 1;
-      }
+      // 0차: 기존과 동일(출고수량)
+      // 1차~n차: 수량(해당 차수에 overlap이 있으면 1건)
+      if (ep.step === 0) {
+        if (ep.start.getTime() >= periodStart.getTime() && ep.start.getTime() <= periodEnd.getTime()) {
+         v.출고수량 += 1;
+        }
+     } else {
+       v.수량 += 1;
+     }
 
-      v.대여일수 += overlap;
-      v.금액 += overlap * dayPrice;
-      target.values[key] = v;
+v.대여일수 += overlap;
+v.금액 += overlap * dayPrice;
+target.values[key] = v;
     }
   }
 
@@ -546,6 +560,25 @@ export async function POST(req: Request) {
     subtotal.sum = emptyCell();
     for (const p of sumPeriods) addCell(subtotal.sum, subtotal.values[p.key] || emptyCell());
   }
+
+  // 타입 파일(수량 필드 미포함)과의 호환을 위해 응답 직전에 필드 정규화
+for (const r of rows) {
+  for (const p of periods) {
+    const v = r.values[p.key] || emptyCell();
+    r.values[p.key] = {
+      출고수량: Number(v.출고수량 || 0),
+      수량: Number(v.수량 || 0),
+      대여일수: Number(v.대여일수 || 0),
+      금액: Number(v.금액 || 0),
+    } as any;
+  }
+  r.sum = {
+    출고수량: Number(r.sum?.출고수량 || 0),
+    수량: Number((r.sum as any)?.수량 || 0),
+    대여일수: Number(r.sum?.대여일수 || 0),
+    금액: Number(r.sum?.금액 || 0),
+  } as any;
+}
 
   const response: AggregateRunExtendResponse = {
     ok: true,

@@ -37,11 +37,12 @@ function buildTotals(
   for (const r of rows) {
     if (r.partnerCategory === "소계") continue;
     for (const p of periods) {
-      const v = r.values[p.key] || { 출고수량: 0, 대여일수: 0, 금액: 0 };
-      byPeriod[p.key].출고수량 += v.출고수량;
-      byPeriod[p.key].대여일수 += v.대여일수;
-      byPeriod[p.key].금액 += v.금액;
-    }
+  const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+  byPeriod[p.key].출고수량 += count;
+  byPeriod[p.key].대여일수 += v.대여일수;
+  byPeriod[p.key].금액 += v.금액;
+}
     total.출고수량 += r.sum.출고수량;
     total.대여일수 += r.sum.대여일수;
     total.금액 += r.sum.금액;
@@ -101,16 +102,16 @@ export function AggregateResultTableExtend({
             </tr>
             <tr>
               {meta.periods.flatMap((p) => [
-                <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-                  출고수량
-                </th>,
-                <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-                  대여일수
-                </th>,
-                <th key={`${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
-                  금액
-                </th>,
-              ])}
+  <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+    {p.key === "0차연장" ? "출고수량" : "수량"}
+  </th>,
+  <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+    대여일수
+  </th>,
+  <th key={`${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+    금액
+  </th>,
+])}
 
               <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">출고수량</th>
               <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
@@ -145,16 +146,17 @@ export function AggregateResultTableExtend({
                     {r.partnerCategory}
                   </td>
 
-                  {meta.periods.map((p) => {
-                    const v = r.values[p.key] || { 출고수량: 0, 대여일수: 0, 금액: 0 };
-                    return (
-                      <Fragment key={`${p.key}-${idx}`}>
-                        <td className="border px-1 py-1 text-right">{formatNumber(v.출고수량)}</td>
-                        <td className="border px-1 py-1 text-right">{formatNumber(v.대여일수)}</td>
-                        <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
-                      </Fragment>
-                    );
-                  })}
+                   {meta.periods.map((p) => {
+  const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+  return (
+    <Fragment key={`${p.key}-${idx}`}>
+      <td className="border px-1 py-1 text-right">{formatNumber(count)}</td>
+      <td className="border px-1 py-1 text-right">{formatNumber(v.대여일수)}</td>
+      <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+    </Fragment>
+  );
+})}
 
                   <td className="border px-1 py-1 text-right">{formatNumber(r.sum.출고수량)}</td>
                   <td className="border px-1 py-1 text-right">{formatNumber(r.sum.대여일수)}</td>
