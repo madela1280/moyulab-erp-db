@@ -114,10 +114,10 @@ export function AggregateResultTableExtend({
     const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
 
     return (
-      <div className="border rounded bg-white relative flex-1 min-h-0 overflow-hidden mt-4">
+     <div className="border rounded bg-white relative h-[430px] overflow-hidden mt-4">
         {title ? <div className="px-3 py-2 border-b bg-gray-50 text-sm font-semibold">{title}</div> : null}
 
-        <div className="h-full min-h-0 overflow-auto">
+        <div className="h-full overflow-auto">
           <table className="w-max min-w-full border-collapse table-auto text-xs">
             <thead className="sticky top-0 z-40 bg-gray-100">
               <tr>
@@ -278,16 +278,12 @@ export function AggregateResultTableExtend({
   }
 
    return (
-    <div className="h-full min-h-0 flex flex-col gap-3">
+    <div className="w-full h-full overflow-y-auto flex flex-col gap-3">
       <div className="text-sm font-semibold shrink-0">
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-      {compareBlocks.length > 0 ? (
-        <div className="text-xs text-gray-700 shrink-0">
-          비교: {compareBlocks.map((b) => b.label).join(" / ")}
-        </div>
-      ) : null}
+      {null}
 
       {renderTableBlock({
         blockMeta: meta,
