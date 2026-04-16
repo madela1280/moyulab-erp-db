@@ -98,200 +98,211 @@ export function AggregateResultTableExtend({
 }) {
   const rowSpans = buildPumpRowSpans(rows);
   const totals = buildTotals(rows, meta.periods);
-  const compareBlocks = (compareResults || []).map((c) => ({
-  label: c.label,
-  totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
-}));
+    const compareBlocks = (compareResults || []).map((c) => ({
+    label: c.label,
+    totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
+  }));
 
-  return (
+  function renderTableBlock(params: {
+    blockMeta: { periodStart: string; periodEnd: string; periods: AggregateExtendPeriodMeta[] };
+    blockRows: AggregateExtendResultRow[];
+    title?: string;
+    keyPrefix: string;
+  }) {
+    const { blockMeta, blockRows, title, keyPrefix } = params;
+    const blockRowSpans = buildPumpRowSpans(blockRows || []);
+    const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
+
+    return (
+      <div className="border rounded bg-white relative flex-1 min-h-0 overflow-hidden mt-4">
+        {title ? <div className="px-3 py-2 border-b bg-gray-50 text-sm font-semibold">{title}</div> : null}
+
+        <div className="h-full min-h-0 overflow-auto">
+          <table className="w-max min-w-full border-collapse table-auto text-xs">
+            <thead className="sticky top-0 z-40 bg-gray-100">
+              <tr>
+                <th
+                  className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-50"
+                  rowSpan={2}
+                >
+                  기종
+                </th>
+                <th
+                  className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50 shadow-[inset_-1px_0_0_0_#d1d5db]"
+                  rowSpan={2}
+                >
+                  거래처
+                </th>
+
+                {(blockMeta.periods || []).map((p) => (
+                  <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+                    {p.label}
+                  </th>
+                ))}
+
+                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
+                  합계(1차연장 ~ )
+                </th>
+              </tr>
+              <tr>
+                {(blockMeta.periods || []).flatMap((p) => [
+                  <th key={`${keyPrefix}-${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                    {p.key === "0차연장" ? "출고수량" : "수량"}
+                  </th>,
+                  <th key={`${keyPrefix}-${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                    대여일수
+                  </th>,
+                  <th key={`${keyPrefix}-${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+                    금액
+                  </th>,
+                ])}
+
+                <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
+                <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
+                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
+                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {(blockRows || []).map((r, idx) => {
+                const rowSpan = blockRowSpans[idx] || 0;
+                const isSubtotal = r.partnerCategory === "소계";
+
+                return (
+                  <tr key={`${keyPrefix}-${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
+                    {rowSpan > 0 ? (
+                      <td
+                        className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
+                          isSubtotal ? "bg-gray-100" : "bg-white"
+                        }`}
+                        rowSpan={rowSpan}
+                      >
+                        {r.pumpModel}
+                      </td>
+                    ) : null}
+
+                    <td
+                      className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
+                        isSubtotal ? "bg-gray-100" : "bg-white"
+                      }`}
+                    >
+                      {r.partnerCategory}
+                    </td>
+
+                    {(blockMeta.periods || []).map((p) => {
+                      const v = (r.values as any)?.[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+                      const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+                      return (
+                        <Fragment key={`${keyPrefix}-${p.key}-${idx}`}>
+                          <td className="border px-1 py-1 text-right">{formatNumber(count)}</td>
+                          <td className="border px-1 py-1 text-right">{formatNumber(v.대여일수)}</td>
+                          <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
+                        </Fragment>
+                      );
+                    })}
+
+                    {(() => {
+                      let rowCount = 0;
+                      let rowDays = 0;
+                      let rowAmount = 0;
+                      let rowZeroAmount = 0;
+
+                      for (const p of blockMeta.periods || []) {
+                        const v = (r.values as any)?.[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+                        const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+
+                        if (p.key === "0차연장") {
+                          rowZeroAmount += Number(v.금액 || 0);
+                        } else {
+                          rowCount += Number(count || 0);
+                          rowDays += Number(v.대여일수 || 0);
+                          rowAmount += Number(v.금액 || 0);
+                        }
+                      }
+
+                      const denom = rowZeroAmount + rowAmount;
+                      const rowWeight =
+                        rowAmount > 0 && rowZeroAmount <= 0
+                          ? 100
+                          : denom > 0
+                          ? (rowAmount / denom) * 100
+                          : 0;
+
+                      return (
+                        <>
+                          <td className="border px-1 py-1 text-right">{formatNumber(rowCount)}</td>
+                          <td className="border px-1 py-1 text-right">{formatNumber(rowDays)}</td>
+                          <td className="border px-2 py-1 text-right">{formatNumber(rowAmount)}</td>
+                          <td className="border px-2 py-1 text-right">{`${rowWeight.toFixed(1)}%`}</td>
+                        </>
+                      );
+                    })()}
+                  </tr>
+                );
+              })}
+            </tbody>
+
+            <tfoot>
+              <tr>
+                <td
+                  className="border px-2 py-1 bg-gray-50 font-semibold text-center sticky left-0 z-40 shadow-[inset_-1px_0_0_0_#d1d5db]"
+                  colSpan={2}
+                >
+                  합계
+                </td>
+
+                {(blockMeta.periods || []).map((p) => {
+                  const v = blockTotals.byPeriod[p.key] || { 출고수량: 0, 대여일수: 0, 금액: 0 };
+                  return (
+                    <Fragment key={`${keyPrefix}-total-${p.key}`}>
+                      <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">{formatNumber(v.출고수량)}</td>
+                      <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">{formatNumber(v.대여일수)}</td>
+                      <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">{formatNumber(v.금액)}</td>
+                    </Fragment>
+                  );
+                })}
+
+                <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">{formatNumber(blockTotals.total.수량)}</td>
+                <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">{formatNumber(blockTotals.total.대여일수)}</td>
+                <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">{formatNumber(blockTotals.total.금액)}</td>
+                <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+                  {`${Number(blockTotals.total.비중치 || 0).toFixed(1)}%`}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+   return (
     <div className="h-full min-h-0 flex flex-col gap-3">
       <div className="text-sm font-semibold shrink-0">
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-   {compareBlocks.length > 0 ? (
-  <div className="text-xs text-gray-700 shrink-0">
-    {compareBlocks.map((b) => {
-      const t = b.totals.total;
-      return (
-        <div key={b.label}>
-          비교({b.label}) : 수량 {formatNumber(t.수량)} / 대여일수 {formatNumber(t.대여일수)} / 금액 {formatNumber(t.금액)} / 비중치 {Number(t.비중치 || 0).toFixed(1)}%
+      {compareBlocks.length > 0 ? (
+        <div className="text-xs text-gray-700 shrink-0">
+          비교: {compareBlocks.map((b) => b.label).join(" / ")}
         </div>
-      );
-    })}
-  </div>
-) : null}
+      ) : null}
 
-      <div className="border rounded bg-white relative flex-1 min-h-0 overflow-hidden">
-        <div className="h-full min-h-0 overflow-auto">
-          <table className="w-max min-w-full border-collapse table-auto text-xs">  
-            <thead className="sticky top-0 z-40 bg-gray-100">
-            <tr>
-              <th
-                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-50"
-                rowSpan={2}
-              >
-                기종
-              </th>
-              <th
-                className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50 shadow-[inset_-1px_0_0_0_#d1d5db]"
-                rowSpan={2}
-              >
-                거래처
-              </th>
+      {renderTableBlock({
+        blockMeta: meta,
+        blockRows: rows,
+        keyPrefix: "main",
+      })}
 
-              {meta.periods.map((p) => (
-                <th key={p.key} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
-                  {p.label}
-                </th>
-              ))}
-
-              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
-                합계(1차연장 ~ )
-              </th>
-            </tr>
-            <tr>
-              {meta.periods.flatMap((p) => [
-  <th key={`${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-    {p.key === "0차연장" ? "출고수량" : "수량"}
-  </th>,
-  <th key={`${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-    대여일수
-  </th>,
-  <th key={`${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
-    금액
-  </th>,
-])}
-
-              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
-              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
-              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
-              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {rows.map((r, idx) => {
-              const rowSpan = rowSpans[idx] || 0;
-              const isSubtotal = r.partnerCategory === "소계";
-
-              return (
-                <tr key={`${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
-                  {rowSpan > 0 ? (
-                    <td
-                      className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
-                        isSubtotal ? "bg-gray-100" : "bg-white"
-                      }`}
-                      rowSpan={rowSpan}
-                    >
-                      {r.pumpModel}
-                    </td>
-                  ) : null}
-
-                  <td
-                    className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
-                      isSubtotal ? "bg-gray-100" : "bg-white"
-                    }`}
-                  >
-                    {r.partnerCategory}
-                  </td>
-
-                   {meta.periods.map((p) => {
-  const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
-  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
-  return (
-    <Fragment key={`${p.key}-${idx}`}>
-      <td className="border px-1 py-1 text-right">{formatNumber(count)}</td>
-      <td className="border px-1 py-1 text-right">{formatNumber(v.대여일수)}</td>
-      <td className="border px-2 py-1 text-right">{formatNumber(v.금액)}</td>
-    </Fragment>
+      {(compareResults || []).map((cmp, idx) =>
+        renderTableBlock({
+          blockMeta: cmp.meta,
+          blockRows: cmp.rows || [],
+          title: `비교: ${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
+          keyPrefix: `cmp-${idx}-${cmp.label}`,
+        })
+      )}
+    </div>
   );
-})}
-
-                {(() => {
-  let rowCount = 0;
-  let rowDays = 0;
-  let rowAmount = 0;
-  let rowZeroAmount = 0;
-
-  for (const p of meta.periods) {
-    const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
-    const count = p.key === "0차연장" ? v.출고수량 : v.수량;
-
-    if (p.key === "0차연장") {
-      rowZeroAmount += Number(v.금액 || 0);
-    } else {
-      rowCount += Number(count || 0);
-      rowDays += Number(v.대여일수 || 0);
-      rowAmount += Number(v.금액 || 0);
-    }
-  }
-
-  const denom = rowZeroAmount + rowAmount;
-  const rowWeight =
-    rowAmount > 0 && rowZeroAmount <= 0
-      ? 100
-      : denom > 0
-      ? (rowAmount / denom) * 100
-      : 0;
-
-  return (
-    <>
-      <td className="border px-1 py-1 text-right">{formatNumber(rowCount)}</td>
-      <td className="border px-1 py-1 text-right">{formatNumber(rowDays)}</td>
-      <td className="border px-2 py-1 text-right">{formatNumber(rowAmount)}</td>
-      <td className="border px-2 py-1 text-right">{`${rowWeight.toFixed(1)}%`}</td>
-    </>
-  );
-})()}  
-                </tr>
-              );
-            })}
-          </tbody>
-
-          <tfoot>
-            <tr>
-              <td
-                className="border px-2 py-1 bg-gray-50 font-semibold text-center sticky left-0 z-40 shadow-[inset_-1px_0_0_0_#d1d5db]"
-                colSpan={2}
-              >
-                합계
-              </td>
-
-              {meta.periods.map((p) => {
-                const v = totals.byPeriod[p.key];
-                return (
-                  <Fragment key={`total-${p.key}`}>
-                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                      {formatNumber(v.출고수량)}
-                    </td>
-                    <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                      {formatNumber(v.대여일수)}
-                    </td>
-                    <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                      {formatNumber(v.금액)}
-                    </td>
-                  </Fragment>
-                );
-              })}
-
-              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-  {formatNumber(totals.total.수량)}
-</td>
-<td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-  {formatNumber(totals.total.대여일수)}
-</td>
-<td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-  {formatNumber(totals.total.금액)}
-</td>
-<td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-  {`${Number(totals.total.비중치 || 0).toFixed(1)}%`}
-</td>
-                               </tr>
-                             </tfoot>
-                           </table>
-                         </div>
-                       </div>
-                     </div>
-              );
-              }
+}
