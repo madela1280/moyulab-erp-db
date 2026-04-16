@@ -26,4 +26,13 @@ export type AggregateRunExtendResponse = {
     periods: AggregateExtendPeriodMeta[];
   };
   rows: AggregateExtendResultRow[];
+  compareResults?: Array<{
+    label: "전년동일기간" | "전월동일기간";
+    meta: {
+      periodStart: string;
+      periodEnd: string;
+      periods: AggregateExtendPeriodMeta[];
+    };
+    rows: AggregateExtendResultRow[];
+  }>;
 };

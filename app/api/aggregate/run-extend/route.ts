@@ -424,6 +424,24 @@ export async function POST(req: Request) {
   const filters = body.필터;
   const search = body.검색 || {};
 
+  const compare = body.비교기간 || {};
+const compareTargets: Array<{ label: "전년동일기간" | "전월동일기간"; start: Date; end: Date }> = [];
+
+if ((compare as any).전년동일기간) {
+  compareTargets.push({
+    label: "전년동일기간",
+    start: new Date(Date.UTC(periodStart.getUTCFullYear() - 1, periodStart.getUTCMonth(), periodStart.getUTCDate())),
+    end: new Date(Date.UTC(periodEnd.getUTCFullYear() - 1, periodEnd.getUTCMonth(), periodEnd.getUTCDate())),
+  });
+}
+if ((compare as any).전월동일기간) {
+  compareTargets.push({
+    label: "전월동일기간",
+    start: new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() - 1, periodStart.getUTCDate())),
+    end: new Date(Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth() - 1, periodEnd.getUTCDate())),
+  });
+}
+
   const preparedRows: Array<{
     ev: NormalizedAggregateRow;
     bucket: string;
@@ -605,15 +623,16 @@ for (const r of rows) {
   } as any;
 }
 
-  const response: AggregateRunExtendResponse = {
-    ok: true,
-    meta: {
-      periodStart: periodStartRaw,
-      periodEnd: periodEndRaw,
-      periods,
-    },
-    rows,
-  };
+ const response: AggregateRunExtendResponse = {
+  ok: true,
+  meta: {
+    periodStart: periodStartRaw,
+    periodEnd: periodEndRaw,
+    periods,
+  },
+  rows,
+  compareResults: [],
+};
 
   if (format === "csv") {
     const csv = toCsv(response);
@@ -625,6 +644,167 @@ for (const r of rows) {
       },
     });
   }
+
+ for (const ct of compareTargets) {
+  // 현재 로직 재사용을 위해 기간만 바꿔 동일 계산 수행
+  const cPeriodStart = ct.start;
+  const cPeriodEnd = ct.end;
+
+  const cPreparedRows: Array<{
+    ev: NormalizedAggregateRow;
+    bucket: string;
+    partnerName: string;
+    pumpModel: string;
+    rentDayPrice: number;
+    extendDayPrice: number;
+  }> = [];
+
+  for (const raw of allRows) {
+    const normalized = normalizeAggregateRow(raw);
+    if (!normalized.ok || !normalized.value) continue;
+
+    const ev = normalized.value;
+    const rawPartnerCategory = String(ev.partnerCategory ?? "").trim();
+    const partnerName = normalizePartnerName(rawPartnerCategory, ev.receiverName);
+
+    const l1ByPartnerName = partnerCatMap.get(partnerName) || "";
+    const l1ByRawCategory = partnerCatMap.get(rawPartnerCategory) || "";
+    const l1FromSettings = l1ByPartnerName || l1ByRawCategory || "";
+    if (!l1FromSettings) continue;
+
+    const bucket = normalizePartnerBucket(l1FromSettings);
+    if (bucket === "조리원") continue;
+    if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
+
+    const pumpModel = normalizePumpModelName(ev.productName);
+    if (filters.유축기 === "기종" && search.유축기) {
+      const selectedPump = normalizePumpModelName(search.유축기);
+      if (pumpModel !== selectedPump) continue;
+    }
+
+    if (search.거래처 && !partnerName.includes(String(search.거래처))) continue;
+    if (search.기기번호 && !String(ev.deviceNo || "").includes(String(search.기기번호))) continue;
+
+    if (filters.대여형태 !== "전체") {
+      const rentKind = String(ev.rentKind ?? "").trim();
+      if (!rentKind.includes(filters.대여형태)) continue;
+    }
+
+    const pricePair = resolvePricePair({
+      pumpPriceMap: priceMap,
+      partnerName,
+      bucket,
+      pumpModel,
+    });
+    if (pricePair.rent <= 0 && pricePair.extend <= 0) continue;
+
+    cPreparedRows.push({
+      ev,
+      bucket,
+      partnerName,
+      pumpModel,
+      rentDayPrice: pricePair.rent,
+      extendDayPrice: pricePair.extend,
+    });
+  }
+
+  const cPeriods = makePeriodsFromSteps(selectedSteps);
+  const cRows = makeRowsSkeleton(cPeriods);
+  const cRowMap = new Map<string, AggregateExtendResultRow>();
+  for (const r of cRows) cRowMap.set(`${r.pumpModel}||${r.partnerCategory}`, r);
+
+  const cDedupSet = new Set<string>();
+
+  for (const item of cPreparedRows) {
+    const { ev, bucket, pumpModel, rentDayPrice, extendDayPrice } = item;
+    const target = cRowMap.get(`${pumpModel}||${bucket}`);
+    if (!target) continue;
+
+    const dedupKey = makeDedupKey({
+      deviceNo: ev.deviceNo,
+      receiverName: ev.receiverName,
+      start: ev.start,
+      end: ev.end,
+    });
+    if (cDedupSet.has(dedupKey)) continue;
+    cDedupSet.add(dedupKey);
+
+    const stepDaysMap: Record<number, number> = {};
+    for (const [fieldKey, fieldValue] of Object.entries(ev.sourceData || {})) {
+      const step = parseExtendStepFromFieldKey(fieldKey);
+      if (step == null) continue;
+      const parsed = parseExtendValue(fieldValue);
+      if (parsed.days > 0) stepDaysMap[step] = parsed.days;
+    }
+
+    const extendPeriods = calcExtendPeriods({
+      startDate: ev.start,
+      stepDaysMap,
+    });
+
+    for (const ep of extendPeriods) {
+      if (!selectedStepSet.has(ep.step)) continue;
+      const key = ep.key;
+      if (!target.values[key]) continue;
+
+      const effectiveEnd = ep.end.getTime() > ev.end.getTime() ? new Date(ev.end.getTime()) : ep.end;
+      if (effectiveEnd.getTime() < ep.start.getTime()) continue;
+
+      const overlap = overlapDaysInclusive(ep.start, effectiveEnd, cPeriodStart, cPeriodEnd);
+      if (overlap <= 0) continue;
+
+      const dayPrice = ep.step === 0 ? rentDayPrice : extendDayPrice;
+      if (dayPrice <= 0) continue;
+
+      const v = (target.values[key] as any) || emptyCell();
+
+      if (ep.step === 0) {
+        if (ep.start.getTime() >= cPeriodStart.getTime() && ep.start.getTime() <= cPeriodEnd.getTime()) {
+          v.출고수량 += 1;
+        }
+      } else {
+        v.수량 += 1;
+      }
+
+      v.대여일수 += overlap;
+      v.금액 += overlap * dayPrice;
+      target.values[key] = v;
+    }
+  }
+
+  const cSumPeriods = cPeriods.filter((p) => p.key !== "0차연장");
+  for (const pump of [...PUMP_ORDER].sort((a, b) => pumpOrderIndex(a) - pumpOrderIndex(b))) {
+    const subtotal = cRowMap.get(`${pump}||소계`);
+    if (!subtotal) continue;
+
+    for (const partner of PARTNERS) {
+      const r = cRowMap.get(`${pump}||${partner}`);
+      if (!r) continue;
+
+      r.sum = emptyCell() as any;
+      for (const p of cSumPeriods) addCell(r.sum as any, (r.values[p.key] as any) || emptyCell());
+
+      for (const p of cPeriods) {
+        const sv = (subtotal.values[p.key] as any) || emptyCell();
+        addCell(sv, (r.values[p.key] as any) || emptyCell());
+        subtotal.values[p.key] = sv as any;
+      }
+    }
+
+    subtotal.sum = emptyCell() as any;
+    for (const p of cSumPeriods) addCell(subtotal.sum as any, (subtotal.values[p.key] as any) || emptyCell());
+  }
+
+  response.compareResults!.push({
+    label: ct.label,
+    meta: {
+      periodStart: ct.start.toISOString().slice(0, 10),
+      periodEnd: ct.end.toISOString().slice(0, 10),
+      periods: cPeriods,
+    },
+    rows: cRows,
+  });
+}
 
   return NextResponse.json(response);
 }

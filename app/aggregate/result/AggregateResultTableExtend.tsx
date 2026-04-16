@@ -78,6 +78,7 @@ if (total.금액 > 0 && total.zeroAmount <= 0) {
 export function AggregateResultTableExtend({
   meta,
   rows,
+  compareResults,
 }: {
   meta: {
     periodStart: string;
@@ -85,15 +86,41 @@ export function AggregateResultTableExtend({
     periods: AggregateExtendPeriodMeta[];
   };
   rows: AggregateExtendResultRow[];
+  compareResults?: Array<{
+    label: "전년동일기간" | "전월동일기간";
+    meta: {
+      periodStart: string;
+      periodEnd: string;
+      periods: AggregateExtendPeriodMeta[];
+    };
+    rows: AggregateExtendResultRow[];
+  }>;
 }) {
   const rowSpans = buildPumpRowSpans(rows);
   const totals = buildTotals(rows, meta.periods);
+  const compareBlocks = (compareResults || []).map((c) => ({
+  label: c.label,
+  totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
+}));
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-3">
       <div className="text-sm font-semibold shrink-0">
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
+
+   {compareBlocks.length > 0 ? (
+  <div className="text-xs text-gray-700 shrink-0">
+    {compareBlocks.map((b) => {
+      const t = b.totals.total;
+      return (
+        <div key={b.label}>
+          비교({b.label}) : 수량 {formatNumber(t.수량)} / 대여일수 {formatNumber(t.대여일수)} / 금액 {formatNumber(t.금액)} / 비중치 {Number(t.비중치 || 0).toFixed(1)}%
+        </div>
+      );
+    })}
+  </div>
+) : null}
 
       <div className="border rounded bg-white relative flex-1 min-h-0 overflow-hidden">
         <div className="h-full min-h-0 overflow-auto">

@@ -22,7 +22,7 @@ export default function AggregateResultExtendView({
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
-      <div className="px-4 py-3 border-b bg-white flex items-center gap-2">
+      <div className="px-4 py-3 border-b bg-white flex items-center gap-2 flex-wrap">
         <button
           type="button"
           onClick={onBack}
@@ -41,15 +41,25 @@ export default function AggregateResultExtendView({
         </button>
 
         {loading ? <div className="text-xs text-gray-500">집계 중...</div> : null}
-        {error ? <div className="text-xs text-red-600">{error}</div> : null}
+{error ? <div className="text-xs text-red-600">{error}</div> : null}
+
+{result?.compareResults?.length ? (
+  <div className="w-full mt-2 text-xs text-gray-700">
+    비교: {result.compareResults.map((x: any) => x.label).join(" / ")}
+  </div>
+) : null}
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden p-3">
         {result ? (
-          <AggregateResultTableExtend meta={result.meta} rows={result.rows} />
-        ) : (
-          <div className="text-xs text-gray-400">집계 결과가 없습니다.</div>
-        )}
+  <AggregateResultTableExtend
+    meta={result.meta}
+    rows={result.rows}
+    compareResults={result.compareResults}
+  />
+) : (
+  <div className="text-xs text-gray-400">집계 결과가 없습니다.</div>
+)}
       </div>
     </div>
   );
