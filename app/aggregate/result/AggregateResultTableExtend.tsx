@@ -36,37 +36,39 @@ function buildTotals(
 
   for (const r of rows) {
     if (r.partnerCategory === "소계") continue;
+
     let onePlusCount = 0;
-let onePlusDays = 0;
-let onePlusAmount = 0;
-let zeroAmount = 0;
+    let onePlusDays = 0;
+    let onePlusAmount = 0;
+    let zeroAmount = 0;
 
-for (const p of periods) {
-  const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
-  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+    for (const p of periods) {
+      const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+      const count = p.key === "0차연장" ? v.출고수량 : v.수량;
 
-  byPeriod[p.key].출고수량 += count;
-  byPeriod[p.key].대여일수 += v.대여일수;
-  byPeriod[p.key].금액 += v.금액;
+      byPeriod[p.key].출고수량 += count;
+      byPeriod[p.key].대여일수 += v.대여일수;
+      byPeriod[p.key].금액 += v.금액;
 
-  if (p.key === "0차연장") {
-    zeroAmount += Number(v.금액 || 0);
-  } else {
-    onePlusCount += Number(count || 0);
-    onePlusDays += Number(v.대여일수 || 0);
-    onePlusAmount += Number(v.금액 || 0);
+      if (p.key === "0차연장") {
+        zeroAmount += Number(v.금액 || 0);
+      } else {
+        onePlusCount += Number(count || 0);
+        onePlusDays += Number(v.대여일수 || 0);
+        onePlusAmount += Number(v.금액 || 0);
+      }
+    }
+
+    total.수량 += onePlusCount;
+    total.대여일수 += onePlusDays;
+    total.금액 += onePlusAmount;
+    total.zeroAmount += zeroAmount;
   }
-}
 
-total.수량 += onePlusCount;
-total.대여일수 += onePlusDays;
-total.금액 += onePlusAmount;
-total.zeroAmount += zeroAmount;
+  const denom = total.zeroAmount + total.금액;
+  total.비중치 = denom > 0 ? (total.금액 / denom) * 100 : 0;
 
-const denom = total.zeroAmount + total.금액;
-total.비중치 = denom > 0 ? (total.금액 / denom) * 100 : 0;
-
-return { byPeriod, total };
+  return { byPeriod, total };
 }
 
 export function AggregateResultTableExtend({
