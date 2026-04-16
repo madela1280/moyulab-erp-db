@@ -76,14 +76,29 @@ export async function POST(req: Request) {
 
     const filtered = applyFilterAndSort(r.rows as any[], filter);
 
-    const header = [...unifiedColumns];
-    const lines: string[] = [];
-    lines.push(header.map(csvEscape).join(","));
+// CSV 생성(동적 컬럼 포함)
+// 1) 기본 컬럼 순서(unifiedColumns) 유지
+// 2) 데이터에만 존재하는 추가 컬럼은 뒤에 붙임
+const baseHeader = [...unifiedColumns];
+const extraKeySet = new Set<string>();
 
-    for (const row of filtered) {
-      const data = (row.data ?? {}) as Record<string, any>;
-      lines.push(header.map((k) => csvEscape(data?.[k])).join(","));
-    }
+for (const row of filtered) {
+  const data = (row.data ?? {}) as Record<string, any>;
+  for (const k of Object.keys(data)) {
+    if (!baseHeader.includes(k)) extraKeySet.add(k);
+  }
+}
+
+const extraHeader = Array.from(extraKeySet);
+const header = [...baseHeader, ...extraHeader];
+
+const lines: string[] = [];
+lines.push(header.map(csvEscape).join(","));
+
+for (const row of filtered) {
+  const data = (row.data ?? {}) as Record<string, any>;
+  lines.push(header.map((k) => csvEscape(data?.[k])).join(","));
+}
 
     const csv = "\uFEFF" + lines.join("\r\n");
 

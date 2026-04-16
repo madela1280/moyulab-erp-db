@@ -88,8 +88,21 @@ export async function POST(req: Request) {
 
     const filtered = applyFilterAndSort(r.rows as any[], filter);
 
-    // CSV 생성(통합관리 컬럼 순서대로)
-    const header = [...unifiedColumns];
+    // CSV 생성(동적 컬럼 포함)
+    // 1) 기본 컬럼 순서(unifiedColumns)를 우선 유지
+    // 2) 데이터에만 존재하는 추가 컬럼(커스텀/6~7차 등)을 뒤에 붙임
+   const baseHeader = [...unifiedColumns];
+   const extraKeySet = new Set<string>();
+
+   for (const row of filtered) {
+     const data = (row.data ?? {}) as Record<string, any>;
+     for (const k of Object.keys(data)) {
+        if (!baseHeader.includes(k)) extraKeySet.add(k);
+     }
+  }
+
+ const extraHeader = Array.from(extraKeySet);
+ const header = [...baseHeader, ...extraHeader];
     const lines: string[] = [];
     lines.push(header.map(csvEscape).join(","));
 
