@@ -73,7 +73,7 @@ export default function AggregateView() {
 
   const [resultRequest, setResultRequest] = useState<AggregateRunRequest | null>(null);
 
-  const granularityOptions: AggregateGranularity[] = ["일별", "월별", "연별"];
+  const granularityOptions: AggregateGranularity[] = ["기간별", "일별", "월별", "연별"];
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;

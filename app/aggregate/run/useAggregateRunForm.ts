@@ -189,7 +189,7 @@ function validate(state: AggregateRunFormState): FieldErrors {
   }
 
   if (!state.granularity) {
-    errors.granularity = "집계조건(일별/월별/연별)을 선택해 주세요.";
+    errors.granularity = "집계조건(기간별/일별/월별/연별)을 선택해 주세요.";
   }
 
   const normalizedCompare = normalizeCompare(state.compare);

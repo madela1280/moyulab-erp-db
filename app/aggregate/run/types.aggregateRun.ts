@@ -5,7 +5,7 @@
 
 export type IsoDateString = string; // "YYYY-MM-DD" 형태를 기대(검증은 훅/서버에서)
 
-export type AggregateGranularity = "일별" | "월별" | "연별";
+export type AggregateGranularity = "기간별" | "일별" | "월별" | "연별";
 
 /**
  * 비교기간
