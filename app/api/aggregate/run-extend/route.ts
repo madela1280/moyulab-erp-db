@@ -168,20 +168,45 @@ function toCsv(resp: AggregateRunExtendResponse) {
   );
 }
 
-  headers.push("합계_출고수량", "합계_대여일수", "합계_금액", "비중치");
+  headers.push("합계_수량", "합계_대여일수", "합계_금액", "비중치");
 
   const lines = [headers.join(",")];
 
   for (const r of resp.rows) {
-    const row: string[] = [r.pumpModel, r.partnerCategory];
-    for (const p of resp.meta.periods) {
-  const v = r.values[p.key] || emptyCell();
-  const count = p.key === "0차연장" ? v.출고수량 : v.수량;
-  row.push(String(count), String(v.대여일수), String(v.금액));
-}
-    row.push(String(r.sum.출고수량), String(r.sum.대여일수), String(r.sum.금액), String(r.weight));
-    lines.push(row.map((x) => `"${String(x).replaceAll(`"`, `""`)}"`).join(","));
+  const row: string[] = [r.pumpModel, r.partnerCategory];
+
+  let zeroAmount = 0;
+  let onePlusCount = 0;
+  let onePlusDays = 0;
+  let onePlusAmount = 0;
+
+  for (const p of resp.meta.periods) {
+    const v = r.values[p.key] || emptyCell();
+    const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+
+    row.push(String(count), String(v.대여일수), String(v.금액));
+
+    if (p.key === "0차연장") {
+      zeroAmount += Number(v.금액 || 0);
+    } else {
+      onePlusCount += Number(count || 0);
+      onePlusDays += Number(v.대여일수 || 0);
+      onePlusAmount += Number(v.금액 || 0);
+    }
   }
+
+  const denom = zeroAmount + onePlusAmount;
+  const weightPct = denom > 0 ? (onePlusAmount / denom) * 100 : 0;
+
+  row.push(
+    String(onePlusCount),
+    String(onePlusDays),
+    String(onePlusAmount),
+    `${weightPct.toFixed(1)}%`
+  );
+
+  lines.push(row.map((x) => `"${String(x).replaceAll(`"`, `""`)}"`).join(","));
+}
 
   return "\uFEFF" + lines.join("\n");
 }

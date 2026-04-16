@@ -32,24 +32,41 @@ function buildTotals(
   const byPeriod: Record<string, { 출고수량: number; 대여일수: number; 금액: number }> = {};
   for (const p of periods) byPeriod[p.key] = { 출고수량: 0, 대여일수: 0, 금액: 0 };
 
-  const total = { 출고수량: 0, 대여일수: 0, 금액: 0, 비중치: 0 };
+  const total = { 수량: 0, 대여일수: 0, 금액: 0, 비중치: 0, zeroAmount: 0 };
 
   for (const r of rows) {
     if (r.partnerCategory === "소계") continue;
-    for (const p of periods) {
+    let onePlusCount = 0;
+let onePlusDays = 0;
+let onePlusAmount = 0;
+let zeroAmount = 0;
+
+for (const p of periods) {
   const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
   const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+
   byPeriod[p.key].출고수량 += count;
   byPeriod[p.key].대여일수 += v.대여일수;
   byPeriod[p.key].금액 += v.금액;
-}
-    total.출고수량 += r.sum.출고수량;
-    total.대여일수 += r.sum.대여일수;
-    total.금액 += r.sum.금액;
-    total.비중치 += r.weight;
-  }
 
-  return { byPeriod, total };
+  if (p.key === "0차연장") {
+    zeroAmount += Number(v.금액 || 0);
+  } else {
+    onePlusCount += Number(count || 0);
+    onePlusDays += Number(v.대여일수 || 0);
+    onePlusAmount += Number(v.금액 || 0);
+  }
+}
+
+total.수량 += onePlusCount;
+total.대여일수 += onePlusDays;
+total.금액 += onePlusAmount;
+total.zeroAmount += zeroAmount;
+
+ const denom = total.zeroAmount + total.금액;
+total.비중치 = denom > 0 ? (total.금액 / denom) * 100 : 0;
+
+return { byPeriod, total }; 
 }
 
 export function AggregateResultTableExtend({
@@ -113,7 +130,7 @@ export function AggregateResultTableExtend({
   </th>,
 ])}
 
-              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">출고수량</th>
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
               <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
               <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
               <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
@@ -194,17 +211,17 @@ export function AggregateResultTableExtend({
               })}
 
               <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                  {formatNumber(totals.total.출고수량)}
-              </td>
-              <td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
-                 {formatNumber(totals.total.대여일수)}
-              </td>
-              <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                 {formatNumber(totals.total.금액)}
-              </td>
-              <td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
-                 {formatNumber(totals.total.비중치)}
-              </td>
+  {formatNumber(totals.total.수량)}
+</td>
+<td className="border px-1 py-1 text-right bg-gray-50 font-semibold">
+  {formatNumber(totals.total.대여일수)}
+</td>
+<td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+  {formatNumber(totals.total.금액)}
+</td>
+<td className="border px-2 py-1 text-right bg-gray-50 font-semibold">
+  {`${Number(totals.total.비중치 || 0).toFixed(1)}%`}
+</td>
                                </tr>
                              </tfoot>
                            </table>
