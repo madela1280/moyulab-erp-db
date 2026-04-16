@@ -63,10 +63,10 @@ total.대여일수 += onePlusDays;
 total.금액 += onePlusAmount;
 total.zeroAmount += zeroAmount;
 
- const denom = total.zeroAmount + total.금액;
+const denom = total.zeroAmount + total.금액;
 total.비중치 = denom > 0 ? (total.금액 / denom) * 100 : 0;
 
-return { byPeriod, total }; 
+return { byPeriod, total };
 }
 
 export function AggregateResultTableExtend({
