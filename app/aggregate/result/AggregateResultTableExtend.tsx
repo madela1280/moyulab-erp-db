@@ -65,8 +65,12 @@ function buildTotals(
     total.zeroAmount += zeroAmount;
   }
 
-  const denom = total.zeroAmount + total.금액;
+ const denom = total.zeroAmount + total.금액;
+if (total.금액 > 0 && total.zeroAmount <= 0) {
+  total.비중치 = 100;
+} else {
   total.비중치 = denom > 0 ? (total.금액 / denom) * 100 : 0;
+}
 
   return { byPeriod, total };
 }
@@ -177,10 +181,42 @@ export function AggregateResultTableExtend({
   );
 })}
 
-                  <td className="border px-1 py-1 text-right">{formatNumber(r.sum.출고수량)}</td>
-                  <td className="border px-1 py-1 text-right">{formatNumber(r.sum.대여일수)}</td>
-                  <td className="border px-2 py-1 text-right">{formatNumber(r.sum.금액)}</td>
-                  <td className="border px-2 py-1 text-right">{formatNumber(r.weight)}</td>
+                {(() => {
+  let rowCount = 0;
+  let rowDays = 0;
+  let rowAmount = 0;
+  let rowZeroAmount = 0;
+
+  for (const p of meta.periods) {
+    const v = r.values[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
+    const count = p.key === "0차연장" ? v.출고수량 : v.수량;
+
+    if (p.key === "0차연장") {
+      rowZeroAmount += Number(v.금액 || 0);
+    } else {
+      rowCount += Number(count || 0);
+      rowDays += Number(v.대여일수 || 0);
+      rowAmount += Number(v.금액 || 0);
+    }
+  }
+
+  const denom = rowZeroAmount + rowAmount;
+  const rowWeight =
+    rowAmount > 0 && rowZeroAmount <= 0
+      ? 100
+      : denom > 0
+      ? (rowAmount / denom) * 100
+      : 0;
+
+  return (
+    <>
+      <td className="border px-1 py-1 text-right">{formatNumber(rowCount)}</td>
+      <td className="border px-1 py-1 text-right">{formatNumber(rowDays)}</td>
+      <td className="border px-2 py-1 text-right">{formatNumber(rowAmount)}</td>
+      <td className="border px-2 py-1 text-right">{`${rowWeight.toFixed(1)}%`}</td>
+    </>
+  );
+})()}  
                 </tr>
               );
             })}
