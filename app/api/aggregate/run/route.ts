@@ -139,7 +139,6 @@ function endOfMonthUTC(d: Date) {
 function buildPeriods(start: Date, end: Date, granularity: string): Period[] {
   const periods: Period[] = [];
 
-  // 기간별: 요청한 기간 전체를 단일 구간으로 집계
   if (granularity === "기간별") {
     periods.push({
       key: "period",
@@ -166,6 +165,37 @@ function buildPeriods(start: Date, end: Date, granularity: string): Period[] {
     }
     return periods;
   }
+
+  if (granularity === "연별") {
+    let y = start.getUTCFullYear();
+    const endY = end.getUTCFullYear();
+    while (y <= endY) {
+      periods.push({
+        key: String(y),
+        label: `${y}년`,
+        start: new Date(Date.UTC(y, 0, 1)),
+        end: new Date(Date.UTC(y, 11, 31)),
+      });
+      y++;
+    }
+    return periods;
+  }
+
+  let cur = startOfMonthUTC(start);
+  const endMonth = startOfMonthUTC(end);
+  while (cur.getTime() <= endMonth.getTime()) {
+    const y = cur.getUTCFullYear();
+    const mo = cur.getUTCMonth() + 1;
+    periods.push({
+      key: `${y}-${String(mo).padStart(2, "0")}`,
+      label: `${mo}월`,
+      start: startOfMonthUTC(cur),
+      end: endOfMonthUTC(cur),
+    });
+    cur = new Date(Date.UTC(y, mo, 1));
+  }
+  return periods;
+}
 
   if (granularity === "연별") {
     let y = start.getUTCFullYear();
@@ -705,6 +735,10 @@ export async function POST(req: Request) {
   if (end.getTime() < start.getTime()) return NextResponse.json({ error: "INVALID_PERIOD_RANGE" }, { status: 400 });
 
   const granularity = body.집계조건 || "월별";
+// 기간별/일별/월별/연별만 허용(비교기간도 동일 granularity 재사용)
+if (!["기간별", "일별", "월별", "연별"].includes(granularity)) {
+  return NextResponse.json({ error: "INVALID_GRANULARITY" }, { status: 400 });
+}
 
   const rows = await loadAllRows();
   const partnerCatMap = await loadPartnerCategoryMap();
