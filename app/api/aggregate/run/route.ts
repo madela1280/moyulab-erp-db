@@ -139,6 +139,17 @@ function endOfMonthUTC(d: Date) {
 function buildPeriods(start: Date, end: Date, granularity: string): Period[] {
   const periods: Period[] = [];
 
+  // 기간별: 요청한 기간 전체를 단일 구간으로 집계
+  if (granularity === "기간별") {
+    periods.push({
+      key: "period",
+      label: "기간별",
+      start: new Date(start.getTime()),
+      end: new Date(end.getTime()),
+    });
+    return periods;
+  }
+
   if (granularity === "일별") {
     let cur = new Date(start.getTime());
     while (cur.getTime() <= end.getTime()) {
