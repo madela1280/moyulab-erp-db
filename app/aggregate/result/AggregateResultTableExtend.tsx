@@ -110,8 +110,9 @@ function renderTableBlock(params: {
   keyPrefix: string;
   blockClassName?: string;
   tableWrapperClassName?: string;
+  stickyHeader?: boolean;
 }) {
-  const { blockMeta, blockRows, title, keyPrefix, blockClassName, tableWrapperClassName } = params;
+  const { blockMeta, blockRows, title, keyPrefix, blockClassName, tableWrapperClassName, stickyHeader } = params;
   const blockRowSpans = buildPumpRowSpans(blockRows || []);
   const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
 
@@ -121,51 +122,54 @@ function renderTableBlock(params: {
 
       <div className={tableWrapperClassName ?? "h-full overflow-auto"}>
         <table className="w-max min-w-full border-collapse table-auto text-xs">
-            <thead className="sticky top-0 z-40 bg-gray-100">
-  <tr>
-    <th
-      className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 top-0 z-[70]"
-      rowSpan={2}
-    >
-      기종
-    </th>
-    <th
-      className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] top-0 z-[70] shadow-[inset_-1px_0_0_0_#d1d5db]"
-      rowSpan={2}
-    >
-      거래처
-    </th>
+          <thead className={stickyHeader ? "sticky top-0 z-40 bg-gray-100" : "bg-gray-100"}>
+            <tr>
+              <th
+                className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-[70] ${
+                  stickyHeader ? "top-0" : ""
+                }`}
+                rowSpan={2}
+              >
+                기종
+              </th>
+              <th
+                className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-[70] shadow-[inset_-1px_0_0_0_#d1d5db] ${
+                  stickyHeader ? "top-0" : ""
+                }`}
+                rowSpan={2}
+              >
+                거래처
+              </th>
 
-    {(blockMeta.periods || []).map((p) => (
-      <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
-        {p.label}
-      </th>
-    ))}
+              {(blockMeta.periods || []).map((p) => (
+                <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+                  {p.label}
+                </th>
+              ))}
 
-    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
-      합계(1차연장 ~ )
-    </th>
-  </tr>
-  <tr>
-    {(blockMeta.periods || []).flatMap((p) => [
-      <th key={`${keyPrefix}-${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-        {p.key === "0차연장" ? "출고수량" : "수량"}
-      </th>,
-      <th key={`${keyPrefix}-${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-        대여일수
-      </th>,
-      <th key={`${keyPrefix}-${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
-        금액
-      </th>,
-    ])}
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
+                합계(1차연장 ~ )
+              </th>
+            </tr>
+            <tr>
+              {(blockMeta.periods || []).flatMap((p) => [
+                <th key={`${keyPrefix}-${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                  {p.key === "0차연장" ? "출고수량" : "수량"}
+                </th>,
+                <th key={`${keyPrefix}-${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+                  대여일수
+                </th>,
+                <th key={`${keyPrefix}-${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+                  금액
+                </th>,
+              ])}
 
-    <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
-    <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
-    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
-    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
-  </tr>
-</thead>
-
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
+              <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
+              <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
+            </tr>
+          </thead>
             <tbody>
               {(blockRows || []).map((r, idx) => {
                 const rowSpan = blockRowSpans[idx] || 0;
@@ -292,12 +296,13 @@ if (!hasCompare) {
         연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
       </div>
 
-      {renderTableBlock({
-        blockMeta: meta,
-        blockRows: rows,
-        keyPrefix: "main",
-        blockClassName: "h-[calc(100vh-220px)] mt-2",
-      })}
+{renderTableBlock({
+  blockMeta: meta,
+  blockRows: rows,
+  keyPrefix: "main",
+  blockClassName: "h-[calc(100vh-220px)] mt-2",
+  stickyHeader: true,
+})}  
     </div>
   );
 }
@@ -310,24 +315,26 @@ return (
 
     <div className="flex-1 min-h-0 overflow-auto border rounded bg-white p-2">
       <div className="flex flex-col gap-3 min-w-max">
-        {renderTableBlock({
-          blockMeta: meta,
-          blockRows: rows,
-          keyPrefix: "main",
-          blockClassName: "h-auto mt-0",
-          tableWrapperClassName: "h-auto overflow-visible",
-        })}
+{renderTableBlock({
+  blockMeta: meta,
+  blockRows: rows,
+  keyPrefix: "main",
+  blockClassName: "h-auto mt-0",
+  tableWrapperClassName: "h-auto overflow-visible",
+  stickyHeader: true,
+})}
 
-        {(compareResults || []).map((cmp, idx) =>
-          renderTableBlock({
-            blockMeta: cmp.meta,
-            blockRows: cmp.rows || [],
-            title: `${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
-            keyPrefix: `cmp-${idx}-${cmp.label}`,
-            blockClassName: "h-auto mt-0",
-            tableWrapperClassName: "h-auto overflow-visible",
-          })
-        )}
+{(compareResults || []).map((cmp, idx) =>
+  renderTableBlock({
+    blockMeta: cmp.meta,
+    blockRows: cmp.rows || [],
+    title: `${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
+    keyPrefix: `cmp-${idx}-${cmp.label}`,
+    blockClassName: "h-auto mt-0",
+    tableWrapperClassName: "h-auto overflow-visible",
+    stickyHeader: false,
+  })
+)}  
       </div>
     </div>
   </div>
