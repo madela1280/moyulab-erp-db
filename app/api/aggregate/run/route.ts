@@ -196,38 +196,7 @@ function buildPeriods(start: Date, end: Date, granularity: string): Period[] {
   }
   return periods;
 }
-
-  if (granularity === "연별") {
-    let y = start.getUTCFullYear();
-    const endY = end.getUTCFullYear();
-    while (y <= endY) {
-      periods.push({
-        key: String(y),
-        label: `${y}년`,
-        start: new Date(Date.UTC(y, 0, 1)),
-        end: new Date(Date.UTC(y, 11, 31)),
-      });
-      y++;
-    }
-    return periods;
-  }
-
-  let cur = startOfMonthUTC(start);
-  const endMonth = startOfMonthUTC(end);
-  while (cur.getTime() <= endMonth.getTime()) {
-    const y = cur.getUTCFullYear();
-    const mo = cur.getUTCMonth() + 1;
-    periods.push({
-      key: `${y}-${String(mo).padStart(2, "0")}`,
-      label: `${mo}월`,
-      start: startOfMonthUTC(cur),
-      end: endOfMonthUTC(cur),
-    });
-    cur = new Date(Date.UTC(y, mo, 1));
-  }
-  return periods;
-}
-
+ 
 function overlapDaysInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   const s = aStart.getTime() > bStart.getTime() ? aStart : bStart;
   const e = aEnd.getTime() < bEnd.getTime() ? aEnd : bEnd;
