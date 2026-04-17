@@ -103,22 +103,23 @@ export function AggregateResultTableExtend({
     totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
   }));
 
-  function renderTableBlock(params: {
-    blockMeta: { periodStart: string; periodEnd: string; periods: AggregateExtendPeriodMeta[] };
-    blockRows: AggregateExtendResultRow[];
-    title?: string;
-    keyPrefix: string;
-  }) {
-    const { blockMeta, blockRows, title, keyPrefix } = params;
-    const blockRowSpans = buildPumpRowSpans(blockRows || []);
-    const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
+function renderTableBlock(params: {
+  blockMeta: { periodStart: string; periodEnd: string; periods: AggregateExtendPeriodMeta[] };
+  blockRows: AggregateExtendResultRow[];
+  title?: string;
+  keyPrefix: string;
+  blockClassName?: string;
+}) {
+  const { blockMeta, blockRows, title, keyPrefix, blockClassName } = params;
+  const blockRowSpans = buildPumpRowSpans(blockRows || []);
+  const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
 
-    return (
-     <div className="border rounded bg-white relative h-[430px] overflow-hidden mt-4">
-        {title ? <div className="px-3 py-2 border-b bg-gray-50 text-sm font-semibold">{title}</div> : null}
+  return (
+    <div className={`border rounded bg-white relative overflow-hidden ${blockClassName ?? "h-[430px] mt-4"}`}>
+      {title ? <div className="px-3 py-2 border-b bg-gray-50 text-sm font-semibold">{title}</div> : null}
 
-        <div className="h-full overflow-auto">
-          <table className="w-max min-w-full border-collapse table-auto text-xs">
+      <div className="h-full overflow-auto">
+        <table className="w-max min-w-full border-collapse table-auto text-xs">
             <thead className="sticky top-0 z-40 bg-gray-100">
               <tr>
                 <th
@@ -277,28 +278,30 @@ export function AggregateResultTableExtend({
     );
   }
 
-   return (
-    <div className="w-full h-full overflow-y-auto flex flex-col gap-3">
-      <div className="text-sm font-semibold shrink-0">
-        연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
-      </div>
+const hasCompare = (compareResults || []).length > 0;
 
-      {null}
-
-      {renderTableBlock({
-        blockMeta: meta,
-        blockRows: rows,
-        keyPrefix: "main",
-      })}
-
-      {(compareResults || []).map((cmp, idx) =>
-        renderTableBlock({
-          blockMeta: cmp.meta,
-          blockRows: cmp.rows || [],
-          title: `비교: ${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
-          keyPrefix: `cmp-${idx}-${cmp.label}`,
-        })
-      )}
+return (
+  <div className="w-full h-full overflow-y-auto flex flex-col gap-3">
+    <div className="text-sm font-semibold shrink-0">
+      연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
     </div>
-  );
+
+    {renderTableBlock({
+      blockMeta: meta,
+      blockRows: rows,
+      keyPrefix: "main",
+      blockClassName: hasCompare ? "h-[430px] mt-4" : "h-[calc(100vh-220px)] mt-2",
+    })}
+
+    {(compareResults || []).map((cmp, idx) =>
+      renderTableBlock({
+        blockMeta: cmp.meta,
+        blockRows: cmp.rows || [],
+        title: `${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
+        keyPrefix: `cmp-${idx}-${cmp.label}`,
+        blockClassName: "h-[430px] mt-2",
+      })
+    )}
+  </div>
+); 
 }
