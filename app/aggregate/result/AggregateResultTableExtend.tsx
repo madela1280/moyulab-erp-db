@@ -96,12 +96,15 @@ export function AggregateResultTableExtend({
     rows: AggregateExtendResultRow[];
   }>;
 }) {
-  const rowSpans = buildPumpRowSpans(rows);
-  const totals = buildTotals(rows, meta.periods);
-    const compareBlocks = (compareResults || []).map((c) => ({
-    label: c.label,
-    totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
-  }));
+const rowSpans = buildPumpRowSpans(rows);
+const totals = buildTotals(rows, meta.periods);
+const compareBlocks = (compareResults || []).map((c) => ({
+  label: c.label,
+  totals: buildTotals(c.rows || [], c.meta?.periods || meta.periods),
+}));
+
+const MAIN_LEFT_COL1 = 80;
+const MAIN_LEFT_COL2 = 96;
 
 function renderTableBlock(params: {
   blockMeta: { periodStart: string; periodEnd: string; periods: AggregateExtendPeriodMeta[] };
@@ -123,23 +126,25 @@ function renderTableBlock(params: {
       <div className={tableWrapperClassName ?? "h-full overflow-auto"}>
         <table className="w-max min-w-full border-collapse table-auto text-xs">
           <thead className={stickyHeader ? "sticky top-0 z-40 bg-gray-100" : "bg-gray-100"}>
-            <tr>
-              <th
-                className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-[70] ${
-                  stickyHeader ? "top-0" : ""
-                }`}
-                rowSpan={2}
-              >
-                기종
-              </th>
-              <th
-                className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-[70] shadow-[inset_-1px_0_0_0_#d1d5db] ${
-                  stickyHeader ? "top-0" : ""
-                }`}
-                rowSpan={2}
-              >
-                거래처
-              </th>
+  <tr>
+    <th
+      className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-[70] ${
+        stickyHeader ? "top-0" : ""
+      }`}
+      style={{ minWidth: `${MAIN_LEFT_COL1}px` }}
+      rowSpan={2}
+    >
+      기종
+    </th>
+    <th
+      className={`border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky z-[70] shadow-[inset_-1px_0_0_0_#d1d5db] ${
+        stickyHeader ? "top-0" : ""
+      }`}
+      style={{ left: `${MAIN_LEFT_COL1}px`, minWidth: `${MAIN_LEFT_COL2}px` }}
+      rowSpan={2}
+    >
+      거래처
+    </th>
 
               {(blockMeta.periods || []).map((p) => (
                 <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
@@ -182,24 +187,21 @@ function renderTableBlock(params: {
   className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
     isSubtotal ? "bg-gray-100" : "bg-white"
   }`}
+  style={{ minWidth: `${MAIN_LEFT_COL1}px` }}
   rowSpan={rowSpan}
 >
-  <div className="sticky top-[56px]">
-    {r.pumpModel}
-  </div>
+  {r.pumpModel}
 </td>
                     ) : null}
 
                     <td
-  className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
+  className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
     isSubtotal ? "bg-gray-100" : "bg-white"
   }`}
+  style={{ left: `${MAIN_LEFT_COL1}px`, minWidth: `${MAIN_LEFT_COL2}px` }}
 >
-  <div className="sticky top-[56px]">
-    {r.partnerCategory}
-  </div>
+  {r.partnerCategory}
 </td>
-
                     {(blockMeta.periods || []).map((p) => {
                       const v = (r.values as any)?.[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
                       const count = p.key === "0차연장" ? v.출고수량 : v.수량;
@@ -313,17 +315,19 @@ return (
       연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
     </div>
 
-    <div className="flex-1 min-h-0 overflow-auto border rounded bg-white p-2">
-      <div className="flex flex-col gap-3 min-w-max">
-{renderTableBlock({
+   <div className="flex-1 min-h-0 overflow-auto border rounded bg-white p-2 relative">
+  <div className="sticky top-0 z-50 bg-white border-b px-1 py-1 text-sm font-semibold">
+    연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
+  </div>
+  <div className="flex flex-col gap-3 min-w-max pt-2"> 
+ {renderTableBlock({
   blockMeta: meta,
   blockRows: rows,
   keyPrefix: "main",
   blockClassName: "h-auto mt-0",
   tableWrapperClassName: "h-auto overflow-visible",
-  stickyHeader: true,
+  stickyHeader: false,
 })}
-
 {(compareResults || []).map((cmp, idx) =>
   renderTableBlock({
     blockMeta: cmp.meta,
