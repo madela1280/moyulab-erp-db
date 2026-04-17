@@ -122,49 +122,49 @@ function renderTableBlock(params: {
       <div className={tableWrapperClassName ?? "h-full overflow-auto"}>
         <table className="w-max min-w-full border-collapse table-auto text-xs">
             <thead className="sticky top-0 z-40 bg-gray-100">
-              <tr>
-                <th
-                  className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 z-50"
-                  rowSpan={2}
-                >
-                  기종
-                </th>
-                <th
-                  className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] z-50 shadow-[inset_-1px_0_0_0_#d1d5db]"
-                  rowSpan={2}
-                >
-                  거래처
-                </th>
+  <tr>
+    <th
+      className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[80px] sticky left-0 top-0 z-[70]"
+      rowSpan={2}
+    >
+      기종
+    </th>
+    <th
+      className="border px-3 py-1 bg-gray-100 whitespace-nowrap min-w-[96px] sticky left-[80px] top-0 z-[70] shadow-[inset_-1px_0_0_0_#d1d5db]"
+      rowSpan={2}
+    >
+      거래처
+    </th>
 
-                {(blockMeta.periods || []).map((p) => (
-                  <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
-                    {p.label}
-                  </th>
-                ))}
+    {(blockMeta.periods || []).map((p) => (
+      <th key={`${keyPrefix}-${p.key}`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={3}>
+        {p.label}
+      </th>
+    ))}
 
-                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
-                  합계(1차연장 ~ )
-                </th>
-              </tr>
-              <tr>
-                {(blockMeta.periods || []).flatMap((p) => [
-                  <th key={`${keyPrefix}-${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-                    {p.key === "0차연장" ? "출고수량" : "수량"}
-                  </th>,
-                  <th key={`${keyPrefix}-${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
-                    대여일수
-                  </th>,
-                  <th key={`${keyPrefix}-${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
-                    금액
-                  </th>,
-                ])}
+    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap" colSpan={4}>
+      합계(1차연장 ~ )
+    </th>
+  </tr>
+  <tr>
+    {(blockMeta.periods || []).flatMap((p) => [
+      <th key={`${keyPrefix}-${p.key}-out`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+        {p.key === "0차연장" ? "출고수량" : "수량"}
+      </th>,
+      <th key={`${keyPrefix}-${p.key}-days`} className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">
+        대여일수
+      </th>,
+      <th key={`${keyPrefix}-${p.key}-amt`} className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">
+        금액
+      </th>,
+    ])}
 
-                <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
-                <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
-                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
-                <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
-              </tr>
-            </thead>
+    <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">수량</th>
+    <th className="border px-1 py-1 bg-gray-100 whitespace-nowrap min-w-[56px]">대여일수</th>
+    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">금액</th>
+    <th className="border px-2 py-1 bg-gray-100 whitespace-nowrap min-w-[72px]">비중치</th>
+  </tr>
+</thead>
 
             <tbody>
               {(blockRows || []).map((r, idx) => {
@@ -175,22 +175,26 @@ function renderTableBlock(params: {
                   <tr key={`${keyPrefix}-${r.pumpModel}-${r.partnerCategory}-${idx}`} className={isSubtotal ? "bg-gray-100" : ""}>
                     {rowSpan > 0 ? (
                       <td
-                        className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
-                          isSubtotal ? "bg-gray-100" : "bg-white"
-                        }`}
-                        rowSpan={rowSpan}
-                      >
-                        {r.pumpModel}
-                      </td>
+  className={`border px-3 py-1 align-top text-center whitespace-nowrap min-w-[80px] sticky left-0 z-30 ${
+    isSubtotal ? "bg-gray-100" : "bg-white"
+  }`}
+  rowSpan={rowSpan}
+>
+  <div className="sticky top-[56px]">
+    {r.pumpModel}
+  </div>
+</td>
                     ) : null}
 
                     <td
-                      className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
-                        isSubtotal ? "bg-gray-100" : "bg-white"
-                      }`}
-                    >
-                      {r.partnerCategory}
-                    </td>
+  className={`border px-3 py-1 whitespace-nowrap min-w-[96px] sticky left-[80px] z-30 shadow-[inset_-1px_0_0_0_#d1d5db] ${
+    isSubtotal ? "bg-gray-100" : "bg-white"
+  }`}
+>
+  <div className="sticky top-[56px]">
+    {r.partnerCategory}
+  </div>
+</td>
 
                     {(blockMeta.periods || []).map((p) => {
                       const v = (r.values as any)?.[p.key] || { 출고수량: 0, 수량: 0, 대여일수: 0, 금액: 0 };
