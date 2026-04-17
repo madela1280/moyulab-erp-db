@@ -109,8 +109,9 @@ function renderTableBlock(params: {
   title?: string;
   keyPrefix: string;
   blockClassName?: string;
+  tableWrapperClassName?: string;
 }) {
-  const { blockMeta, blockRows, title, keyPrefix, blockClassName } = params;
+  const { blockMeta, blockRows, title, keyPrefix, blockClassName, tableWrapperClassName } = params;
   const blockRowSpans = buildPumpRowSpans(blockRows || []);
   const blockTotals = buildTotals(blockRows || [], blockMeta.periods || []);
 
@@ -118,7 +119,7 @@ function renderTableBlock(params: {
     <div className={`border rounded bg-white relative overflow-hidden ${blockClassName ?? "h-[430px] mt-4"}`}>
       {title ? <div className="px-3 py-2 border-b bg-gray-50 text-sm font-semibold">{title}</div> : null}
 
-      <div className="h-full overflow-auto">
+      <div className={tableWrapperClassName ?? "h-full overflow-auto"}>
         <table className="w-max min-w-full border-collapse table-auto text-xs">
             <thead className="sticky top-0 z-40 bg-gray-100">
               <tr>
@@ -280,28 +281,51 @@ function renderTableBlock(params: {
 
 const hasCompare = (compareResults || []).length > 0;
 
+if (!hasCompare) {
+  return (
+    <div className="w-full h-full overflow-y-auto flex flex-col gap-3">
+      <div className="text-sm font-semibold shrink-0">
+        연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
+      </div>
+
+      {renderTableBlock({
+        blockMeta: meta,
+        blockRows: rows,
+        keyPrefix: "main",
+        blockClassName: "h-[calc(100vh-220px)] mt-2",
+      })}
+    </div>
+  );
+}
+
 return (
-  <div className="w-full h-full overflow-y-auto flex flex-col gap-3">
+  <div className="w-full h-full overflow-hidden flex flex-col gap-3">
     <div className="text-sm font-semibold shrink-0">
       연장 집계 : {meta.periodStart} ~ {meta.periodEnd}
     </div>
 
-    {renderTableBlock({
-      blockMeta: meta,
-      blockRows: rows,
-      keyPrefix: "main",
-      blockClassName: hasCompare ? "h-[430px] mt-4" : "h-[calc(100vh-220px)] mt-2",
-    })}
+    <div className="flex-1 min-h-0 overflow-auto border rounded bg-white p-2">
+      <div className="flex flex-col gap-3 min-w-max">
+        {renderTableBlock({
+          blockMeta: meta,
+          blockRows: rows,
+          keyPrefix: "main",
+          blockClassName: "h-auto mt-0",
+          tableWrapperClassName: "h-auto overflow-visible",
+        })}
 
-    {(compareResults || []).map((cmp, idx) =>
-      renderTableBlock({
-        blockMeta: cmp.meta,
-        blockRows: cmp.rows || [],
-        title: `${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
-        keyPrefix: `cmp-${idx}-${cmp.label}`,
-        blockClassName: "h-[430px] mt-2",
-      })
-    )}
+        {(compareResults || []).map((cmp, idx) =>
+          renderTableBlock({
+            blockMeta: cmp.meta,
+            blockRows: cmp.rows || [],
+            title: `${cmp.label} (${cmp.meta.periodStart} ~ ${cmp.meta.periodEnd})`,
+            keyPrefix: `cmp-${idx}-${cmp.label}`,
+            blockClassName: "h-auto mt-0",
+            tableWrapperClassName: "h-auto overflow-visible",
+          })
+        )}
+      </div>
+    </div>
   </div>
-); 
+);
 }
