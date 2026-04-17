@@ -300,20 +300,29 @@ export function useAggregateRunForm(init?: Partial<AggregateRunFormState>) {
     return Object.keys(errs).length === 0;
   }, [state]);
 
-  const confirm = useCallback((): AggregateRunConfirmResult => {
-    const errs = validate(state);
-    setLastErrors(errs);
+ const confirm = useCallback((): AggregateRunConfirmResult => {
+  const errs = validate(state);
+  setLastErrors(errs);
 
-    if (Object.keys(errs).length > 0) {
-      setLastConfirm(null);
-      return { ok: false, errors: errs };
+  if (Object.keys(errs).length > 0) {
+    setLastConfirm(null);
+    return { ok: false, errors: errs };
+  }
+
+  // 연장 집계는 기간별만 허용 (확인 버튼 시점 최종 차단)
+  if (state.activeAxis === "연장" && state.granularity !== "기간별") {
+    if (typeof window !== "undefined") {
+      window.alert("연장은 기간별만 제공됩니다.");
     }
+    setLastConfirm(null);
+    return { ok: false, errors: {} };
+  }
 
-    const request = buildRequest(state);
-    const summary = buildSummary(request);
-    setLastConfirm({ request, summary });
-    return { ok: true, request, summary };
-  }, [state]);
+  const request = buildRequest(state);
+  const summary = buildSummary(request);
+  setLastConfirm({ request, summary });
+  return { ok: true, request, summary };
+}, [state]);
 
   const reset = useCallback(() => {
     setState(createDefaultAggregateRunFormState(init));
