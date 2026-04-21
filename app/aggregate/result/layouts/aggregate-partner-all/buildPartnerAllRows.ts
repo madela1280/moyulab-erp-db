@@ -38,10 +38,18 @@ function calcSum(values: Record<string, PartnerAllCell>, periods: AggregatePerio
 
 function toBucket(v: string): PartnerAllSection {
   const s = String(v ?? "").trim();
+  if (!s) return "기타";
+
+  // 보건소 alias
   if (s === "보건소" || s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) return "보건소";
+
+  // 조리원 계열
   if (s.startsWith("조리원")) return "조리원";
-  if (s === "온라인") return "온라인";
-  if (s === "개인") return "개인";
+
+  // 온라인/개인
+  if (s.includes("온라인")) return "온라인";
+  if (s.includes("개인")) return "개인";
+
   return "기타";
 }
 
@@ -78,14 +86,36 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
   }
 
   for (const bucket of bucketOrder) {
-    const list = (byBucket.get(bucket) || []).slice();
+    let list = (byBucket.get(bucket) || []).slice();
     if (!list.length) continue;
 
+    // 보건소/조리원은 버킷명 자체 행(보건소, 조리원) 제거
+    if (bucket === "보건소" || bucket === "조리원") {
+      list = list.filter((r) => String(r.pumpModel ?? "").trim() !== bucket);
+      if (!list.length) continue;
+      list.sort((a, b) => String(a.pumpModel ?? "").localeCompare(String(b.pumpModel ?? ""), "ko"));
+    }
+
+    // 온라인/개인은 유축기 고정 순서
+    if (bucket === "온라인" || bucket === "개인") {
+      list.sort((a, b) => {
+        const ai = pumpOrderIndex(String(a.pumpModel ?? ""));
+        const bi = pumpOrderIndex(String(b.pumpModel ?? ""));
+        if (ai !== bi) return ai - bi;
+        return String(a.pumpModel ?? "").localeCompare(String(b.pumpModel ?? ""), "ko");
+      });
+    }
+
     list.forEach((r, idx) => {
+      const label =
+        bucket === "온라인" || bucket === "개인"
+          ? normalizePump(String(r.pumpModel ?? ""))
+          : String(r.pumpModel ?? "");
+
       out.push({
         rowType: "data",
         section: bucket,
-        label: String(r.pumpModel ?? ""),
+        label,
         values: (r.values as Record<string, PartnerAllCell>) || makeEmptyValues(periods),
         sum: (r.sum as PartnerAllCell) || emptyCell(),
         showSection: idx === 0,
@@ -224,9 +254,15 @@ export function buildPartnerAllRows(args: {
   const rows = args.rows || [];
   const deviceRows = args.deviceRows || [];
 
+  // rows가 있으면 rows 기준(기존 완성 집계 호환 유지)
+  if (rows.length > 0) {
+    return buildFromResultRows(periods, rows);
+  }
+
+  // rows가 비어있을 때만 deviceRows fallback
   if (deviceRows.length > 0) {
     return buildFromDeviceRows(periods, deviceRows);
   }
 
-  return buildFromResultRows(periods, rows);
+  return [];
 }
