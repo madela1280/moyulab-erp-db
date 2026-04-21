@@ -31,6 +31,15 @@ function addCell(a: PartnerAllCell, b: PartnerAllCell | undefined) {
 function normalizePumpModelAlias(v: string) {
   const s = String(v ?? "").trim();
 
+function toSection(v: string): PartnerAllSection {
+  const s = String(v ?? "").trim();
+  if (s === "보건소" || s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) return "보건소";
+  if (s.startsWith("조리원")) return "조리원";
+  if (s === "온라인") return "온라인";
+  if (s === "개인") return "개인";
+  return "기타";
+}
+
   if (s.includes("심포니")) return "심포니";
   if (s.includes("락티나")) return "락티나";
   if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
