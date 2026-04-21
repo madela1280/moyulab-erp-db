@@ -85,18 +85,25 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
     byBucket.get(b)!.push(r);
   }
 
-  for (const bucket of bucketOrder) {
+    for (const bucket of bucketOrder) {
     let list = (byBucket.get(bucket) || []).slice();
     if (!list.length) continue;
 
-    // 보건소/조리원은 버킷명 자체 행(보건소, 조리원) 제거
+    // 공통: 값 0인 행 숨김 (출고/대여일수/금액 합이 0이면 제외)
+    list = list.filter((r) => {
+      const s = (r.sum as PartnerAllCell) || emptyCell();
+      return n(s.출고) !== 0 || n(s.대여일수) !== 0 || n(s.금액) !== 0;
+    });
+    if (!list.length) continue;
+
+    // 보건소/조리원: 거래처별(버킷명 자체 라벨 제거 + 가나다)
     if (bucket === "보건소" || bucket === "조리원") {
       list = list.filter((r) => String(r.pumpModel ?? "").trim() !== bucket);
       if (!list.length) continue;
       list.sort((a, b) => String(a.pumpModel ?? "").localeCompare(String(b.pumpModel ?? ""), "ko"));
     }
 
-    // 온라인/개인은 유축기 고정 순서
+    // 온라인/개인: 유축기별(고정 순서)
     if (bucket === "온라인" || bucket === "개인") {
       list.sort((a, b) => {
         const ai = pumpOrderIndex(String(a.pumpModel ?? ""));
@@ -104,6 +111,36 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
         if (ai !== bi) return ai - bi;
         return String(a.pumpModel ?? "").localeCompare(String(b.pumpModel ?? ""), "ko");
       });
+    }
+
+    // 기타: 1줄 통합
+    if (bucket === "기타") {
+      const mergedValues = makeEmptyValues(periods);
+      for (const r of list) {
+        for (const p of periods) addCell(mergedValues[p.key], r.values?.[p.key] as PartnerAllCell);
+      }
+
+      const mergedSum = calcSum(mergedValues, periods);
+      if (n(mergedSum.출고) !== 0 || n(mergedSum.대여일수) !== 0 || n(mergedSum.금액) !== 0) {
+        out.push({
+          rowType: "data",
+          section: "기타",
+          label: "기타",
+          values: mergedValues,
+          sum: mergedSum,
+          showSection: true,
+        });
+
+        out.push({
+          rowType: "subtotal",
+          section: "기타",
+          label: "기타 소계",
+          values: mergedValues,
+          sum: mergedSum,
+          showSection: true,
+        });
+      }
+      continue;
     }
 
     list.forEach((r, idx) => {
@@ -121,6 +158,21 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
         showSection: idx === 0,
       });
     });
+
+    const subtotalValues = makeEmptyValues(periods);
+    for (const r of list) {
+      for (const p of periods) addCell(subtotalValues[p.key], r.values?.[p.key] as PartnerAllCell);
+    }
+
+    out.push({
+      rowType: "subtotal",
+      section: bucket,
+      label: `${bucket} 소계`,
+      values: subtotalValues,
+      sum: calcSum(subtotalValues, periods),
+      showSection: true,
+    });
+  }
 
     const subtotalValues = makeEmptyValues(periods);
     for (const r of list) {
