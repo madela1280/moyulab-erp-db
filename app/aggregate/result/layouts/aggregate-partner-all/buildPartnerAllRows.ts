@@ -38,8 +38,31 @@ function calcSum(values: Record<string, PartnerAllCell>, periods: AggregatePerio
 
 function toBucket(v: string): PartnerAllSection {
   const s = String(v ?? "").trim();
-  if (s === "보건소" || s === "조리원" || s === "온라인" || s === "개인") return s;
+  if (s === "보건소" || s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) return "보건소";
+  if (s.startsWith("조리원")) return "조리원";
+  if (s === "온라인") return "온라인";
+  if (s === "개인") return "개인";
   return "기타";
+}
+
+const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀레", "각시밀"] as const;
+
+function normalizePump(v: string) {
+  const s = String(v ?? "").trim();
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀레";
+  if (s.includes("각시밀")) return "각시밀";
+  return s || "미지정";
+}
+
+function pumpOrderIndex(name: string) {
+  const n = normalizePump(name);
+  const i = PUMP_ORDER.indexOf(n as (typeof PUMP_ORDER)[number]);
+  return i >= 0 ? i : 999;
 }
 
 function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): PartnerAllRow[] {
@@ -108,13 +131,18 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
   const grouped = new Map<string, Record<string, PartnerAllCell>>();
 
   for (const d of deviceRows || []) {
-    const bucket = toBucket(d.partnerCategory);
-    const keyLabel =
-      bucket === "보건소" || bucket === "조리원"
-        ? String(d.partnerCategory || "").trim()
-        : String(d.pumpModel || "").trim();
+    const rawPartner = String(d.partnerCategory ?? "").trim();
+    const bucket = toBucket(rawPartner);
+    const rawPump = String(d.pumpModel ?? "").trim();
 
-    const gKey = `${bucket}||${keyLabel || "-"}`;
+    const label =
+      bucket === "보건소" || bucket === "조리원"
+        ? rawPartner || "-"
+        : bucket === "온라인" || bucket === "개인"
+        ? normalizePump(rawPump)
+        : "기타";
+
+    const gKey = `${bucket}||${label}`;
     if (!grouped.has(gKey)) grouped.set(gKey, makeEmptyValues(periods));
 
     const values = grouped.get(gKey)!;
@@ -137,6 +165,18 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
       });
 
     if (!rowsInBucket.length) continue;
+
+    // 온라인/개인은 유축기 표준 순서 강제
+    if (bucket === "온라인" || bucket === "개인") {
+      rowsInBucket.sort((a, b) => {
+        const ai = pumpOrderIndex(a.label);
+        const bi = pumpOrderIndex(b.label);
+        if (ai !== bi) return ai - bi;
+        return a.label.localeCompare(b.label, "ko");
+      });
+    } else {
+      rowsInBucket.sort((a, b) => a.label.localeCompare(b.label, "ko"));
+    }
 
     rowsInBucket.forEach((r, idx) => (r.showSection = idx === 0));
     out.push(...rowsInBucket);

@@ -28,10 +28,18 @@ function addCell(a: PartnerAllCell, b: PartnerAllCell | undefined) {
   a.금액 += n(b?.금액);
 }
 
-function toSection(v: string): PartnerAllSection {
+function normalizePumpModelAlias(v: string) {
   const s = String(v ?? "").trim();
-  if (s === "보건소" || s === "조리원" || s === "온라인" || s === "개인") return s;
-  return "기타";
+
+  if (s.includes("심포니")) return "심포니";
+  if (s.includes("락티나")) return "락티나";
+  if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
+  if (s.includes("프리스타일")) return "프리스타일";
+  if (s.includes("스윙")) return "스윙";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀레";
+  if (s.includes("각시밀")) return "각시밀";
+
+  return s;
 }
 
 /**
@@ -77,13 +85,27 @@ export function groupByPartnerOrDevice(args: {
 
   const grouped = Array.from(map.values());
 
+  const pumpOrder = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀레", "각시밀"];
   const sectionOrder: PartnerAllSection[] = ["보건소", "조리원", "온라인", "개인", "기타"];
+
   grouped.sort((a, b) => {
     const ai = sectionOrder.indexOf(a.section);
     const bi = sectionOrder.indexOf(b.section);
     if (ai !== bi) return ai - bi;
+
+    // 온라인/개인은 유축기 정렬 순서 강제
+    if ((a.section === "온라인" || a.section === "개인") && (b.section === "온라인" || b.section === "개인")) {
+      const ap = normalizePumpModelAlias(a.label);
+      const bp = normalizePumpModelAlias(b.label);
+      const aix = pumpOrder.indexOf(ap);
+      const bix = pumpOrder.indexOf(bp);
+      if (aix !== bix) return (aix < 0 ? 999 : aix) - (bix < 0 ? 999 : bix);
+      return ap.localeCompare(bp, "ko");
+    }
+
+    // 보건소/조리원은 거래처명 가나다
     return a.label.localeCompare(b.label, "ko");
-  });
+  }); 
 
   return grouped;
 }
