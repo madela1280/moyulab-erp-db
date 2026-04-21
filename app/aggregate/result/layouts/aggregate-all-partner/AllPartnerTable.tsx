@@ -20,6 +20,7 @@ type ViewRow = {
   label: string;
   values: Record<string, { 출고: number; 대여일수: number; 금액: number }>;
   sum: { 출고: number; 대여일수: number; 금액: number };
+  showGroup?: boolean;
 };
 
 function n(v: number | null | undefined) {
@@ -75,20 +76,21 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
 
   const out: ViewRow[] = [];
 
-  // 보건소/조리원: 거래처별(구분행 반복 제거)
+  // 보건소/조리원: 거래처별(현재 데이터 한계로 label은 응답의 pumpModel 필드 사용)
   (["보건소", "조리원"] as const).forEach((g) => {
     const list = (byBucket.get(g) || []).slice().sort((a, b) => a.pumpModel.localeCompare(b.pumpModel, "ko"));
     if (!list.length) return;
 
-    for (const r of list) {
+    list.forEach((r, idx) => {
       out.push({
         kind: "data",
         group: g,
         label: r.pumpModel,
         values: r.values || makeEmptyValues(periods),
         sum: r.sum || emptyCell(),
+        showGroup: idx === 0,
       });
-    }
+    });
 
     const sv = makeEmptyValues(periods);
     for (const r of list) for (const p of periods) addCell(sv[p.key], r.values?.[p.key]);
@@ -98,10 +100,11 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       label: `${g} 소계`,
       values: sv,
       sum: calcSum(sv, periods),
+      showGroup: true,
     });
   });
 
-  // 온라인/개인: 유축기별(구분행 반복 제거)
+  // 온라인/개인: 유축기별
   (["온라인", "개인"] as const).forEach((g) => {
     const list = (byBucket.get(g) || [])
       .slice()
@@ -113,15 +116,16 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       });
     if (!list.length) return;
 
-    for (const r of list) {
+    list.forEach((r, idx) => {
       out.push({
         kind: "data",
         group: g,
         label: r.pumpModel,
         values: r.values || makeEmptyValues(periods),
         sum: r.sum || emptyCell(),
+        showGroup: idx === 0,
       });
-    }
+    });
 
     const sv = makeEmptyValues(periods);
     for (const r of list) for (const p of periods) addCell(sv[p.key], r.values?.[p.key]);
@@ -131,6 +135,7 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       label: `${g} 소계`,
       values: sv,
       sum: calcSum(sv, periods),
+      showGroup: true,
     });
   });
 
@@ -145,6 +150,7 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       label: "기타",
       values: vv,
       sum: calcSum(vv, periods),
+      showGroup: true,
     });
   }
 
@@ -160,8 +166,9 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       label: "합계",
       values: vv,
       sum: calcSum(vv, periods),
+      showGroup: true,
     });
-  }
+  } 
 
   return out;
 }
@@ -181,7 +188,7 @@ export default function AllPartnerTable({
         <thead>
           <tr>
             <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>구분</th>
-            <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>거래처</th>
+            <th className="border px-2 py-1 bg-gray-100" rowSpan={2}>거래처/기종</th>
             {periods.map((p) => (
               <th key={p.key} className="border px-2 py-1 bg-gray-100" colSpan={3}>
                 {p.label}
@@ -209,7 +216,7 @@ export default function AllPartnerTable({
               "";
             return (
               <tr key={`${r.kind}-${r.group}-${i}`} className={cls}>
-                <td className="border px-2 py-1 whitespace-nowrap">{r.group}</td>
+                <td className="border px-2 py-1 whitespace-nowrap">{r.showGroup ? r.group : ""}</td>
                 <td className="border px-2 py-1 whitespace-nowrap">{r.label}</td>
                 {periods.map((p) => {
                   const v = r.values?.[p.key] || emptyCell();
