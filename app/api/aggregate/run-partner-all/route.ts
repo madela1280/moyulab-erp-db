@@ -352,8 +352,25 @@ async function loadPumpPriceMap() {
   return map;
 }
 
-function resolveBucketAndLabel(rawPartner: string, setting: PartnerSettingInfo | undefined, pumpModel: string) {
+function normalizePartnerLookupKey(rawPartner: string, receiverName: string) {
   const raw = String(rawPartner ?? "").trim();
+  const recv = String(receiverName ?? "").trim();
+
+  if (raw.startsWith("조리원")) {
+    return recv || raw;
+  }
+
+  return raw;
+}
+
+function resolveBucketAndLabel(
+  rawPartner: string,
+  receiverName: string,
+  setting: PartnerSettingInfo | undefined,
+  pumpModel: string
+) {
+  const raw = String(rawPartner ?? "").trim();
+  const recv = String(receiverName ?? "").trim();
   const l1 = String(setting?.l1 ?? "").trim();
   const l2 = String(setting?.l2 ?? "").trim();
 
@@ -367,18 +384,18 @@ function resolveBucketAndLabel(rawPartner: string, setting: PartnerSettingInfo |
   if (l1.startsWith("조리원") || raw.startsWith("조리원")) {
     return {
       bucket: "조리원",
-      label: l2 || raw || "조리원",
+      label: l2 || recv || raw || "조리원",
     };
   }
 
-  if (raw.includes("온라인")) {
+  if (l1 === "온라인" || raw.includes("온라인")) {
     return {
       bucket: "온라인",
       label: normalizePumpModelName(pumpModel),
     };
   }
 
-  if (raw.includes("개인")) {
+  if (l1 === "개인" || raw.includes("개인")) {
     return {
       bucket: "개인",
       label: normalizePumpModelName(pumpModel),
@@ -394,11 +411,14 @@ function resolveBucketAndLabel(rawPartner: string, setting: PartnerSettingInfo |
 function findDayPrice(args: {
   pumpPriceMap: Map<string, Map<string, { rent: number; extend: number }>>;
   rawPartner: string;
+  partnerLookupKey: string;
   label: string;
   bucket: string;
   pumpModel: string;
 }) {
-  const candidates = Array.from(new Set([args.rawPartner, args.label, args.bucket].filter(Boolean)));
+  const candidates = Array.from(
+    new Set([args.partnerLookupKey, args.rawPartner, args.label, args.bucket].filter(Boolean))
+  );
   const normalizedPump = normalizePumpModelName(args.pumpModel);
 
   for (const key of candidates) {
@@ -441,9 +461,11 @@ function buildAggregate(args: {
     if (isTextLike(row.request_date)) continue;
 
     const rawPartner = String(row.partner_category || "").trim();
+    const receiverName = String(row.receiver_name || "").trim();
     const pumpModel = normalizePumpModelName(row.product_name);
-    const setting = partnerSettingsMap.get(rawPartner);
-    const resolved = resolveBucketAndLabel(rawPartner, setting, pumpModel);
+    const partnerLookupKey = normalizePartnerLookupKey(rawPartner, receiverName);
+    const setting = partnerSettingsMap.get(partnerLookupKey) || partnerSettingsMap.get(rawPartner);
+    const resolved = resolveBucketAndLabel(rawPartner, receiverName, setting, pumpModel);
 
     const completeDt = parseDateFlexible(row.complete_date);
     const endDt = parseDateFlexible(row.end_date);
@@ -475,9 +497,10 @@ function buildAggregate(args: {
       if (!String(row.device_no || "").includes(search.기기번호)) continue;
     }
 
-    const dayPrice = findDayPrice({
+   const dayPrice = findDayPrice({
       pumpPriceMap,
       rawPartner,
+      partnerLookupKey,
       label: resolved.label,
       bucket: resolved.bucket,
       pumpModel,
