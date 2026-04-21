@@ -11,6 +11,7 @@ import type {
 import AggregateResultTableByDevice from "@/aggregate/result/AggregateResultTableByDevice";
 import { buildDeviceGroupRows } from "@/aggregate/result/buildDeviceGroupRows";
 import { buildSubtotalCompareMap } from "@/aggregate/result/buildSubtotalCompareMap";
+import AllPartnerTable from "@/aggregate/result/layouts/aggregate-all-partner/AllPartnerTable";
 
 function formatNumber(n: number | null | undefined) {
   const v = Number(n ?? 0);
@@ -643,6 +644,10 @@ export function AggregateResultTable({
     sum: { 출고: number; 대여일수: number; 금액: number };
   }>;
 }) {
+  // 거래처=전체 양식 표 우선 렌더 (표 형태 먼저 확정)
+  if (meta?.pumpScope !== "기종") {
+    return <AllPartnerTable periods={meta.periods} rows={rows} />;
+  }
     if (meta?.pumpScope === "기종" && meta?.selectedPumpModel) {
     const blocks = buildDeviceGroupRows({
       periods: meta.periods,
