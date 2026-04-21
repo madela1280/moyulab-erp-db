@@ -75,11 +75,10 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
 
   const out: ViewRow[] = [];
 
-  // 보건소/조리원: 거래처별(현재 데이터 구조상 pumpModel 값을 라벨로 사용)
+  // 보건소/조리원: 거래처별(구분행 반복 제거)
   (["보건소", "조리원"] as const).forEach((g) => {
     const list = (byBucket.get(g) || []).slice().sort((a, b) => a.pumpModel.localeCompare(b.pumpModel, "ko"));
     if (!list.length) return;
-    out.push({ kind: "section", group: g, label: g, values: makeEmptyValues(periods), sum: emptyCell() });
 
     for (const r of list) {
       out.push({
@@ -102,7 +101,7 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
     });
   });
 
-  // 온라인/개인: 유축기별
+  // 온라인/개인: 유축기별(구분행 반복 제거)
   (["온라인", "개인"] as const).forEach((g) => {
     const list = (byBucket.get(g) || [])
       .slice()
@@ -114,8 +113,6 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
       });
     if (!list.length) return;
 
-    out.push({ kind: "section", group: g, label: g, values: makeEmptyValues(periods), sum: emptyCell() });
-
     for (const r of list) {
       out.push({
         kind: "data",
@@ -137,7 +134,7 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
     });
   });
 
-  // 기타: 통합 1행
+  // 기타: 구분없이 1행
   {
     const list = byBucket.get("기타") || [];
     const vv = makeEmptyValues(periods);
@@ -155,7 +152,6 @@ function buildRows(periods: AggregatePeriodMeta[], rows: AggregateResultRow[]): 
   {
     const vv = makeEmptyValues(periods);
     for (const r of out) {
-      if (r.kind === "section") continue;
       for (const p of periods) addCell(vv[p.key], r.values?.[p.key]);
     }
     out.push({
