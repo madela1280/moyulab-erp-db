@@ -28,9 +28,6 @@ function addCell(a: PartnerAllCell, b: PartnerAllCell | undefined) {
   a.금액 += n(b?.금액);
 }
 
-function normalizePumpModelAlias(v: string) {
-  const s = String(v ?? "").trim();
-
 function toSection(v: string): PartnerAllSection {
   const s = String(v ?? "").trim();
   if (s === "보건소" || s.endsWith("구") || s.endsWith("시") || s.endsWith("군")) return "보건소";
@@ -39,6 +36,9 @@ function toSection(v: string): PartnerAllSection {
   if (s === "개인") return "개인";
   return "기타";
 }
+
+function normalizePumpModelAlias(v: string) {
+  const s = String(v ?? "").trim();
 
   if (s.includes("심포니")) return "심포니";
   if (s.includes("락티나")) return "락티나";
@@ -54,8 +54,8 @@ function toSection(v: string): PartnerAllSection {
 /**
  * 거래처=전체 규칙
  * - 보건소/조리원: 거래처별
- * - 온라인/개인: 기기(여기서는 pumpModel)별
- * - 기타: 통합 1행
+ * - 온라인/개인: 유축기별
+ * - 기타: 통합
  */
 export function groupByPartnerOrDevice(args: {
   periods: AggregatePeriodMeta[];
@@ -69,7 +69,7 @@ export function groupByPartnerOrDevice(args: {
   for (const d of deviceRows) {
     const section = toSection(d.partnerCategory);
     const partner = String(d.partnerCategory ?? "").trim();
-    const pumpModel = String(d.pumpModel ?? "").trim();
+    const pumpModel = normalizePumpModelAlias(String(d.pumpModel ?? "").trim());
 
     const label =
       section === "보건소" || section === "조리원"
@@ -102,19 +102,14 @@ export function groupByPartnerOrDevice(args: {
     const bi = sectionOrder.indexOf(b.section);
     if (ai !== bi) return ai - bi;
 
-    // 온라인/개인은 유축기 정렬 순서 강제
     if ((a.section === "온라인" || a.section === "개인") && (b.section === "온라인" || b.section === "개인")) {
-      const ap = normalizePumpModelAlias(a.label);
-      const bp = normalizePumpModelAlias(b.label);
-      const aix = pumpOrder.indexOf(ap);
-      const bix = pumpOrder.indexOf(bp);
+      const aix = pumpOrder.indexOf(normalizePumpModelAlias(a.label));
+      const bix = pumpOrder.indexOf(normalizePumpModelAlias(b.label));
       if (aix !== bix) return (aix < 0 ? 999 : aix) - (bix < 0 ? 999 : bix);
-      return ap.localeCompare(bp, "ko");
     }
 
-    // 보건소/조리원은 거래처명 가나다
     return a.label.localeCompare(b.label, "ko");
-  }); 
+  });
 
   return grouped;
 }
