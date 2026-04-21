@@ -164,22 +164,7 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
       for (const p of periods) addCell(subtotalValues[p.key], r.values?.[p.key] as PartnerAllCell);
     }
 
-    out.push({
-      rowType: "subtotal",
-      section: bucket,
-      label: `${bucket} 소계`,
-      values: subtotalValues,
-      sum: calcSum(subtotalValues, periods),
-      showSection: true,
-    });
-  }
-
-    const subtotalValues = makeEmptyValues(periods);
-    for (const r of list) {
-      for (const p of periods) addCell(subtotalValues[p.key], r.values?.[p.key] as PartnerAllCell);
-    }
-
-    out.push({
+  out.push({
       rowType: "subtotal",
       section: bucket,
       label: `${bucket} 소계`,
