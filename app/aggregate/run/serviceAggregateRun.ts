@@ -27,8 +27,16 @@ async function fetchJson(url: string, init?: RequestInit) {
   return data;
 }
 
+function resolveAggregateRunEndpoint(request: AggregateRunRequest) {
+  const isPartnerAll =
+    request?.필터?.집계타입 === "유축기" &&
+    request?.필터?.거래처 === "전체";
+
+  return isPartnerAll ? `/api/aggregate/run-partner-all` : `/api/aggregate/run`;
+}
+
 export async function runAggregate(request: AggregateRunRequest): Promise<AggregateRunResponse> {
-  return fetchJson(`/api/aggregate/run`, {
+  return fetchJson(resolveAggregateRunEndpoint(request), {
     method: "POST",
     body: JSON.stringify(request),
   });
