@@ -150,7 +150,7 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
   }
 
   for (const bucket of bucketOrder) {
-    const rowsInBucket = Array.from(grouped.entries())
+    let rowsInBucket = Array.from(grouped.entries())
       .filter(([k]) => k.startsWith(`${bucket}||`))
       .map(([k, values]) => {
         const label = k.split("||")[1] || "-";
@@ -164,10 +164,15 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
         };
       });
 
+    if (bucket === "보건소" || bucket === "조리원") {
+      // 보건소/조리원은 "거래처별"만 표시: 버킷명 자체 라벨(보건소/조리원) 행 제거
+      rowsInBucket = rowsInBucket.filter((r) => r.label !== bucket);
+    }
+
     if (!rowsInBucket.length) continue;
 
-    // 온라인/개인은 유축기 표준 순서 강제
     if (bucket === "온라인" || bucket === "개인") {
+      // 온라인/개인은 유축기 고정 순서
       rowsInBucket.sort((a, b) => {
         const ai = pumpOrderIndex(a.label);
         const bi = pumpOrderIndex(b.label);
@@ -175,6 +180,7 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
         return a.label.localeCompare(b.label, "ko");
       });
     } else {
+      // 보건소/조리원은 거래처명 가나다
       rowsInBucket.sort((a, b) => a.label.localeCompare(b.label, "ko"));
     }
 
