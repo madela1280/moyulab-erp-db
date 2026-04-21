@@ -182,6 +182,14 @@ export default function AllPartnerTable({
 }) {
   const vRows = buildRows(periods, rows);
 
+  const groupRowSpans: Record<number, number> = {};
+  for (let i = 0; i < vRows.length; i++) {
+    if (!vRows[i].showGroup) continue;
+    let j = i + 1;
+    while (j < vRows.length && !vRows[j].showGroup) j++;
+    groupRowSpans[i] = j - i;
+  }
+
   return (
     <div className="overflow-auto border rounded bg-white">
       <table className="w-max min-w-full border-collapse table-auto text-xs">
@@ -216,7 +224,11 @@ export default function AllPartnerTable({
               "";
             return (
               <tr key={`${r.kind}-${r.group}-${i}`} className={cls}>
-                <td className="border px-2 py-1 whitespace-nowrap">{r.showGroup ? r.group : ""}</td>
+                {r.showGroup ? (
+                  <td className="border px-2 py-1 whitespace-nowrap align-top" rowSpan={groupRowSpans[i] || 1}>
+                    {r.group}
+                  </td>
+                ) : null}
                 <td className="border px-2 py-1 whitespace-nowrap">{r.label}</td>
                 {periods.map((p) => {
                   const v = r.values?.[p.key] || emptyCell();
