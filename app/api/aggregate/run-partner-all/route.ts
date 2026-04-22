@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import type { AggregateRunRequest } from "@/aggregate/run/types.aggregateRun";
+import { computeAggregateCore } from "@/api/aggregate/_shared/aggregate-core.compute";
+import { projectAggregatePartnerAll } from "@/api/aggregate/_shared/aggregate-partner-all-projector";
 
 type PriceKind = "rent" | "extend";
 
@@ -446,117 +448,26 @@ function buildAggregate(args: {
   periodStart: Date;
   periodEnd: Date;
   granularity: string;
+  filters: AggregateRunRequest["필터"];
   search: AggregateRunRequest["검색"];
 }) {
-  const { rows, partnerSettingsMap, pumpPriceMap, periodStart, periodEnd, granularity, search } = args;
-  const periods = buildPeriods(periodStart, periodEnd, granularity);
-  const serverTodayEnd = addDaysUTC(getServerTodayUTC(), -1);
-
-  const rowMap = new Map<string, AggregateRowOut>();
-
-  for (const row of rows) {
-    const startDt = parseDateFlexible(row.start_date);
-    if (!startDt) continue;
-
-    if (isTextLike(row.request_date)) continue;
-
-    const rawPartner = String(row.partner_category || "").trim();
-    const receiverName = String(row.receiver_name || "").trim();
-    const pumpModel = normalizePumpModelName(row.product_name);
-    const partnerLookupKey = normalizePartnerLookupKey(rawPartner, receiverName);
-    const setting = partnerSettingsMap.get(partnerLookupKey) || partnerSettingsMap.get(rawPartner);
-    const resolved = resolveBucketAndLabel(rawPartner, receiverName, setting, pumpModel);
-
-    const completeDt = parseDateFlexible(row.complete_date);
-    const endDt = parseDateFlexible(row.end_date);
-
-    let end: Date | null = null;
-    if (completeDt) {
-      end = addDaysUTC(completeDt, -1);
-    } else if (isNonEmptyText(row.complete_date)) {
-      end = endDt || null;
-    } else {
-      end = resolved.bucket === "조리원" ? serverTodayEnd : endDt || null;
-    }
-
-    if (!end) continue;
-    if (end.getTime() < startDt.getTime()) continue;
-
-    if (search?.거래처) {
-      const q = String(search.거래처).trim();
-      const hay = `${rawPartner} ${resolved.label} ${resolved.bucket}`;
-      if (!hay.includes(q)) continue;
-    }
-
-    if (search?.유축기) {
-      const selectedPump = normalizePumpModelName(search.유축기);
-      if (normalizePumpModelName(pumpModel) !== selectedPump) continue;
-    }
-
-    if (search?.기기번호) {
-      if (!String(row.device_no || "").includes(search.기기번호)) continue;
-    }
-
-   const dayPrice = findDayPrice({
-      pumpPriceMap,
-      rawPartner,
-      partnerLookupKey,
-      label: resolved.label,
-      bucket: resolved.bucket,
-      pumpModel,
-    });
-
-    if (!dayPrice) continue;
-
-    const rowKey = `${resolved.bucket}||${resolved.label}`;
-    if (!rowMap.has(rowKey)) {
-      rowMap.set(rowKey, {
-        pumpModel: resolved.label,
-        partnerCategory: resolved.bucket,
-        values: makeEmptyValues(periods),
-        sum: initCell(),
-      });
-    }
-
-    const outRow = rowMap.get(rowKey)!;
-
-    for (const p of periods) {
-      const overlap = overlapDaysInclusive(startDt, end, p.start, p.end);
-      if (overlap <= 0) continue;
-
-      const cell = outRow.values[p.key];
-      if (startDt.getTime() >= p.start.getTime() && startDt.getTime() <= p.end.getTime()) {
-        cell.출고 += 1;
-      }
-      cell.대여일수 += overlap;
-      cell.금액 += overlap * dayPrice;
-    }
-  }
-
-  const rowsOut = Array.from(rowMap.values()).map((row) => {
-    const sum = initCell();
-    for (const p of periods) addCell(sum, row.values[p.key]);
-    row.sum = sum;
-    return row;
+  const computed = computeAggregateCore({
+    rows: args.rows,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    granularity: args.granularity,
+    filters: args.filters,
+    search: args.search,
+    partnerSettingsMap: args.partnerSettingsMap,
+    pumpPriceMap: args.pumpPriceMap,
   });
 
-  rowsOut.sort((a, b) => {
-    const ai = BUCKET_ORDER.indexOf(a.partnerCategory as (typeof BUCKET_ORDER)[number]);
-    const bi = BUCKET_ORDER.indexOf(b.partnerCategory as (typeof BUCKET_ORDER)[number]);
-    if (ai !== bi) return ai - bi;
-
-    if (a.partnerCategory === "온라인" || a.partnerCategory === "개인") {
-      const ap = pumpOrderIndex(a.pumpModel);
-      const bp = pumpOrderIndex(b.pumpModel);
-      if (ap !== bp) return ap - bp;
-    }
-
-    return a.pumpModel.localeCompare(b.pumpModel, "ko");
-  });
+  const projected = projectAggregatePartnerAll(computed);
 
   return {
-    periods,
-    rows: rowsOut,
+    periods: computed.periods,
+    rows: projected.rows as AggregateRowOut[],
+    partnerBuckets: projected.partnerBuckets,
   };
 }
 
@@ -626,6 +537,7 @@ export async function POST(req: Request) {
     periodStart: start,
     periodEnd: end,
     granularity,
+    filters: body.필터,
     search: body.검색,
   });
 
@@ -642,6 +554,7 @@ export async function POST(req: Request) {
         periodStart: shifted.start,
         periodEnd: shifted.end,
         granularity,
+        filters: body.필터,
         search: body.검색,
       });
 
@@ -683,7 +596,7 @@ export async function POST(req: Request) {
         start: p.start.toISOString().slice(0, 10),
         end: p.end.toISOString().slice(0, 10),
       })),
-      partnerBuckets: BUCKET_ORDER,
+      partnerBuckets: main.partnerBuckets || BUCKET_ORDER,
       pumpScope: "전체",
       selectedPumpModel: "",
     },

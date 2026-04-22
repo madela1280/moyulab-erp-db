@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import type { AggregateRunRequest } from "@/aggregate/run/types.aggregateRun";
+import { computeAggregateCore } from "@/api/aggregate/_shared/aggregate-core.compute";
+import { projectAggregatePump } from "@/api/aggregate/_shared/aggregate-pump-projector";
 
 type PriceKind = "rent" | "extend";
 
@@ -398,265 +400,27 @@ function buildAggregate(
   filters: AggregateRunRequest["필터"],
   search: AggregateRunRequest["검색"]
 ) {
-  const periods = buildPeriods(periodStart, periodEnd, granularity);
-  const serverTodayEnd = addDaysUTC(getServerTodayUTC(), -1);
-
-  const normalizedEvents: NormalizedEvent[] = [];
-
-for (const row of rows) {
-    const startDt = parseDateFlexible(row.start_date);
-    if (!startDt) continue;
-
-const requestDt = parseDateFlexible(row.request_date);
-const completeDt = parseDateFlexible(row.complete_date);
-const endDt = parseDateFlexible(row.end_date);
-
-// 반납요청일이 문자/기타면 집계 제외
-if (isTextLike(row.request_date)) continue;
-
-const partnerName = normalizePartnerName(row.partner_category, row.receiver_name);
-
-// 세팅 우선: partnerName(조리원은 수취인명)로 L1 조회, 없으면 원본 거래처분류로 2차 조회
-const rawPartnerCategory = String(row.partner_category || "").trim();
-const l1ByPartnerName = partnerCatMap.get(partnerName) || "";
-const l1ByRawCategory = partnerCatMap.get(rawPartnerCategory) || "";
-const l1FromSettings = l1ByPartnerName || l1ByRawCategory || "";
-
-// bucket은 세팅 L1만 사용(강제)
-const bucket = normalizePartnerBucket(l1FromSettings);
-
-// 세팅 미존재 건은 집계 제외(재현성 고정)
-if (!l1FromSettings) continue;
-
-if (filters.거래처 !== "전체" && filters.거래처 !== bucket) continue;
-
-const pumpModel = normalizePumpModelName(row.product_name);
-if (filters.유축기 === "기종" && search.유축기) {
-  const selectedPump = normalizePumpModelName(search.유축기);
-  if (pumpModel !== selectedPump) continue;
-}
-if (search.거래처 && !partnerName.includes(search.거래처)) continue;
-if (search.기기번호 && !String(row.device_no || "").includes(search.기기번호)) continue;
-
-let end: Date | null = null;
-if (completeDt) {
-  end = addDaysUTC(completeDt, -1); // 규정A
-} else if (isNonEmptyText(row.complete_date)) {
-  end = endDt || null; // 규정B
-} else {
-  // complete_date가 완전 공백이면 조리원은 오늘-1일, 그 외는 종료일
-  end = bucket === "조리원" ? serverTodayEnd : endDt || null; // 규정C
-}
-
-if (!end) continue;
-if (end.getTime() < startDt.getTime()) continue;
-
-    const rentKind = normalizeRentKind(row.rent_kind || "");
-    const deviceNo = String(row.device_no || "-").trim() || "-";
-    const personKey = normalizePersonKey(row.receiver_name);
-
-    normalizedEvents.push({
-      pumpModel,
-      partnerName,
-      bucket,
-      deviceNo,
-      rentKind,
-      startDt,
-      endDt: end,
-      rawProductName: String(row.product_name || "").trim(),
-      personKey,
-    });
-}  
-
-  const valuesByPump = new Map<string, Map<string, ResultRow>>();
-  const deviceMap = new Map<string, DeviceResultRow>();
-
-  function getMainRow(pumpModel: string, partnerCategory: string) {
-    if (!valuesByPump.has(pumpModel)) valuesByPump.set(pumpModel, new Map());
-    const byPartner = valuesByPump.get(pumpModel)!;
-    if (!byPartner.has(partnerCategory)) {
-      byPartner.set(partnerCategory, {
-        pumpModel,
-        partnerCategory,
-        values: makeEmptyValues(periods),
-        sum: initCell(),
-      });
-    }
-    return byPartner.get(partnerCategory)!;
-  }
-  
-let priceMissCount = 0;
-const priceMissSamples: Array<{ partnerName: string; pumpModel: string; rawProductName: string }> = [];
-const countedDedupKeys = new Set<string>();
-
-for (const ev of normalizedEvents) {
-
-  const normalizedPartner = String(ev.partnerName || "").trim();
-  const normalizedPump = normalizePumpModelName(ev.pumpModel || ev.rawProductName || "");
-
-  const partnerKeys: string[] = [];
-
-  // 1순위: 보건소 bucket은 무조건 보건소 키 우선(근본 해결)
-  if (ev.bucket === "보건소") {
-    partnerKeys.push("보건소");
-  }
-
-  // 2순위: 원본 partner
-  if (normalizedPartner) {
-    partnerKeys.push(normalizedPartner);
-  }
-
-  // 3순위: suffix/head alias
-  if (
-    normalizedPartner.endsWith("구") ||
-    normalizedPartner.endsWith("시") ||
-    normalizedPartner.endsWith("군")
-  ) {
-    const head = normalizedPartner.slice(0, -1).trim();
-    if (head) partnerKeys.push(head);
-  }
-
-  // 중복 제거(순서 유지)
-  const orderedPartnerKeys = Array.from(new Set(partnerKeys));
-
-let dayPrice = 0;
-
-for (const key of orderedPartnerKeys) {
-  const partnerPriceMap = pumpPriceMap.get(key);
-  if (!partnerPriceMap) continue;
-
-  dayPrice = Number(partnerPriceMap.get(normalizedPump)?.rent ?? 0);
-
-  if (!dayPrice) {
-    const target = normalizePumpModelName(ev.rawProductName || ev.pumpModel || "");
-    for (const [modelName, priceObj] of partnerPriceMap.entries()) {
-      if (normalizePumpModelName(modelName) === target) {
-        dayPrice = Number(priceObj?.rent ?? 0);
-        break;
-      }
-    }
-  }
-
-  if (dayPrice > 0) break;
-}
-
-// 세팅 단가 없는 건은 집계 제외(강제)
-if (!dayPrice) {
-  priceMissCount += 1;
-  if (priceMissSamples.length < 20) {
-    priceMissSamples.push({
-      partnerName: ev.partnerName,
-      pumpModel: ev.pumpModel,
-      rawProductName: ev.rawProductName,
-    });
-  }
-  continue;
-}
-
-const dedupKeyParts = [
-  ev.personKey,
-  `${ev.startDt.toISOString().slice(0, 10)}~${ev.endDt.toISOString().slice(0, 10)}`,
-  ev.deviceNo || "-",
-];
-
-// 조리원만 수취인명+기기번호+대여기간 기준 dedup 적용
-if (ev.bucket === "조리원") {
-  const dedupKey = dedupKeyParts.join("||");
-  if (countedDedupKeys.has(dedupKey)) continue;
-  countedDedupKeys.add(dedupKey);
-}
-
-    const deviceKey = `${ev.pumpModel}||${ev.bucket}||${ev.deviceNo}||${ev.rentKind}`;
-    if (!deviceMap.has(deviceKey)) {
-      deviceMap.set(deviceKey, {
-        pumpModel: ev.pumpModel,
-        partnerCategory: ev.bucket,
-        deviceNo: ev.deviceNo,
-        rentKind: ev.rentKind,
-        values: makeEmptyValues(periods),
-        sum: initCell(),
-      });
-    }
-    const dRow = deviceMap.get(deviceKey)!;
-
-    for (const p of periods) {
-      const overlap = overlapDaysInclusive(ev.startDt, ev.endDt, p.start, p.end);
-      if (overlap <= 0) continue;
-
-      const mCell = getMainRow(ev.pumpModel, ev.bucket).values[p.key];
-      const dCell = dRow.values[p.key];
-
-      if (ev.startDt.getTime() >= p.start.getTime() && ev.startDt.getTime() <= p.end.getTime()) {
-        mCell.출고 += 1;
-        dCell.출고 += 1;
-      }
-
-      mCell.대여일수 += overlap;
-      dCell.대여일수 += overlap;
-
-      mCell.금액 += overlap * dayPrice;
-      dCell.금액 += overlap * dayPrice;
-    }
-  }
-
-  const pumpModels = Array.from(valuesByPump.keys()).sort((a, b) => {
-    const ai = pumpOrderIndex(a);
-    const bi = pumpOrderIndex(b);
-    if (ai !== bi) return ai - bi;
-    return a.localeCompare(b, "ko");
+  const computed = computeAggregateCore({
+    rows,
+    periodStart,
+    periodEnd,
+    granularity,
+    filters,
+    search,
+    partnerCategoryMap: partnerCatMap,
+    pumpPriceMap,
   });
 
-  const rowsOut: ResultRow[] = [];
-  for (const pump of pumpModels) {
-    const rowMap = valuesByPump.get(pump)!;
+  const projected = projectAggregatePump(computed);
 
-    for (const b of PARTNER_BUCKETS) {
-      if (!rowMap.has(b)) {
-        rowMap.set(b, {
-          pumpModel: pump,
-          partnerCategory: b,
-          values: makeEmptyValues(periods),
-          sum: initCell(),
-        });
-      }
-    }
-
-    for (const r of rowMap.values()) {
-      const sum = initCell();
-      for (const p of periods) addCell(sum, r.values[p.key]);
-      r.sum = sum;
-    }
-
-    for (const b of PARTNER_BUCKETS) rowsOut.push(rowMap.get(b)!);
-
-    const subtotal: ResultRow = {
-      pumpModel: pump,
-      partnerCategory: "소계",
-      values: makeEmptyValues(periods),
-      sum: initCell(),
-    };
-    for (const b of PARTNER_BUCKETS) {
-      const r = rowMap.get(b)!;
-      for (const p of periods) addCell(subtotal.values[p.key], r.values[p.key]);
-    }
-    for (const p of periods) addCell(subtotal.sum, subtotal.values[p.key]);
-    rowsOut.push(subtotal);
-  }
-
-  const deviceRows = Array.from(deviceMap.values());
-  for (const r of deviceRows) {
-    const s = initCell();
-    for (const p of periods) addCell(s, r.values[p.key]);
-    r.sum = s;
-  }
-
- return {
-  periods,
-  rows: rowsOut,
-  deviceRows,
-  priceMissCount,
-  priceMissSamples,
-};
+  return {
+    periods: computed.periods,
+    rows: projected.rows as ResultRow[],
+    deviceRows: projected.deviceRows as DeviceResultRow[],
+    partnerBuckets: projected.partnerBuckets,
+    priceMissCount: computed.priceMissCount,
+    priceMissSamples: computed.priceMissSamples,
+  };
 }
 
 function toCSV(result: { periods: Period[]; rows: ResultRow[] }) {
@@ -762,7 +526,7 @@ if (!["기간별", "일별", "월별", "연별"].includes(granularity)) {
     start: p.start.toISOString().slice(0, 10),
     end: p.end.toISOString().slice(0, 10),
   })),
-  partnerBuckets: PARTNER_BUCKETS,
+  partnerBuckets: main.partnerBuckets || PARTNER_BUCKETS,
   pumpScope: body.필터?.유축기 || "전체",
   selectedPumpModel: body.검색?.유축기 || "",
   priceMissCount: main.priceMissCount || 0,

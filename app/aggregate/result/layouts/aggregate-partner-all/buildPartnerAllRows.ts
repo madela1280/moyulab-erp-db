@@ -53,7 +53,7 @@ function toBucket(v: string): PartnerAllSection {
   return "기타";
 }
 
-const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀레", "각시밀"] as const;
+const PUMP_ORDER = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
 
 function normalizePump(v: string) {
   const s = String(v ?? "").trim();
@@ -62,7 +62,7 @@ function normalizePump(v: string) {
   if (s.includes("스윙맥") || s.includes("스윙맥시") || s.includes("스윙맥스")) return "스윙맥시";
   if (s.includes("프리스타일")) return "프리스타일";
   if (s.includes("스윙")) return "스윙";
-  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀레";
+  if (s.includes("시밀래") || s.includes("시밀레")) return "시밀래";
   if (s.includes("각시밀")) return "각시밀";
   return s || "미지정";
 }
@@ -176,6 +176,7 @@ function buildFromResultRows(periods: AggregatePeriodMeta[], rows: AggregateResu
 
   const grandValues = makeEmptyValues(periods);
   for (const r of out) {
+    if (r.rowType !== "data") continue;
     for (const p of periods) addCell(grandValues[p.key], r.values?.[p.key]);
   }
 
@@ -268,7 +269,10 @@ function buildFromDeviceRows(periods: AggregatePeriodMeta[], deviceRows: Aggrega
   }
 
   const grandValues = makeEmptyValues(periods);
-  for (const r of out) for (const p of periods) addCell(grandValues[p.key], r.values[p.key]);
+  for (const r of out) {
+    if (r.rowType !== "data") continue;
+    for (const p of periods) addCell(grandValues[p.key], r.values[p.key]);
+  }
 
   out.push({
     rowType: "grandTotal",
