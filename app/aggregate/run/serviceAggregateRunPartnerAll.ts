@@ -24,15 +24,14 @@ async function fetchJson(url: string, init?: RequestInit) {
     (err as any).data = data;
     throw err;
   }
+
   return data;
 }
 
-function resolveAggregateRunEndpoint() {
-  return `/api/aggregate/run`;
-}
-
-export async function runAggregate(request: AggregateRunRequest): Promise<AggregateRunResponse> {
-  return fetchJson(resolveAggregateRunEndpoint(), {
+export async function runAggregatePartnerAll(
+  request: AggregateRunRequest
+): Promise<AggregateRunResponse> {
+  return fetchJson(`/api/aggregate/run-partner-all`, {
     method: "POST",
     body: JSON.stringify(request),
   });

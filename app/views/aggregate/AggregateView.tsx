@@ -14,6 +14,7 @@ import type {
 } from "@/aggregate/run/types.aggregateRun";
 import AggregateResultView from "@/views/aggregate/AggregateResultView";
 import AggregateResultExtendView from "@/views/aggregate/AggregateResultExtendView";
+import AggregateResultPartnerAllView from "@/views/aggregate/AggregateResultPartnerAllView";
 
 function FieldLabel(props: { required?: boolean; children: string }) {
   const { children } = props;
@@ -72,6 +73,7 @@ export default function AggregateView() {
   });
 
   const [resultRequest, setResultRequest] = useState<AggregateRunRequest | null>(null);
+  const [resultView, setResultView] = useState<"pump" | "partnerAll" | "extend" | null>(null);
 
   const granularityOptions: AggregateGranularity[] = ["기간별", "일별", "월별", "연별"];
   const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
@@ -83,17 +85,34 @@ export default function AggregateView() {
   const onConfirm = () => {
     const r = form.confirm();
     if (r.ok) {
+      if (r.request.필터?.집계타입 === "연장") {
+        setResultView("extend");
+      } else if (form.state.activeAxis === "거래처" && r.request.필터?.거래처 === "전체") {
+        setResultView("partnerAll");
+      } else {
+        setResultView("pump");
+      }
+
       setResultRequest(r.request);
     }
   };
 
   if (resultRequest) {
-    const isExtendMode = resultRequest.필터?.집계타입 === "연장";
-    if (isExtendMode) {
-      return <AggregateResultExtendView request={resultRequest} onBack={() => setResultRequest(null)} />;
+    const handleBack = () => {
+      setResultRequest(null);
+      setResultView(null);
+    };
+
+    if (resultView === "extend") {
+      return <AggregateResultExtendView request={resultRequest} onBack={handleBack} />;
     }
-    return <AggregateResultView request={resultRequest} onBack={() => setResultRequest(null)} />;
-  } 
+
+    if (resultView === "partnerAll") {
+      return <AggregateResultPartnerAllView request={resultRequest} onBack={handleBack} />;
+    }
+
+    return <AggregateResultView request={resultRequest} onBack={handleBack} />;
+  }
 
   return (
     <div className="w-full h-full overflow-auto">
