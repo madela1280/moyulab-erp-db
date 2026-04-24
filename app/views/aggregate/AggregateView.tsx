@@ -9,7 +9,6 @@ import type {
   ExtendScope,
   PartnerScope,
   PumpScope,
-  RentTypeScope,
   AggregateRunRequest,
 } from "@/aggregate/run/types.aggregateRun";
 import AggregateResultView from "@/views/aggregate/AggregateResultView";
@@ -76,11 +75,10 @@ export default function AggregateView() {
   const [resultView, setResultView] = useState<"pump" | "partnerAll" | "extend" | null>(null);
 
   const granularityOptions: AggregateGranularity[] = ["기간별", "일별", "월별", "연별"];
-  const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원", "온라인", "개인"];
+  const partnerOptions: PartnerScope[] = ["전체", "보건소", "조리원"];
   const pumpOptions: PumpScope[] = ["전체", "기종"];
   const pumpModelOptions = ["심포니", "락티나", "스윙", "스윙맥시", "프리스타일", "시밀래", "각시밀"] as const;
   const extendOptions: ExtendScope[] = useMemo(() => ["전체"], []);
-  const rentTypeOptions: RentTypeScope[] = ["전체", "기기변경", "재대여", "서비스", "대체기기", "문제기기"];
 
   const onConfirm = () => {
     const r = form.confirm();
@@ -273,36 +271,7 @@ export default function AggregateView() {
                 </div>
               </Row>
 
-              <Row
-                label={
-                  <AxisLabel
-                    active={form.state.activeAxis === "대여형태"}
-                    onClick={() => form.setActiveAxis("대여형태")}
-                  >
-                    대여형태
-                  </AxisLabel>
-                }
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={form.state.rentTypeScope}
-                    onClick={() => form.setActiveAxis("대여형태")}
-                    onChange={(e) => {
-                      form.setActiveAxis("대여형태");
-                      form.setRentTypeScope(e.target.value as RentTypeScope);
-                    }}
-                    className="border rounded px-2 py-1 text-sm bg-white"
-                  >
-                    {rentTypeOptions.map((x) => (
-                      <option key={x} value={x}>
-                        {x}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </Row>
-
-              <Row label={<FieldLabel required>비교기간</FieldLabel>}>
+              <Row label={<FieldLabel required>비교기간</FieldLabel>}>      
                 <div className="flex flex-wrap items-center gap-4">
                   <label className="inline-flex items-center gap-2 text-sm">
                     <input
