@@ -321,32 +321,7 @@ export default function AggregateView() {
 
                 <ErrorText text={form.lastErrors.compare} />
               </Row>
-             
-               {/* ✅ 검색: 세로로 통일(거래처 → 유축기 → 기기번호) */}
-<Row label={<FieldLabel>검색</FieldLabel>}>
-  <div className="max-w-[520px] space-y-3">
-    <div>
-      <div className="text-xs text-gray-700 mb-1">거래처</div>
-      <input
-        value={form.state.searchPartner}
-        onChange={(e) => form.setSearchPartner(e.target.value)}
-        placeholder="예: 수원"
-        className="w-full border rounded px-2 py-1 text-sm bg-white"
-      />
-    </div>
-
-    <div>
-      <div className="text-xs text-gray-700 mb-1">기기번호</div>
-      <input
-        value={form.state.searchDeviceNo}
-        onChange={(e) => form.setSearchDeviceNo(e.target.value)}
-        placeholder="예: 112315/012"
-        className="w-full border rounded px-2 py-1 text-sm bg-white"
-      />
-    </div>
-  </div>
-</Row>             
-
+                           
               <Row label={<FieldLabel>확인버튼</FieldLabel>}>
                 <div className="flex items-center gap-2">
                   <button
