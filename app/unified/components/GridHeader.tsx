@@ -142,9 +142,6 @@ export default function GridHeader({
       <span className="text-slate-700 font-semibold text-sm">통합관리</span>
 
       <div className="flex items-center gap-2">
-        <ToolButton icon="folder">안내분류</ToolButton>
-        <ToolButton icon="tag">분류</ToolButton>
-
         <ToolButton icon="filter" onClick={onToggleFilterMode} active={!!filterMode}>
           필터
         </ToolButton>
@@ -160,9 +157,6 @@ export default function GridHeader({
         >
           <ToolButton icon="palette">칼라</ToolButton>
         </div>
-
-        <ToolButton icon="duplicate">중복</ToolButton>
-        <ToolButton icon="check">오류검사</ToolButton>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
