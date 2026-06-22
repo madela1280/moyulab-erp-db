@@ -22,10 +22,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 통합관리
   "통합관리>통합관리": dynamic(() => import("@/views/unified/UnifiedMainView")),
-  "통합관리>온라인": dynamic(() => import("@/views/unified/OnlineView")),
-  "통합관리>보건소": dynamic(() => import("@/views/unified/HealthCenterView")),
-  "통합관리>조리원": dynamic(() => import("@/views/unified/PostpartumCareView")),
-
+ 
   // 기기관리
   "기기관리>심포니": dynamic(() => import("@/views/devices/SymphonyView")),
   "기기관리>락티나": dynamic(() => import("@/views/devices/LactinaView")),
@@ -41,8 +38,9 @@ export const VIEW_MAP: Record<string, any> = {
   "회수완료>회수1": dynamic(() => import("@/views/recoveryComplete/Recovery1View")),
   "회수완료>회수2": dynamic(() => import("@/views/recoveryComplete/Recovery2View")),
 
-  // AAA
-  "AAA>AAA": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
+  // 오류검사
+  "오류검사>미회수": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
+  "오류검사>중복출고": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
   // 문자
   "문자>대여첫안내": makeSmsWrapper("대여첫안내"),
