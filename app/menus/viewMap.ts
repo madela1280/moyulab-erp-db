@@ -39,7 +39,7 @@ export const VIEW_MAP: Record<string, any> = {
   "회수완료>회수2": dynamic(() => import("@/views/recoveryComplete/Recovery2View")),
 
   // 오류검사
-  "오류검사>미회수": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
+  "오류검사>미회수": dynamic(() => import("@/views/errorCheck/UnreturnedView")),
   "오류검사>중복출고": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
 
   // 문자
