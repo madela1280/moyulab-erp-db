@@ -72,12 +72,47 @@ function buildColumns(rows: UnreturnedRow[]): string[] {
   return [...PRIORITY_COLUMNS.filter((key) => keySet.has(key)), ...rest];
 }
 
+function parseFilenameFromDisposition(disposition: string | null): string {
+  if (!disposition) return "unreturned.csv";
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1];
+  }
+
+  return "unreturned.csv";
+}
+
+async function safeReadJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) return {};
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return { message: text };
+  }
+}
+
 export default function UnreturnedView() {
   const [baseDate, setBaseDate] = useState<string>(getTodayYmd);
   const [rows, setRows] = useState<UnreturnedRow[]>([]);
   const [count, setCount] = useState<number>(0);
   const [loadedBaseDate, setLoadedBaseDate] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [downloadLoading, setDownloadLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
   const columns = useMemo(() => buildColumns(rows), [rows]);
@@ -126,6 +161,57 @@ export default function UnreturnedView() {
     }
   };
 
+  const handleDownload = async () => {
+    const targetDate = baseDate.trim();
+
+    if (!targetDate) {
+      setError("기준일자를 입력해주세요.");
+      return;
+    }
+
+    setDownloadLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/error-check/unreturned/export?기준일자=${encodeURIComponent(targetDate)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        const errorJson = await safeReadJson(response);
+        const message =
+          typeof errorJson.message === "string"
+            ? errorJson.message
+            : "미회수 다운로드 중 오류가 발생했습니다.";
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const filename = parseFilenameFromDisposition(
+        response.headers.get("Content-Disposition")
+      );
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "미회수 다운로드 중 오류가 발생했습니다.";
+      setError(message);
+    } finally {
+      setDownloadLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadRows(baseDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,6 +237,14 @@ export default function UnreturnedView() {
             className="h-8 px-3 text-sm rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:opacity-60"
           >
             조회
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            disabled={downloadLoading}
+            className="h-8 px-3 text-sm rounded border bg-white text-slate-800 border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+          >
+            {downloadLoading ? "다운로드중..." : "다운로드"}
           </button>
         </div>
 
