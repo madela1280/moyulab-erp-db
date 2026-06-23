@@ -40,7 +40,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 오류검사
   "오류검사>미회수": dynamic(() => import("@/views/errorCheck/UnreturnedView")),
-  "오류검사>중복출고": dynamic(() => import("@/views/pumpStatus/PumpStatusView")),
+  "오류검사>중복출고": dynamic(() => import("@/views/errorCheck/DuplicateShipmentView")),
 
   // 문자
   "문자>대여첫안내": makeSmsWrapper("대여첫안내"),
