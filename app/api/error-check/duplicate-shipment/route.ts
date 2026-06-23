@@ -17,6 +17,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function toUnifiedRow(row: UnifiedDbRow): UnifiedRow | null {
+  if (typeof row.id !== "number") return null;
+  if (!isPlainObject(row.data)) return null;
+
+  return {
+    id: row.id,
+    data: row.data,
+  };
+}
+
 function isPureBlank(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   return String(value).trim() === "";
@@ -83,11 +93,8 @@ export async function GET() {
     );
 
     const baseRows: UnifiedRow[] = (result.rows as UnifiedDbRow[])
-      .filter((row) => typeof row.id === "number" && isPlainObject(row.data))
-      .map((row) => ({
-        id: row.id,
-        data: row.data,
-      }))
+      .map(toUnifiedRow)
+      .filter((row): row is UnifiedRow => row !== null)
       .filter((row) => {
         return (
           isPureBlank(row.data["반납요청일"]) &&
