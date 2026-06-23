@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
+import { query } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
+
+type UnifiedDbRow = {
+  id: number;
+  data: unknown;
+};
 
 type UnreturnedRow = {
   id: number;
   data: Record<string, unknown> | null;
-};
-
-type UnreturnedResponse = {
-  ok?: boolean;
-  기준일자?: string;
-  count?: number;
-  rows?: UnreturnedRow[];
-  error?: string;
-  message?: string;
 };
 
 const PRIORITY_COLUMNS = [
@@ -35,6 +32,73 @@ const PRIORITY_COLUMNS = [
   "반납요청일",
   "반납완료일",
 ] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function toUnreturnedRow(row: UnifiedDbRow): UnreturnedRow | null {
+  if (typeof row.id !== "number") return null;
+  if (!isPlainObject(row.data)) return null;
+
+  return {
+    id: row.id,
+    data: row.data,
+  };
+}
+
+function isPureBlank(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  return String(value).trim() === "";
+}
+
+function normalizeText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim().replace(/\s+/g, " ");
+}
+
+function isJoriwonCategory(value: unknown): boolean {
+  return normalizeText(value).includes("조리원");
+}
+
+function parseYmd(value: unknown): Date | null {
+  if (isPureBlank(value)) return null;
+
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function isEndDateOnOrBeforeBaseDate(endDateValue: unknown, baseDateText: string): boolean {
+  const endDate = parseYmd(endDateValue);
+  const baseDate = parseYmd(baseDateText);
+
+  if (!endDate || !baseDate) return false;
+  return endDate.getTime() <= baseDate.getTime();
+}
 
 function getTodayYmd(): string {
   const now = new Date();
@@ -111,39 +175,32 @@ function buildFilename(baseDate: string): string {
   return `unreturned-${safeBaseDate}-${hh}${mi}${ss}.csv`;
 }
 
-async function safeReadJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (!text) return {};
+async function loadUnreturnedRows(baseDate: string): Promise<UnreturnedRow[]> {
+  const result = await query(
+    `
+      SELECT id, data
+      FROM unified
+      WHERE jsonb_typeof(data) = 'object'
+        AND COALESCE(data->>'__type', '') <> 'signup_draft'
+        AND COALESCE(BTRIM(data->>'반납요청일'), '') = ''
+        AND COALESCE(BTRIM(data->>'반납완료일'), '') = ''
+      ORDER BY id ASC
+    `
+  );
 
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return { message: text };
-  }
-}
+  const rows = (result.rows as UnifiedDbRow[])
+    .map(toUnreturnedRow)
+    .filter((row): row is UnreturnedRow => row !== null)
+    .filter((row) => {
+      return (
+        isPureBlank(row.data?.["반납요청일"]) &&
+        isPureBlank(row.data?.["반납완료일"]) &&
+        !isJoriwonCategory(row.data?.["거래처분류"]) &&
+        isEndDateOnOrBeforeBaseDate(row.data?.["종료일"], baseDate)
+      );
+    });
 
-async function loadRowsFromUnreturnedApi(request: Request, baseDate: string): Promise<UnreturnedRow[]> {
-  const url = new URL("/api/error-check/unreturned", request.url);
-  url.searchParams.set("기준일자", baseDate);
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
-
-  const json = (await safeReadJson(response)) as UnreturnedResponse;
-
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error || json.message || "미회수 다운로드용 데이터를 조회하지 못했습니다.");
-  }
-
-  return Array.isArray(json.rows) ? json.rows : [];
+  return rows;
 }
 
 export async function GET(request: Request) {
@@ -151,7 +208,17 @@ export async function GET(request: Request) {
     const requestUrl = new URL(request.url);
     const baseDate = requestUrl.searchParams.get("기준일자")?.trim() || getTodayYmd();
 
-    const rows = await loadRowsFromUnreturnedApi(request, baseDate);
+    if (!parseYmd(baseDate)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "올바른 기준일자를 입력해주세요.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const rows = await loadUnreturnedRows(baseDate);
     const columns = buildColumns(rows);
     const csv = "\uFEFF" + buildCsv(rows, columns);
 
