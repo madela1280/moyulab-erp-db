@@ -19,24 +19,23 @@ type DuplicateShipmentResponse = {
   error?: string;
 };
 
-type RowMeta = {
-  row: DuplicateShipmentRow;
-  deviceKey: string;
-  deviceLabel: string;
-  recipientKey: string;
-  recipientLabel: string;
+type DuplicateGroup = {
+  id: string;
+  label: string;
+  items: DuplicateShipmentRow[];
+  headerBg: string;
+  rowBg: string;
 };
 
-type DuplicateGroupItem = {
+type NumberedGroupItem = {
   row: DuplicateShipmentRow;
   displayNo: number;
 };
 
-type DuplicateGroup = {
+type NumberedGroup = {
   id: string;
-  title: string;
-  count: number;
-  items: DuplicateGroupItem[];
+  label: string;
+  items: NumberedGroupItem[];
   headerBg: string;
   rowBg: string;
 };
@@ -155,180 +154,160 @@ async function safeReadJson(response: Response): Promise<Record<string, unknown>
   }
 }
 
-function createRowMeta(row: DuplicateShipmentRow): RowMeta {
-  const deviceRaw = row.data?.["기기번호"];
-  const deviceLabel = normalizeText(deviceRaw);
-  const deviceKey = normalizeDeviceNo(deviceRaw);
+function buildDeviceGroups(rows: DuplicateShipmentRow[]): DuplicateGroup[] {
+  const grouped = new Map<
+    string,
+    {
+      label: string;
+      items: DuplicateShipmentRow[];
+      sortId: number;
+    }
+  >();
 
-  const recipientName = normalizeText(row.data?.["수취인명"]);
-  const phoneRaw = normalizeText(row.data?.["연락처1"]);
-  const phoneKey = normalizePhone(row.data?.["연락처1"]);
-  const recipientAllowed = !isJoriwonCategory(row.data?.["거래처분류"]);
+  for (const row of rows) {
+    const deviceKey = normalizeDeviceNo(row.data?.["기기번호"]);
+    if (!deviceKey) continue;
 
-  const recipientKey =
-    recipientAllowed && recipientName && phoneKey ? `${recipientName}||${phoneKey}` : "";
+    const current = grouped.get(deviceKey);
+    if (current) {
+      current.items.push(row);
+      current.sortId = Math.min(current.sortId, row.id);
+      continue;
+    }
 
-  const recipientLabel =
-    recipientAllowed && recipientName && phoneRaw ? `${recipientName} / ${phoneRaw}` : "";
+    grouped.set(deviceKey, {
+      label: normalizeText(row.data?.["기기번호"]) || deviceKey,
+      items: [row],
+      sortId: row.id,
+    });
+  }
+
+  return Array.from(grouped.entries())
+    .filter(([, value]) => value.items.length >= 2)
+    .sort((a, b) => {
+      const sortDiff = a[1].sortId - b[1].sortId;
+      if (sortDiff !== 0) return sortDiff;
+      return a[1].label.localeCompare(b[1].label, "ko");
+    })
+    .map(([key, value], index) => {
+      const color = GROUP_COLORS[index % GROUP_COLORS.length];
+      const items = [...value.items].sort((a, b) => a.id - b.id);
+
+      return {
+        id: `device-${key}`,
+        label: `기기번호: ${value.label}`,
+        items,
+        headerBg: color.headerBg,
+        rowBg: color.rowBg,
+      };
+    });
+}
+
+function buildRecipientGroups(rows: DuplicateShipmentRow[]): DuplicateGroup[] {
+  const grouped = new Map<
+    string,
+    {
+      label: string;
+      items: DuplicateShipmentRow[];
+      sortId: number;
+    }
+  >();
+
+  for (const row of rows) {
+    if (isJoriwonCategory(row.data?.["거래처분류"])) continue;
+
+    const recipientName = normalizeText(row.data?.["수취인명"]);
+    const phoneText = normalizeText(row.data?.["연락처1"]);
+    const phoneKey = normalizePhone(row.data?.["연락처1"]);
+
+    if (!recipientName || !phoneKey) continue;
+
+    const key = `${recipientName}||${phoneKey}`;
+    const label = `${recipientName} / ${phoneText || phoneKey}`;
+
+    const current = grouped.get(key);
+    if (current) {
+      current.items.push(row);
+      current.sortId = Math.min(current.sortId, row.id);
+      continue;
+    }
+
+    grouped.set(key, {
+      label,
+      items: [row],
+      sortId: row.id,
+    });
+  }
+
+  return Array.from(grouped.entries())
+    .filter(([, value]) => value.items.length >= 2)
+    .sort((a, b) => {
+      const sortDiff = a[1].sortId - b[1].sortId;
+      if (sortDiff !== 0) return sortDiff;
+      return a[1].label.localeCompare(b[1].label, "ko");
+    })
+    .map(([key, value], index) => {
+      const color = GROUP_COLORS[index % GROUP_COLORS.length];
+      const items = [...value.items].sort((a, b) => a.id - b.id);
+
+      return {
+        id: `recipient-${key}`,
+        label: `수취인명/연락처1: ${value.label}`,
+        items,
+        headerBg: color.headerBg,
+        rowBg: color.rowBg,
+      };
+    });
+}
+
+function addDisplayNumbers(
+  groups: DuplicateGroup[],
+  startNo: number
+): { groups: NumberedGroup[]; nextNo: number } {
+  let currentNo = startNo;
+
+  const numberedGroups: NumberedGroup[] = groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    headerBg: group.headerBg,
+    rowBg: group.rowBg,
+    items: group.items.map((row) => {
+      currentNo += 1;
+      return {
+        row,
+        displayNo: currentNo,
+      };
+    }),
+  }));
 
   return {
-    row,
-    deviceKey,
-    deviceLabel,
-    recipientKey,
-    recipientLabel,
+    groups: numberedGroups,
+    nextNo: currentNo,
   };
-}
-
-function find(parent: number[], x: number): number {
-  if (parent[x] !== x) {
-    parent[x] = find(parent, parent[x]);
-  }
-  return parent[x];
-}
-
-function union(parent: number[], a: number, b: number) {
-  const rootA = find(parent, a);
-  const rootB = find(parent, b);
-
-  if (rootA !== rootB) {
-    parent[rootB] = rootA;
-  }
-}
-
-function buildGroupTitle(metas: RowMeta[]): string {
-  const deviceCountMap = new Map<string, { count: number; label: string }>();
-  const recipientCountMap = new Map<string, { count: number; label: string }>();
-
-  for (const meta of metas) {
-    if (meta.deviceKey) {
-      const current = deviceCountMap.get(meta.deviceKey);
-      if (current) {
-        current.count += 1;
-      } else {
-        deviceCountMap.set(meta.deviceKey, {
-          count: 1,
-          label: meta.deviceLabel || meta.deviceKey,
-        });
-      }
-    }
-
-    if (meta.recipientKey) {
-      const current = recipientCountMap.get(meta.recipientKey);
-      if (current) {
-        current.count += 1;
-      } else {
-        recipientCountMap.set(meta.recipientKey, {
-          count: 1,
-          label: meta.recipientLabel || meta.recipientKey,
-        });
-      }
-    }
-  }
-
-  const duplicateDevices = Array.from(deviceCountMap.values())
-    .filter((item) => item.count >= 2)
-    .map((item) => item.label)
-    .sort((a, b) => a.localeCompare(b, "ko"));
-
-  const duplicateRecipients = Array.from(recipientCountMap.values())
-    .filter((item) => item.count >= 2)
-    .map((item) => item.label)
-    .sort((a, b) => a.localeCompare(b, "ko"));
-
-  const titleParts: string[] = [];
-
-  if (duplicateDevices.length > 0) {
-    titleParts.push(`기기번호: ${duplicateDevices.join(", ")}`);
-  }
-
-  if (duplicateRecipients.length > 0) {
-    titleParts.push(`수취인명/연락처1: ${duplicateRecipients.join(", ")}`);
-  }
-
-  return titleParts.length > 0 ? titleParts.join("  |  ") : "중복 그룹";
-}
-
-function buildDuplicateGroups(rows: DuplicateShipmentRow[]): DuplicateGroup[] {
-  if (rows.length === 0) return [];
-
-  const metas = rows.map(createRowMeta);
-  const parent = metas.map((_, index) => index);
-
-  const deviceMap = new Map<string, number>();
-  const recipientMap = new Map<string, number>();
-
-  metas.forEach((meta, index) => {
-    if (meta.deviceKey) {
-      const firstIndex = deviceMap.get(meta.deviceKey);
-      if (typeof firstIndex === "number") {
-        union(parent, firstIndex, index);
-      } else {
-        deviceMap.set(meta.deviceKey, index);
-      }
-    }
-
-    if (meta.recipientKey) {
-      const firstIndex = recipientMap.get(meta.recipientKey);
-      if (typeof firstIndex === "number") {
-        union(parent, firstIndex, index);
-      } else {
-        recipientMap.set(meta.recipientKey, index);
-      }
-    }
-  });
-
-  const groupedIndexMap = new Map<number, number[]>();
-
-  metas.forEach((_, index) => {
-    const root = find(parent, index);
-    const current = groupedIndexMap.get(root) ?? [];
-    current.push(index);
-    groupedIndexMap.set(root, current);
-  });
-
-  const sortedGroups = Array.from(groupedIndexMap.values())
-    .map((indexes) => indexes.sort((a, b) => metas[a].row.id - metas[b].row.id))
-    .sort((a, b) => {
-      const firstA = metas[a[0]]?.row.id ?? 0;
-      const firstB = metas[b[0]]?.row.id ?? 0;
-      return firstA - firstB;
-    });
-
-  let displayNo = 0;
-
-  return sortedGroups.map((indexes, groupIndex) => {
-    const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
-    const groupMetas = indexes.map((index) => metas[index]);
-    const title = buildGroupTitle(groupMetas);
-
-    return {
-      id: `group-${groupIndex + 1}`,
-      title,
-      count: groupMetas.length,
-      headerBg: color.headerBg,
-      rowBg: color.rowBg,
-      items: groupMetas.map((meta) => {
-        displayNo += 1;
-        return {
-          row: meta.row,
-          displayNo,
-        };
-      }),
-    };
-  });
 }
 
 export default function DuplicateShipmentView() {
   const [rows, setRows] = useState<DuplicateShipmentRow[]>([]);
-  const [count, setCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [downloadLoading, setDownloadLoading] = useState<boolean>(false);
   const [hasQueried, setHasQueried] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
   const columns = useMemo(() => buildColumns(rows), [rows]);
-  const groups = useMemo(() => buildDuplicateGroups(rows), [rows]);
+
+  const deviceGroups = useMemo(() => buildDeviceGroups(rows), [rows]);
+  const recipientGroups = useMemo(() => buildRecipientGroups(rows), [rows]);
+
+  const numberedDeviceGroups = useMemo(() => {
+    return addDisplayNumbers(deviceGroups, 0);
+  }, [deviceGroups]);
+
+  const numberedRecipientGroups = useMemo(() => {
+    return addDisplayNumbers(recipientGroups, numberedDeviceGroups.nextNo);
+  }, [recipientGroups, numberedDeviceGroups.nextNo]);
+
+  const totalGroupCount = deviceGroups.length + recipientGroups.length;
+  const displayedCount = numberedRecipientGroups.nextNo;
 
   const loadRows = async () => {
     setLoading(true);
@@ -349,18 +328,13 @@ export default function DuplicateShipmentView() {
       }
 
       const nextRows = Array.isArray(data.rows) ? data.rows : [];
-      const nextCount =
-        typeof data.summary?.totalRows === "number" ? data.summary.totalRows : nextRows.length;
-
       setRows(nextRows);
-      setCount(nextCount);
       setHasQueried(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "중복출고 데이터를 조회하지 못했습니다.";
       setError(message);
       setRows([]);
-      setCount(0);
       setHasQueried(true);
     } finally {
       setLoading(false);
@@ -434,8 +408,8 @@ export default function DuplicateShipmentView() {
         </div>
 
         <div className="ml-auto flex items-center gap-4 text-xs text-slate-600">
-          <span>그룹수: {groups.length.toLocaleString()}개</span>
-          <span>건수: {count.toLocaleString()}건</span>
+          <span>그룹수: {totalGroupCount.toLocaleString()}개</span>
+          <span>표시건수: {displayedCount.toLocaleString()}건</span>
         </div>
       </div>
 
@@ -480,7 +454,7 @@ export default function DuplicateShipmentView() {
                   조회 버튼을 눌러 중복출고 데이터를 불러오세요.
                 </td>
               </tr>
-            ) : rows.length === 0 || groups.length === 0 ? (
+            ) : rows.length === 0 || totalGroupCount === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length + 1}
@@ -490,13 +464,37 @@ export default function DuplicateShipmentView() {
                 </td>
               </tr>
             ) : (
-              groups.map((group) => (
-                <FragmentGroup
-                  key={group.id}
-                  group={group}
-                  columns={columns}
-                />
-              ))
+              <>
+                {numberedDeviceGroups.groups.length > 0 ? (
+                  <SectionHeaderRow
+                    label="기기번호 중복출고"
+                    colSpan={columns.length + 1}
+                  />
+                ) : null}
+
+                {numberedDeviceGroups.groups.map((group) => (
+                  <GroupRows
+                    key={group.id}
+                    group={group}
+                    columns={columns}
+                  />
+                ))}
+
+                {numberedRecipientGroups.groups.length > 0 ? (
+                  <SectionHeaderRow
+                    label="동일 수취인 중복출고"
+                    colSpan={columns.length + 1}
+                  />
+                ) : null}
+
+                {numberedRecipientGroups.groups.map((group) => (
+                  <GroupRows
+                    key={group.id}
+                    group={group}
+                    columns={columns}
+                  />
+                ))}
+              </>
             )}
           </tbody>
         </table>
@@ -505,11 +503,30 @@ export default function DuplicateShipmentView() {
   );
 }
 
-function FragmentGroup({
+function SectionHeaderRow({
+  label,
+  colSpan,
+}: {
+  label: string;
+  colSpan: number;
+}) {
+  return (
+    <tr>
+      <td
+        colSpan={colSpan}
+        className="border-b border-r px-3 py-2 text-left text-xs font-semibold text-slate-700 bg-slate-100"
+      >
+        {label}
+      </td>
+    </tr>
+  );
+}
+
+function GroupRows({
   group,
   columns,
 }: {
-  group: DuplicateGroup;
+  group: NumberedGroup;
   columns: string[];
 }) {
   return (
@@ -521,25 +538,28 @@ function FragmentGroup({
           style={{ backgroundColor: group.headerBg }}
         >
           <div className="flex items-center justify-between gap-3">
-            <span>{group.title}</span>
-            <span>{group.count.toLocaleString()}건</span>
+            <span>{group.label}</span>
+            <span>{group.items.length.toLocaleString()}건</span>
           </div>
         </td>
       </tr>
 
       {group.items.map((item) => (
         <tr
-          key={`${group.id}-${item.row.id}`}
+          key={`${group.id}-${item.row.id}-${item.displayNo}`}
           className="hover:brightness-[0.99]"
           style={{ backgroundColor: group.rowBg }}
         >
-          <td className="border-b border-r px-2 py-2 text-right text-slate-600 whitespace-nowrap">
+          <td
+            className="border-b border-r px-2 py-2 text-right text-slate-600 whitespace-nowrap"
+            style={{ backgroundColor: group.rowBg }}
+          >
             {item.displayNo}
           </td>
 
           {columns.map((column) => (
             <td
-              key={`${group.id}-${item.row.id}-${column}`}
+              key={`${group.id}-${item.row.id}-${item.displayNo}-${column}`}
               className="border-b border-r px-2 py-2 text-slate-800 whitespace-nowrap"
               style={{ backgroundColor: group.rowBg }}
             >
