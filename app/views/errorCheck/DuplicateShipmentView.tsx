@@ -19,6 +19,33 @@ type UnifiedColumnDefaults = {
   widths: Record<string, number>;
 };
 
+const ORDER_EXPORT_NAMES = [
+  "DEFAULT_COLUMN_ORDER",
+  "defaultColumnOrder",
+  "UNIFIED_COLUMN_ORDER",
+  "unifiedColumnOrder",
+  "COLUMN_ORDER",
+  "columnOrder",
+  "UNIFIED_COLUMNS",
+  "unifiedColumns",
+  "columns",
+  "COLUMNS",
+  "DEFAULT_COLUMNS",
+  "defaultColumns",
+] as const;
+
+const WIDTH_EXPORT_NAMES = [
+  "DEFAULT_COLUMN_WIDTHS",
+  "defaultColumnWidths",
+  "UNIFIED_COLUMN_WIDTHS",
+  "unifiedColumnWidths",
+  "COLUMN_WIDTHS",
+  "columnWidths",
+  "widths",
+  "DEFAULT_WIDTHS",
+  "defaultWidths",
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -28,9 +55,169 @@ function isPureBlank(value: unknown): boolean {
   return String(value).trim() === "";
 }
 
+function isFiniteWidth(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 40;
+}
+
+function getColumnKeyFromObject(obj: Record<string, unknown>): string | null {
+  const candidates = [
+    obj.key,
+    obj.columnKey,
+    obj.field,
+    obj.id,
+    obj.name,
+    obj.label,
+    obj.accessorKey,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function getColumnWidthFromObject(obj: Record<string, unknown>): number | null {
+  const candidates = [
+    obj.width,
+    obj.defaultWidth,
+    obj.initialWidth,
+    obj.size,
+    obj.minWidth,
+  ];
+
+  for (const value of candidates) {
+    if (isFiniteWidth(value)) return value;
+  }
+
+  return null;
+}
+
+function pushUnique(arr: string[], key: string) {
+  if (!key || key.startsWith("__")) return;
+  if (!arr.includes(key)) arr.push(key);
+}
+
+function extractOrderFromValue(
+  value: unknown,
+  output: string[],
+  visited = new WeakSet<object>()
+) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.trim() !== "") {
+        pushUnique(output, item.trim());
+        continue;
+      }
+
+      if (isRecord(item)) {
+        const key = getColumnKeyFromObject(item);
+        if (key) pushUnique(output, key);
+        extractOrderFromValue(item, output, visited);
+      }
+    }
+    return;
+  }
+
+  if (!isRecord(value)) return;
+  if (visited.has(value)) return;
+  visited.add(value);
+
+  const key = getColumnKeyFromObject(value);
+  if (key) pushUnique(output, key);
+
+  for (const nested of Object.values(value)) {
+    extractOrderFromValue(nested, output, visited);
+  }
+}
+
+function extractWidthsFromValue(
+  value: unknown,
+  output: Record<string, number>,
+  visited = new WeakSet<object>()
+) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      extractWidthsFromValue(item, output, visited);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) return;
+  if (visited.has(value)) return;
+  visited.add(value);
+
+  const key = getColumnKeyFromObject(value);
+  const width = getColumnWidthFromObject(value);
+  if (key && width) {
+    output[key] = width;
+  }
+
+  const entries = Object.entries(value);
+  const numericMap = entries.every(([, entryValue]) => isFiniteWidth(entryValue));
+  if (numericMap && entries.length > 0) {
+    for (const [entryKey, entryValue] of entries) {
+      if (!entryKey.startsWith("__") && isFiniteWidth(entryValue)) {
+        output[entryKey] = entryValue;
+      }
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    extractWidthsFromValue(nested, output, visited);
+  }
+}
+
+function getNamedModuleValue(
+  moduleRecord: Record<string, unknown>,
+  names: readonly string[]
+): unknown[] {
+  const values: unknown[] = [];
+  for (const name of names) {
+    if (name in moduleRecord) {
+      values.push(moduleRecord[name]);
+    }
+  }
+  return values;
+}
+
+function extractUnifiedColumnDefaults(): UnifiedColumnDefaults {
+  const moduleRecord = unifiedColumnsModule as Record<string, unknown>;
+  const order: string[] = [];
+  const widths: Record<string, number> = {};
+
+  const namedOrderValues = getNamedModuleValue(moduleRecord, ORDER_EXPORT_NAMES);
+  const namedWidthValues = getNamedModuleValue(moduleRecord, WIDTH_EXPORT_NAMES);
+
+  for (const value of namedOrderValues) {
+    extractOrderFromValue(value, order);
+  }
+
+  for (const value of namedWidthValues) {
+    extractWidthsFromValue(value, widths);
+  }
+
+  if (order.length === 0) {
+    for (const value of Object.values(moduleRecord)) {
+      extractOrderFromValue(value, order);
+    }
+  }
+
+  if (Object.keys(widths).length === 0) {
+    for (const value of Object.values(moduleRecord)) {
+      extractWidthsFromValue(value, widths);
+    }
+  }
+
+  return { order, widths };
+}
+
 async function safeReadJson(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (!text) return {};
+
   try {
     const parsed = JSON.parse(text);
     return isRecord(parsed) ? parsed : {};
@@ -41,6 +228,7 @@ async function safeReadJson(response: Response): Promise<Record<string, unknown>
 
 function normalizeRows(payload: Record<string, unknown>): UnifiedRow[] {
   const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+
   return rawRows
     .filter((row): row is UnifiedRow => {
       return isRecord(row) && typeof row.id === "number" && isRecord(row.data);
@@ -57,21 +245,12 @@ function normalizeSummary(
 ): DuplicateShipmentSummary {
   const raw = isRecord(payload.summary) ? payload.summary : {};
 
-  const totalRows =
-    typeof raw.totalRows === "number" ? raw.totalRows : rows.length;
-
-  const deviceDuplicateRows =
-    typeof raw.deviceDuplicateRows === "number" ? raw.deviceDuplicateRows : 0;
-
-  const recipientDuplicateRows =
-    typeof raw.recipientDuplicateRows === "number"
-      ? raw.recipientDuplicateRows
-      : 0;
-
   return {
-    totalRows,
-    deviceDuplicateRows,
-    recipientDuplicateRows,
+    totalRows: typeof raw.totalRows === "number" ? raw.totalRows : rows.length,
+    deviceDuplicateRows:
+      typeof raw.deviceDuplicateRows === "number" ? raw.deviceDuplicateRows : 0,
+    recipientDuplicateRows:
+      typeof raw.recipientDuplicateRows === "number" ? raw.recipientDuplicateRows : 0,
   };
 }
 
@@ -91,8 +270,9 @@ function normalizeGridSettings(payload: Record<string, unknown>) {
     : {};
 
   const columnWidths: Record<string, number> = {};
+
   for (const [key, value] of Object.entries(widthSource)) {
-    if (typeof value === "number" && Number.isFinite(value) && value > 40) {
+    if (isFiniteWidth(value)) {
       columnWidths[key] = value;
     }
   }
@@ -100,144 +280,32 @@ function normalizeGridSettings(payload: Record<string, unknown>) {
   return { columnOrder, columnWidths };
 }
 
-function getFiniteWidth(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 40
-    ? value
-    : null;
-}
-
-function extractColumnMetaFromObject(
-  obj: Record<string, unknown>
-): { key: string; width?: number } | null {
-  const keyCandidates = [
-    obj.key,
-    obj.columnKey,
-    obj.field,
-    obj.id,
-    obj.name,
-    obj.label,
-  ];
-
-  const key = keyCandidates.find(
-    (value): value is string => typeof value === "string" && value.trim() !== ""
-  );
-
-  if (!key) return null;
-
-  const widthCandidates = [
-    obj.width,
-    obj.defaultWidth,
-    obj.initialWidth,
-    obj.minWidth,
-  ];
-
-  const width =
-    widthCandidates.map(getFiniteWidth).find((value) => value !== null) ?? undefined;
-
-  return {
-    key: key.trim(),
-    width,
-  };
-}
-
-function extractUnifiedColumnDefaults(): UnifiedColumnDefaults {
-  const order: string[] = [];
-  const widths: Record<string, number> = {};
-  const seen = new Set<string>();
-
-  const pushColumn = (key: string, width?: number) => {
-    const normalizedKey = key.trim();
-    if (!normalizedKey || normalizedKey.startsWith("__")) return;
-
-    if (!seen.has(normalizedKey)) {
-      seen.add(normalizedKey);
-      order.push(normalizedKey);
-    }
-
-    if (typeof width === "number" && Number.isFinite(width) && width > 40) {
-      widths[normalizedKey] = width;
-    }
-  };
-
-  const readValue = (value: unknown) => {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === "string" && item.trim() !== "") {
-          pushColumn(item);
-          continue;
-        }
-
-        if (isRecord(item)) {
-          const meta = extractColumnMetaFromObject(item);
-          if (meta) {
-            pushColumn(meta.key, meta.width);
-          }
-        }
-      }
-      return;
-    }
-
-    if (!isRecord(value)) return;
-
-    const entries = Object.entries(value);
-    const numericWidthEntries = entries.filter(([, entryValue]) => {
-      return typeof entryValue === "number" && Number.isFinite(entryValue) && entryValue > 40;
-    });
-
-    if (numericWidthEntries.length > 0) {
-      for (const [key, width] of numericWidthEntries) {
-        pushColumn(key, width as number);
-      }
-    }
-
-    for (const nestedValue of Object.values(value)) {
-      if (Array.isArray(nestedValue)) {
-        readValue(nestedValue);
-      }
-    }
-  };
-
-  for (const exportedValue of Object.values(
-    unifiedColumnsModule as Record<string, unknown>
-  )) {
-    readValue(exportedValue);
-  }
-
-  return { order, widths };
-}
-
 function collectRowKeys(rows: UnifiedRow[]): string[] {
-  const set = new Set<string>();
+  const keys: string[] = [];
 
   for (const row of rows) {
-    for (const key of Object.keys(row.data || {})) {
-      if (key.startsWith("__")) continue;
-      set.add(key);
+    for (const key of Object.keys(row.data)) {
+      if (!key || key.startsWith("__")) continue;
+      pushUnique(keys, key);
     }
   }
 
-  return Array.from(set);
+  return keys;
 }
 
-function buildColumnKeys(
-  rows: UnifiedRow[],
-  orderedKeys: string[],
-  defaultOrder: string[]
+function resolveColumnKeys(
+  defaultOrder: string[],
+  savedOrder: string[],
+  rowKeys: string[]
 ): string[] {
-  const rowKeys = collectRowKeys(rows);
-  const candidateOrder = [...orderedKeys, ...defaultOrder];
-  const seen = new Set<string>();
-  const ordered: string[] = [];
+  const resolved: string[] = [];
+  const baseOrder = savedOrder.length > 0 ? savedOrder : defaultOrder;
 
-  for (const key of candidateOrder) {
-    if (!rowKeys.includes(key)) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    ordered.push(key);
-  }
+  for (const key of baseOrder) pushUnique(resolved, key);
+  for (const key of defaultOrder) pushUnique(resolved, key);
+  for (const key of rowKeys) pushUnique(resolved, key);
 
-  const remaining = rowKeys.filter((key) => !seen.has(key));
-  return [...ordered, ...remaining];
+  return resolved.length > 0 ? resolved : rowKeys;
 }
 
 function formatCellValue(value: unknown): string {
@@ -245,6 +313,7 @@ function formatCellValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return value.map(formatCellValue).join(", ");
+
   if (typeof value === "object") {
     try {
       return JSON.stringify(value);
@@ -252,6 +321,7 @@ function formatCellValue(value: unknown): string {
       return "";
     }
   }
+
   return String(value);
 }
 
@@ -291,10 +361,11 @@ export default function DuplicateShipmentView() {
 
   const unifiedDefaults = useMemo(() => extractUnifiedColumnDefaults(), []);
 
-  const visibleColumnKeys = useMemo(
-    () => buildColumnKeys(rows, columnOrder, unifiedDefaults.order),
-    [rows, columnOrder, unifiedDefaults.order]
-  );
+  const rowKeys = useMemo(() => collectRowKeys(rows), [rows]);
+
+  const visibleColumnKeys = useMemo(() => {
+    return resolveColumnKeys(unifiedDefaults.order, columnOrder, rowKeys);
+  }, [unifiedDefaults.order, columnOrder, rowKeys]);
 
   const resolvedColumnWidths = useMemo(() => {
     const next: Record<string, number> = {};
@@ -311,12 +382,19 @@ export default function DuplicateShipmentView() {
     setError("");
 
     try {
-      const duplicateRes = await fetch("/api/error-check/duplicate-shipment", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const [duplicateRes, settingsRes] = await Promise.all([
+        fetch("/api/error-check/duplicate-shipment", {
+          method: "GET",
+          cache: "no-store",
+        }),
+        fetch("/api/unified-grid-settings", {
+          method: "GET",
+          cache: "no-store",
+        }),
+      ]);
 
       const duplicateJson = await safeReadJson(duplicateRes);
+      const settingsJson = await safeReadJson(settingsRes);
 
       if (!duplicateRes.ok) {
         const message =
@@ -333,35 +411,26 @@ export default function DuplicateShipmentView() {
       setSummary(nextSummary);
       setHasQueried(true);
 
-      try {
-        const settingsRes = await fetch("/api/unified-grid-settings", {
-          method: "GET",
-          cache: "no-store",
-        });
-
-        const settingsJson = await safeReadJson(settingsRes);
-
-        if (settingsRes.ok) {
-          const nextSettings = normalizeGridSettings(settingsJson);
-          setColumnOrder(nextSettings.columnOrder);
-          setColumnWidths(nextSettings.columnWidths);
-        } else {
-          setColumnOrder([]);
-          setColumnWidths({});
-        }
-      } catch {
+      if (settingsRes.ok) {
+        const nextSettings = normalizeGridSettings(settingsJson);
+        setColumnOrder(nextSettings.columnOrder);
+        setColumnWidths(nextSettings.columnWidths);
+      } else {
         setColumnOrder([]);
         setColumnWidths({});
       }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "중복출고 조회 중 오류가 발생했습니다.";
+
       setRows([]);
       setSummary({
         totalRows: 0,
         deviceDuplicateRows: 0,
         recipientDuplicateRows: 0,
       });
+      setColumnOrder([]);
+      setColumnWidths({});
       setHasQueried(true);
       setError(message);
     } finally {
@@ -562,6 +631,7 @@ export default function DuplicateShipmentView() {
                 {visibleColumnKeys.map((key) => (
                   <th
                     key={key}
+                    title={key}
                     style={{
                       position: "sticky",
                       top: 0,
@@ -580,7 +650,6 @@ export default function DuplicateShipmentView() {
                       color: "#334155",
                       whiteSpace: "nowrap",
                     }}
-                    title={key}
                   >
                     {key}
                   </th>
