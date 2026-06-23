@@ -1,332 +1,72 @@
 "use client";
 
-import * as unifiedColumnsModule from "@/unified/columns/unifiedColumns";
 import { useMemo, useState } from "react";
 
-type UnifiedRow = {
+type DuplicateShipmentRow = {
   id: number;
-  data: Record<string, unknown>;
+  data: Record<string, unknown> | null;
 };
 
-type DuplicateShipmentSummary = {
-  totalRows: number;
-  deviceDuplicateRows: number;
-  recipientDuplicateRows: number;
-};
-
-type UnifiedColumnDefaults = {
-  order: string[];
-  widths: Record<string, number>;
-};
-
-const ORDER_EXPORT_NAMES = [
-  "DEFAULT_COLUMN_ORDER",
-  "defaultColumnOrder",
-  "UNIFIED_COLUMN_ORDER",
-  "unifiedColumnOrder",
-  "COLUMN_ORDER",
-  "columnOrder",
-  "UNIFIED_COLUMNS",
-  "unifiedColumns",
-  "columns",
-  "COLUMNS",
-  "DEFAULT_COLUMNS",
-  "defaultColumns",
-] as const;
-
-const WIDTH_EXPORT_NAMES = [
-  "DEFAULT_COLUMN_WIDTHS",
-  "defaultColumnWidths",
-  "UNIFIED_COLUMN_WIDTHS",
-  "unifiedColumnWidths",
-  "COLUMN_WIDTHS",
-  "columnWidths",
-  "widths",
-  "DEFAULT_WIDTHS",
-  "defaultWidths",
-] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function isPureBlank(value: unknown): boolean {
-  if (value === null || value === undefined) return true;
-  return String(value).trim() === "";
-}
-
-function isFiniteWidth(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 40;
-}
-
-function getColumnKeyFromObject(obj: Record<string, unknown>): string | null {
-  const candidates = [
-    obj.key,
-    obj.columnKey,
-    obj.field,
-    obj.id,
-    obj.name,
-    obj.label,
-    obj.accessorKey,
-  ];
-
-  for (const value of candidates) {
-    if (typeof value === "string" && value.trim() !== "") {
-      return value.trim();
-    }
-  }
-
-  return null;
-}
-
-function getColumnWidthFromObject(obj: Record<string, unknown>): number | null {
-  const candidates = [
-    obj.width,
-    obj.defaultWidth,
-    obj.initialWidth,
-    obj.size,
-    obj.minWidth,
-  ];
-
-  for (const value of candidates) {
-    if (isFiniteWidth(value)) return value;
-  }
-
-  return null;
-}
-
-function pushUnique(arr: string[], key: string) {
-  if (!key || key.startsWith("__")) return;
-  if (!arr.includes(key)) arr.push(key);
-}
-
-function extractOrderFromValue(
-  value: unknown,
-  output: string[],
-  visited = new WeakSet<object>()
-) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.trim() !== "") {
-        pushUnique(output, item.trim());
-        continue;
-      }
-
-      if (isRecord(item)) {
-        const key = getColumnKeyFromObject(item);
-        if (key) pushUnique(output, key);
-        extractOrderFromValue(item, output, visited);
-      }
-    }
-    return;
-  }
-
-  if (!isRecord(value)) return;
-  if (visited.has(value)) return;
-  visited.add(value);
-
-  const key = getColumnKeyFromObject(value);
-  if (key) pushUnique(output, key);
-
-  for (const nested of Object.values(value)) {
-    extractOrderFromValue(nested, output, visited);
-  }
-}
-
-function extractWidthsFromValue(
-  value: unknown,
-  output: Record<string, number>,
-  visited = new WeakSet<object>()
-) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      extractWidthsFromValue(item, output, visited);
-    }
-    return;
-  }
-
-  if (!isRecord(value)) return;
-  if (visited.has(value)) return;
-  visited.add(value);
-
-  const key = getColumnKeyFromObject(value);
-  const width = getColumnWidthFromObject(value);
-  if (key && width) {
-    output[key] = width;
-  }
-
-  const entries = Object.entries(value);
-  const numericMap = entries.every(([, entryValue]) => isFiniteWidth(entryValue));
-  if (numericMap && entries.length > 0) {
-    for (const [entryKey, entryValue] of entries) {
-      if (!entryKey.startsWith("__") && isFiniteWidth(entryValue)) {
-        output[entryKey] = entryValue;
-      }
-    }
-  }
-
-  for (const nested of Object.values(value)) {
-    extractWidthsFromValue(nested, output, visited);
-  }
-}
-
-function getNamedModuleValue(
-  moduleRecord: Record<string, unknown>,
-  names: readonly string[]
-): unknown[] {
-  const values: unknown[] = [];
-  for (const name of names) {
-    if (name in moduleRecord) {
-      values.push(moduleRecord[name]);
-    }
-  }
-  return values;
-}
-
-function extractUnifiedColumnDefaults(): UnifiedColumnDefaults {
-  const moduleRecord = unifiedColumnsModule as Record<string, unknown>;
-  const order: string[] = [];
-  const widths: Record<string, number> = {};
-
-  const namedOrderValues = getNamedModuleValue(moduleRecord, ORDER_EXPORT_NAMES);
-  const namedWidthValues = getNamedModuleValue(moduleRecord, WIDTH_EXPORT_NAMES);
-
-  for (const value of namedOrderValues) {
-    extractOrderFromValue(value, order);
-  }
-
-  for (const value of namedWidthValues) {
-    extractWidthsFromValue(value, widths);
-  }
-
-  if (order.length === 0) {
-    for (const value of Object.values(moduleRecord)) {
-      extractOrderFromValue(value, order);
-    }
-  }
-
-  if (Object.keys(widths).length === 0) {
-    for (const value of Object.values(moduleRecord)) {
-      extractWidthsFromValue(value, widths);
-    }
-  }
-
-  return { order, widths };
-}
-
-async function safeReadJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (!text) return {};
-
-  try {
-    const parsed = JSON.parse(text);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return { message: text };
-  }
-}
-
-function normalizeRows(payload: Record<string, unknown>): UnifiedRow[] {
-  const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
-
-  return rawRows
-    .filter((row): row is UnifiedRow => {
-      return isRecord(row) && typeof row.id === "number" && isRecord(row.data);
-    })
-    .map((row) => ({
-      id: row.id,
-      data: row.data,
-    }));
-}
-
-function normalizeSummary(
-  payload: Record<string, unknown>,
-  rows: UnifiedRow[]
-): DuplicateShipmentSummary {
-  const raw = isRecord(payload.summary) ? payload.summary : {};
-
-  return {
-    totalRows: typeof raw.totalRows === "number" ? raw.totalRows : rows.length,
-    deviceDuplicateRows:
-      typeof raw.deviceDuplicateRows === "number" ? raw.deviceDuplicateRows : 0,
-    recipientDuplicateRows:
-      typeof raw.recipientDuplicateRows === "number" ? raw.recipientDuplicateRows : 0,
+type DuplicateShipmentResponse = {
+  ok?: boolean;
+  rows?: DuplicateShipmentRow[];
+  summary?: {
+    totalRows?: number;
+    deviceDuplicateRows?: number;
+    recipientDuplicateRows?: number;
   };
-}
+  message?: string;
+  error?: string;
+};
 
-function normalizeGridSettings(payload: Record<string, unknown>) {
-  const source = isRecord(payload.data) ? payload.data : payload;
+const PRIORITY_COLUMNS = [
+  "거래처분류",
+  "상태",
+  "안내분류",
+  "구매/렌탈",
+  "기기번호",
+  "기종",
+  "에러횟수",
+  "제품",
+  "수취인명",
+  "연락처1",
+  "연락처2",
+  "계약자주소",
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+] as const;
 
-  const columnOrder = Array.isArray(source.columnOrder)
-    ? source.columnOrder.filter(
-        (value): value is string => typeof value === "string" && value.trim() !== ""
-      )
-    : [];
-
-  const widthSource = isRecord(source.columnWidths)
-    ? source.columnWidths
-    : isRecord(source.widths)
-    ? source.widths
-    : {};
-
-  const columnWidths: Record<string, number> = {};
-
-  for (const [key, value] of Object.entries(widthSource)) {
-    if (isFiniteWidth(value)) {
-      columnWidths[key] = value;
-    }
-  }
-
-  return { columnOrder, columnWidths };
-}
-
-function collectRowKeys(rows: UnifiedRow[]): string[] {
-  const keys: string[] = [];
-
-  for (const row of rows) {
-    for (const key of Object.keys(row.data)) {
-      if (!key || key.startsWith("__")) continue;
-      pushUnique(keys, key);
-    }
-  }
-
-  return keys;
-}
-
-function resolveColumnKeys(
-  defaultOrder: string[],
-  savedOrder: string[],
-  rowKeys: string[]
-): string[] {
-  const resolved: string[] = [];
-  const baseOrder = savedOrder.length > 0 ? savedOrder : defaultOrder;
-
-  for (const key of baseOrder) pushUnique(resolved, key);
-  for (const key of defaultOrder) pushUnique(resolved, key);
-  for (const key of rowKeys) pushUnique(resolved, key);
-
-  return resolved.length > 0 ? resolved : rowKeys;
-}
-
-function formatCellValue(value: unknown): string {
+function stringifyCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(formatCellValue).join(", ");
 
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildColumns(rows: DuplicateShipmentRow[]): string[] {
+  const keySet = new Set<string>();
+
+  for (const row of rows) {
+    if (!row.data || typeof row.data !== "object" || Array.isArray(row.data)) continue;
+
+    for (const key of Object.keys(row.data)) {
+      if (key.startsWith("__")) continue;
+      keySet.add(key);
     }
   }
 
-  return String(value);
-}
+  const rest = Array.from(keySet).filter((key) => !PRIORITY_COLUMNS.includes(key as never));
+  rest.sort((a, b) => a.localeCompare(b, "ko"));
 
-function formatCount(value: number): string {
-  return `${value.toLocaleString()}건`;
+  return [...PRIORITY_COLUMNS.filter((key) => keySet.has(key)), ...rest];
 }
 
 function parseFilenameFromDisposition(disposition: string | null): string {
@@ -334,7 +74,11 @@ function parseFilenameFromDisposition(disposition: string | null): string {
 
   const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
   if (utf8Match?.[1]) {
-    return decodeURIComponent(utf8Match[1]);
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
   }
 
   const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
@@ -345,94 +89,62 @@ function parseFilenameFromDisposition(disposition: string | null): string {
   return "duplicate-shipment.csv";
 }
 
+async function safeReadJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) return {};
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return { message: text };
+  }
+}
+
 export default function DuplicateShipmentView() {
-  const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const [summary, setSummary] = useState<DuplicateShipmentSummary>({
-    totalRows: 0,
-    deviceDuplicateRows: 0,
-    recipientDuplicateRows: 0,
-  });
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(false);
-  const [downloadLoading, setDownloadLoading] = useState(false);
-  const [hasQueried, setHasQueried] = useState(false);
-  const [error, setError] = useState("");
+  const [rows, setRows] = useState<DuplicateShipmentRow[]>([]);
+  const [count, setCount] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [downloadLoading, setDownloadLoading] = useState<boolean>(false);
+  const [hasQueried, setHasQueried] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
-  const unifiedDefaults = useMemo(() => extractUnifiedColumnDefaults(), []);
+  const columns = useMemo(() => buildColumns(rows), [rows]);
 
-  const rowKeys = useMemo(() => collectRowKeys(rows), [rows]);
-
-  const visibleColumnKeys = useMemo(() => {
-    return resolveColumnKeys(unifiedDefaults.order, columnOrder, rowKeys);
-  }, [unifiedDefaults.order, columnOrder, rowKeys]);
-
-  const resolvedColumnWidths = useMemo(() => {
-    const next: Record<string, number> = {};
-
-    for (const key of visibleColumnKeys) {
-      next[key] = columnWidths[key] ?? unifiedDefaults.widths[key] ?? 140;
-    }
-
-    return next;
-  }, [visibleColumnKeys, columnWidths, unifiedDefaults.widths]);
-
-  const handleQuery = async () => {
+  const loadRows = async () => {
     setLoading(true);
     setError("");
 
     try {
-      const [duplicateRes, settingsRes] = await Promise.all([
-        fetch("/api/error-check/duplicate-shipment", {
-          method: "GET",
-          cache: "no-store",
-        }),
-        fetch("/api/unified-grid-settings", {
-          method: "GET",
-          cache: "no-store",
-        }),
-      ]);
+      const res = await fetch("/api/error-check/duplicate-shipment", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-      const duplicateJson = await safeReadJson(duplicateRes);
-      const settingsJson = await safeReadJson(settingsRes);
+      const data = (await res.json()) as DuplicateShipmentResponse;
 
-      if (!duplicateRes.ok) {
-        const message =
-          typeof duplicateJson.message === "string"
-            ? duplicateJson.message
-            : "중복출고 데이터를 조회하지 못했습니다.";
-        throw new Error(message);
+      if (!res.ok || !data.ok) {
+        throw new Error(
+          data.message || data.error || "중복출고 데이터를 조회하지 못했습니다."
+        );
       }
 
-      const nextRows = normalizeRows(duplicateJson);
-      const nextSummary = normalizeSummary(duplicateJson, nextRows);
+      const nextRows = Array.isArray(data.rows) ? data.rows : [];
+      const nextCount =
+        typeof data.summary?.totalRows === "number" ? data.summary.totalRows : nextRows.length;
 
       setRows(nextRows);
-      setSummary(nextSummary);
+      setCount(nextCount);
       setHasQueried(true);
-
-      if (settingsRes.ok) {
-        const nextSettings = normalizeGridSettings(settingsJson);
-        setColumnOrder(nextSettings.columnOrder);
-        setColumnWidths(nextSettings.columnWidths);
-      } else {
-        setColumnOrder([]);
-        setColumnWidths({});
-      }
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "중복출고 조회 중 오류가 발생했습니다.";
-
-      setRows([]);
-      setSummary({
-        totalRows: 0,
-        deviceDuplicateRows: 0,
-        recipientDuplicateRows: 0,
-      });
-      setColumnOrder([]);
-      setColumnWidths({});
-      setHasQueried(true);
+        err instanceof Error ? err.message : "중복출고 데이터를 조회하지 못했습니다.";
       setError(message);
+      setRows([]);
+      setCount(0);
+      setHasQueried(true);
     } finally {
       setLoading(false);
     }
@@ -480,277 +192,106 @@ export default function DuplicateShipmentView() {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        padding: "16px 20px",
-        height: "100%",
-        minHeight: 0,
-        background: "#f8fafc",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>
-            중복출고
-          </div>
-        </div>
+    <div className="w-full h-full min-h-0 flex flex-col overflow-hidden bg-white border rounded">
+      <div className="flex items-center gap-3 px-4 py-3 border-b bg-white">
+        <div className="text-sm font-semibold text-slate-800">중복출고</div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleDownload}
+            onClick={() => void handleDownload()}
             disabled={downloadLoading}
-            style={{
-              height: 40,
-              padding: "0 18px",
-              borderRadius: 8,
-              border: "1px solid #cbd5e1",
-              background: downloadLoading ? "#e2e8f0" : "#ffffff",
-              color: "#0f172a",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: downloadLoading ? "default" : "pointer",
-            }}
+            className="h-8 px-3 text-sm rounded border bg-white text-slate-800 border-slate-300 hover:bg-slate-50 disabled:opacity-60"
           >
             {downloadLoading ? "다운로드중..." : "다운로드"}
           </button>
 
           <button
             type="button"
-            onClick={handleQuery}
+            onClick={() => void loadRows()}
             disabled={loading}
-            style={{
-              height: 40,
-              padding: "0 18px",
-              borderRadius: 8,
-              border: "1px solid #2563eb",
-              background: loading ? "#93c5fd" : "#2563eb",
-              color: "#ffffff",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: loading ? "default" : "pointer",
-            }}
+            className="h-8 px-3 text-sm rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:opacity-60"
           >
             {loading ? "조회중..." : "조회"}
           </button>
         </div>
-      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
-          gap: 10,
-        }}
-      >
-        <SummaryCard label="총 추출 행" value={formatCount(summary.totalRows)} />
-        <SummaryCard
-          label="기기번호 중복 행"
-          value={formatCount(summary.deviceDuplicateRows)}
-        />
-        <SummaryCard
-          label="수취인명+연락처1 중복 행"
-          value={formatCount(summary.recipientDuplicateRows)}
-        />
+        <div className="ml-auto flex items-center gap-4 text-xs text-slate-600">
+          <span>건수: {count.toLocaleString()}건</span>
+        </div>
       </div>
 
       {error ? (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px solid #fecaca",
-            background: "#fef2f2",
-            color: "#b91c1c",
-            fontSize: 14,
-          }}
-        >
-          {error}
-        </div>
+        <div className="px-4 py-3 border-b bg-red-50 text-sm text-red-700">{error}</div>
       ) : null}
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          border: "1px solid #dbe2ea",
-          borderRadius: 10,
-          background: "#ffffff",
-          overflow: "auto",
-        }}
-      >
-        {!hasQueried ? (
-          <EmptyMessage message="조회 버튼을 눌러 중복출고 데이터를 불러오세요." />
-        ) : rows.length === 0 ? (
-          <EmptyMessage message="조건에 맞는 중복출고 데이터가 없습니다." />
-        ) : (
-          <table
-            style={{
-              borderCollapse: "separate",
-              borderSpacing: 0,
-              width: "max-content",
-              minWidth: "100%",
-              tableLayout: "fixed",
-            }}
-          >
-            <thead>
-              <tr>
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="min-w-max w-full border-separate border-spacing-0 text-xs">
+          <thead className="sticky top-0 z-10 bg-slate-50">
+            <tr>
+              <th className="border-b border-r px-2 py-2 text-center font-semibold text-slate-700 bg-slate-50">
+                No
+              </th>
+              {columns.map((column) => (
                 <th
-                  style={{
-                    position: "sticky",
-                    top: 0,
-                    left: 0,
-                    zIndex: 3,
-                    background: "#f8fafc",
-                    borderBottom: "1px solid #dbe2ea",
-                    borderRight: "1px solid #e5e7eb",
-                    minWidth: 56,
-                    width: 56,
-                    height: 29,
-                    padding: "0 8px",
-                    textAlign: "center",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: "#334155",
-                  }}
+                  key={column}
+                  className="border-b border-r px-2 py-2 text-left font-semibold text-slate-700 bg-slate-50 whitespace-nowrap"
                 >
-                  No
+                  {column}
                 </th>
+              ))}
+            </tr>
+          </thead>
 
-                {visibleColumnKeys.map((key) => (
-                  <th
-                    key={key}
-                    title={key}
-                    style={{
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 2,
-                      background: "#f8fafc",
-                      borderBottom: "1px solid #dbe2ea",
-                      borderRight: "1px solid #e5e7eb",
-                      minWidth: resolvedColumnWidths[key],
-                      width: resolvedColumnWidths[key],
-                      maxWidth: resolvedColumnWidths[key],
-                      height: 29,
-                      padding: "0 8px",
-                      textAlign: "left",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: "#334155",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {key}
-                  </th>
-                ))}
+          <tbody>
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  className="px-3 py-8 text-center text-sm text-slate-500"
+                >
+                  조회 중...
+                </td>
               </tr>
-            </thead>
-
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={row.id}>
-                  <td
-                    style={{
-                      position: "sticky",
-                      left: 0,
-                      zIndex: 1,
-                      background: "#ffffff",
-                      borderBottom: "1px solid #eef2f7",
-                      borderRight: "1px solid #e5e7eb",
-                      width: 56,
-                      minWidth: 56,
-                      maxWidth: 56,
-                      height: 27,
-                      padding: "0 8px",
-                      textAlign: "center",
-                      fontSize: 12,
-                      color: "#475569",
-                    }}
-                  >
-                    {rowIndex + 1}
+            ) : !hasQueried ? (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  className="px-3 py-8 text-center text-sm text-slate-500"
+                >
+                  조회 버튼을 눌러 중복출고 데이터를 불러오세요.
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  className="px-3 py-8 text-center text-sm text-slate-500"
+                >
+                  조회 결과가 없습니다.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, index) => (
+                <tr key={row.id} className="hover:bg-slate-50">
+                  <td className="border-b border-r px-2 py-2 text-right text-slate-600 whitespace-nowrap">
+                    {index + 1}
                   </td>
 
-                  {visibleColumnKeys.map((key) => {
-                    const rawValue = row.data[key];
-                    const value = isPureBlank(rawValue) ? "" : formatCellValue(rawValue);
-
-                    return (
-                      <td
-                        key={`${row.id}-${key}`}
-                        title={value}
-                        style={{
-                          borderBottom: "1px solid #eef2f7",
-                          borderRight: "1px solid #eef2f7",
-                          minWidth: resolvedColumnWidths[key],
-                          width: resolvedColumnWidths[key],
-                          maxWidth: resolvedColumnWidths[key],
-                          height: 27,
-                          padding: "0 8px",
-                          fontSize: 12,
-                          color: "#0f172a",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          background: "#ffffff",
-                        }}
-                      >
-                        {value}
-                      </td>
-                    );
-                  })}
+                  {columns.map((column) => (
+                    <td
+                      key={`${row.id}-${column}`}
+                      className="border-b border-r px-2 py-2 text-slate-800 whitespace-nowrap"
+                    >
+                      {stringifyCell(row.data?.[column])}
+                    </td>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        border: "1px solid #dbe2ea",
-        borderRadius: 10,
-        background: "#ffffff",
-        padding: "12px 14px",
-      }}
-    >
-      <div style={{ fontSize: 12, color: "#64748b" }}>{label}</div>
-      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: "#0f172a" }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function EmptyMessage({ message }: { message: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: 240,
-        padding: 20,
-        color: "#64748b",
-        fontSize: 14,
-      }}
-    >
-      {message}
     </div>
   );
 }
