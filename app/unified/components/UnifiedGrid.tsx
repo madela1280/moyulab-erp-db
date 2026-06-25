@@ -142,6 +142,12 @@ type UnifiedGridProps = {
 
   sortState?: UnifiedSortState;
   onSortStateChange?: (next: UnifiedSortState) => void;
+
+  // ✅ (추가) 검색 강조/이동은 외부에서 계산해서 Grid에는 표시/스크롤만 맡김
+  searchMatchedRowIds?: number[];
+  searchActiveRowId?: number | null;
+  searchActiveColKey?: string | null;
+  searchFocusVersion?: number;
 };
 
 const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
@@ -348,6 +354,20 @@ const viewColumns = columnOrder;
 const filterMode = !!props.filterMode;
 const filterState = props.filterState;
 const sortState = props.sortState;
+
+const searchMatchedRowIds = props.searchMatchedRowIds ?? [];
+const searchActiveRowId = props.searchActiveRowId ?? null;
+const searchActiveColKey = props.searchActiveColKey ?? null;
+const searchFocusVersion = Number(props.searchFocusVersion ?? 0);
+
+const searchMatchedRowIdSet = useMemo(() => {
+  const set = new Set<number>();
+  for (const id of searchMatchedRowIds) {
+    const n = Number(id);
+    if (Number.isFinite(n) && n > 0) set.add(n);
+  }
+  return set;
+}, [searchMatchedRowIds]);
 
 // ✅ 필터 모드에서는 "행 목록"을 고정해서, 편집으로 필터 결과가 즉시 바뀌지 않게 함
 const [filterFrozenIds, setFilterFrozenIds] = useState<number[] | null>(null);
@@ -708,7 +728,8 @@ function setWidthUnit(key: string, unit: number) {
     const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
-    const didInitialScrollRef = useRef(false);   
+    const didInitialScrollRef = useRef(false); 
+    const searchJumpSeqRef = useRef(0);  
 
     // 편집 중 syncListen이 들어오면 즉시 reload하지 않고 보류(입력 튕김 방지)
     const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
@@ -934,7 +955,142 @@ function scrollToTailData() {
   })();
 }
 
-         async function refreshVisibleRowsFromServer() {
+function waitForFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+async function waitForGridRender(frameCount = 2) {
+  for (let i = 0; i < frameCount; i++) {
+    await waitForFrame();
+  }
+}
+
+function getDisplayRowIndexById(targetRowId: number) {
+  const current =
+    displayRowsRef.current && displayRowsRef.current.length
+      ? displayRowsRef.current
+      : rowsRef.current;
+
+  return current.findIndex((row) => row.id === targetRowId);
+}
+
+function getViewColumnIndexByKey(targetColKey: string | null) {
+  if (!targetColKey) return -1;
+  return viewColumns.indexOf(targetColKey);
+}
+
+function findRenderedCellElement(targetRowId: number, targetColKey: string | null) {
+  if (!targetColKey) return null;
+
+  const tr = scrollRef.current?.querySelector(
+    `tr[data-unified-id="${targetRowId}"]`
+  ) as HTMLElement | null;
+
+  if (!tr) return null;
+
+  const cells = Array.from(tr.querySelectorAll("td[data-col-key]")) as HTMLElement[];
+  return cells.find((td) => String(td.dataset.colKey ?? "") === targetColKey) ?? null;
+}
+
+async function loadWindowAroundRowId(targetRowId: number) {
+  const infoRes = await fetch(`/api/unified?ids=${targetRowId}`, { cache: "no-store" });
+  if (!infoRes.ok) return false;
+
+  const infoJson = await infoRes.json().catch(() => []);
+  const infoRows = Array.isArray(infoJson) ? (infoJson as UnifiedRow[]) : [];
+  const targetRow = infoRows[0];
+
+  if (!targetRow?.id) return false;
+
+  const targetSortKey = Number(targetRow.sort_key ?? NaN);
+  if (!Number.isFinite(targetSortKey)) return false;
+
+  const SIDE_LIMIT = Math.max(80, Math.floor(PAGE_SIZE / 2));
+
+  const [prevRes, nextRes] = await Promise.all([
+    fetch(
+      `/api/unified?beforeSortKey=${targetSortKey}&beforeId=${targetRow.id}&limit=${SIDE_LIMIT}`,
+      { cache: "no-store" }
+    ),
+    fetch(
+      `/api/unified?afterSortKey=${targetSortKey}&afterId=${targetRow.id}&limit=${SIDE_LIMIT}`,
+      { cache: "no-store" }
+    ),
+  ]);
+
+  const prevJson = prevRes.ok ? await prevRes.json().catch(() => null) : null;
+  const nextJson = nextRes.ok ? await nextRes.json().catch(() => null) : null;
+
+  const prevRows: UnifiedRow[] = Array.isArray(prevJson?.rows) ? prevJson.rows : [];
+  const nextRows: UnifiedRow[] = Array.isArray(nextJson?.rows) ? nextJson.rows : [];
+
+  const nextWindow = [...prevRows, targetRow, ...nextRows];
+  const nextBaseIndex = Number(prevJson?.baseIndex ?? 1);
+  const nextTotal = Number(prevJson?.total ?? nextJson?.total ?? totalCountRef.current ?? nextWindow.length);
+
+  setRows(nextWindow);
+  setBaseIndex(nextBaseIndex);
+  setTotalCount(nextTotal);
+
+  rowsRef.current = nextWindow;
+  baseIndexRef.current = nextBaseIndex;
+  totalCountRef.current = nextTotal;
+
+  return true;
+}
+
+async function moveSearchTargetIntoView(targetRowId: number, targetColKey: string | null) {
+  let rowIndex = getDisplayRowIndexById(targetRowId);
+
+  if (rowIndex < 0) {
+    const loaded = await loadWindowAroundRowId(targetRowId);
+    if (!loaded) return;
+
+    await waitForGridRender(2);
+    rowIndex = getDisplayRowIndexById(targetRowId);
+  }
+
+  if (rowIndex < 0) return;
+
+  const colIndex = getViewColumnIndexByKey(targetColKey);
+
+  setSelectedRowRange(null);
+
+  if (colIndex >= 0) {
+    setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
+    lastFocusForPasteRef.current = { rowIndex, colIndex };
+  }
+
+  const el = scrollRef.current;
+  if (el) {
+    const rowTop = rowIndex * ROW_HEIGHT;
+    const rowBottom = rowTop + ROW_HEIGHT;
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight;
+
+    if (rowTop < viewTop) {
+      el.scrollTop = Math.max(0, rowTop - Math.floor(el.clientHeight * 0.35));
+    } else if (rowBottom > viewBottom) {
+      el.scrollTop = Math.max(0, rowBottom - Math.floor(el.clientHeight * 0.65));
+    }
+  }
+
+  await waitForGridRender(2);
+  updateVisibleRangeNow();
+  await waitForGridRender(1);
+
+  const cellEl = findRenderedCellElement(targetRowId, targetColKey);
+  if (cellEl) {
+    cellEl.scrollIntoView({
+      block: "nearest",
+      inline: "center",
+    });
+  }
+}
+
+  async function refreshVisibleRowsFromServer() {
   const curRows =
     displayRowsRef.current && displayRowsRef.current.length
       ? displayRowsRef.current
@@ -1260,6 +1416,19 @@ async function loadTailPage() {
         updateVisibleRangeNow();
       });
     }, [rows.length]);
+
+        useEffect(() => {
+      if (!searchFocusVersion) return;
+      if (!searchActiveRowId) return;
+
+      const seq = ++searchJumpSeqRef.current;
+
+      void (async () => {
+        await moveSearchTargetIntoView(searchActiveRowId, searchActiveColKey);
+
+        if (seq !== searchJumpSeqRef.current) return;
+      })();
+    }, [searchFocusVersion, searchActiveRowId, searchActiveColKey]);
 
     /* --------------------- reload --------------------- */
        async function reload() {
@@ -1958,10 +2127,23 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
     /* --------------------- 셀 범위 선택 유틸 --------------------- */
 
     function setCellRangeByPoints(r1: number, c1: number, r2: number, c2: number) {
+      const currentDisplayRows =
+        displayRowsRef.current && displayRowsRef.current.length
+          ? displayRowsRef.current
+          : rowsRef.current;
+
+      const rowCount = currentDisplayRows.length;
+      const colCount = viewColumns.length;
+
+      if (rowCount <= 0 || colCount <= 0) {
+        setSelectedCellRange(null);
+        return;
+      }
+
       const startRow = Math.max(0, Math.min(r1, r2));
-      const endRow = Math.min(displayRows.length - 1, Math.max(r1, r2));
+      const endRow = Math.min(rowCount - 1, Math.max(r1, r2));
       const startCol = Math.max(0, Math.min(c1, c2));
-      const endCol = Math.min(viewColumns.length - 1, Math.max(c1, c2));
+      const endCol = Math.min(colCount - 1, Math.max(c1, c2));
 
       // 셀 범위만 관리 (행 선택과 분리)
       setSelectedCellRange({ startRow, endRow, startCol, endCol });
@@ -2986,85 +3168,91 @@ closeFilterPopover();
                <thead className="bg-gray-100">
                   <tr>
                     <th className="border px-1 py-[3px] w-10 bg-gray-100 sticky top-0 z-30" />
-                    {viewColumns.map((c, idx) => (
-                      <th 
-                         key={c} 
-                         className="border px-2 py-1 align-top bg-gray-100 sticky top-0 z-30"
-                    >
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-full flex items-center justify-center gap-1">
-  <span className="text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-    {c}
-  </span>
+                                       {viewColumns.map((c, idx) => {
+                      const searchColumnActive = !!searchActiveColKey && c === searchActiveColKey;
 
-  {filterMode && (
-    <button
-      type="button"
-      className={`text-[10px] px-1 rounded border ${
-        filterActive ? "bg-white border-slate-300" : "bg-gray-50 border-slate-200"
-      }`}
-      title="필터"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setFilterColumnKey(c);
-        setFilterPopoverAnchor({ x: e.clientX, y: e.clientY });
-        setFilterPopoverOpen(true);
-        setRowContextMenu(null);
-      }}
-    >
-      ▼
-    </button>
-  )}
-</div>
+                      return (
+                        <th
+                          key={c}
+                          className={`border px-2 py-1 align-top sticky top-0 z-30 ${
+                            searchColumnActive ? "bg-amber-100" : "bg-gray-100"
+                          }`}
+                        >
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="w-full flex items-center justify-center gap-1">
+                              <span className="text-center text-[11px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                                {c}
+                              </span>
 
-                      {isColumnEditMode && (
-                        <div className="flex flex-col items-center gap-1 mt-1">
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-                              disabled={idx === 0}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                moveColLeft(c);
-                              }}
-                              title="왼쪽으로 이동"
-                            >
-                              ←
-                            </button>
+                              {filterMode && (
+                                <button
+                                  type="button"
+                                  className={`text-[10px] px-1 rounded border ${
+                                    filterActive ? "bg-white border-slate-300" : "bg-gray-50 border-slate-200"
+                                  }`}
+                                  title="필터"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setFilterColumnKey(c);
+                                    setFilterPopoverAnchor({ x: e.clientX, y: e.clientY });
+                                    setFilterPopoverOpen(true);
+                                    setRowContextMenu(null);
+                                  }}
+                                >
+                                  ▼
+                                </button>
+                              )}
+                            </div>
 
-                            <button
-                              type="button"
-                              className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
-                              disabled={idx === viewColumns.length - 1}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                moveColRight(c);
-                              }}
-                              title="오른쪽으로 이동"
-                            >
-                              →
-                            </button>
+                            {isColumnEditMode && (
+                              <div className="flex flex-col items-center gap-1 mt-1">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                                    disabled={idx === 0}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      moveColLeft(c);
+                                    }}
+                                    title="왼쪽으로 이동"
+                                  >
+                                    ←
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="px-1 py-0.5 text-[11px] border border-slate-200 bg-white text-slate-600 rounded disabled:opacity-30"
+                                    disabled={idx === viewColumns.length - 1}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      moveColRight(c);
+                                    }}
+                                    title="오른쪽으로 이동"
+                                  >
+                                    →
+                                  </button>
+                                </div>
+
+                                <input
+                                  className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
+                                  type="number"
+                                  min={1}
+                                  max={200}
+                                  value={colWidthUnitByKey[c] ?? 20}
+                                  onChange={(e) => setWidthUnit(c, Number(e.target.value))}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  title="열 넓이(unit). 20=기준, 1=1/20 수준"
+                                />
+                              </div>
+                            )}
                           </div>
-
-                          <input
-                            className="w-12 h-6 text-[11px] px-1 border border-slate-200 rounded bg-white text-slate-700"
-                            type="number"
-                            min={1}
-                            max={200}
-                            value={colWidthUnitByKey[c] ?? 20}
-                            onChange={(e) => setWidthUnit(c, Number(e.target.value))}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            title="열 넓이(unit). 20=기준, 1=1/20 수준"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </th>
-                ))}
+                        </th>
+                      );
+                    })}
               </tr>
             </thead>
 
@@ -3084,14 +3272,20 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
                       </tr>
                     )}
 
-                    {visible.map((row, i) => {
+                   {visible.map((row, i) => {
                       const rowIndex = start + i; // ★ rows 배열 기준 index 유지
                       const rowSelected = isRowSelected(rowIndex);
+                      const searchRowMatched = searchMatchedRowIdSet.has(row.id);
+                      const searchRowActive = searchActiveRowId != null && row.id === searchActiveRowId;
 
                       const headerCellBase =
                         "border px-1 py-[3px] text-[0.68rem] text-center select-none" +
                         (rowSelected
                           ? " bg-blue-200 text-gray-800"
+                          : searchRowActive
+                          ? " bg-amber-200 text-slate-800"
+                          : searchRowMatched
+                          ? " bg-amber-50 text-slate-700"
                           : " bg-gray-100 text-gray-500");
 
                       return (
@@ -3107,12 +3301,17 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
                             {baseIndex + rowIndex}
                           </td>
 
-    {viewColumns.map((key, colIndex) => {
+       {viewColumns.map((key, colIndex) => {
   const cellSelected = isCellSelected(rowIndex, colIndex);
 
   const styleInfo = getCellStyleInfo(row.data ?? {}, row.id, key);
   const bgColor = styleInfo?.bg ? (INLINE_PALETTE[styleInfo.bg]?.bg ?? undefined) : undefined;
   const textColor = styleInfo?.fg ? (INLINE_PALETTE[styleInfo.fg]?.text ?? undefined) : undefined;
+
+  const searchRowMatched = searchMatchedRowIdSet.has(row.id);
+  const searchRowActive = searchActiveRowId != null && row.id === searchActiveRowId;
+  const searchCellActive =
+    searchRowActive && !!searchActiveColKey && key === searchActiveColKey;
 
   // ✅ 연장(1~7차) 셀은 MainView에서 mousedown 캡처로 패널을 띄우므로
   // 그리드의 "선택(bg-blue-200)"이 안 찍히는 케이스가 있음 → hover로 표시 보완
@@ -3131,11 +3330,29 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
       ? " bg-blue-200"
       : " bg-white");
 
+  const searchOverlay =
+    searchCellActive
+      ? "linear-gradient(rgba(245, 158, 11, 0.32), rgba(245, 158, 11, 0.32))"
+      : searchRowActive
+      ? "linear-gradient(rgba(251, 191, 36, 0.20), rgba(251, 191, 36, 0.20))"
+      : searchRowMatched
+      ? "linear-gradient(rgba(250, 204, 21, 0.12), rgba(250, 204, 21, 0.12))"
+      : undefined;
+
+  const cellStyle: React.CSSProperties | undefined =
+    bgColor || searchOverlay || searchCellActive
+      ? {
+          ...(bgColor ? { backgroundColor: bgColor } : {}),
+          ...(searchOverlay ? { backgroundImage: searchOverlay } : {}),
+          ...(searchCellActive ? { boxShadow: "inset 0 0 0 2px #f59e0b" } : {}),
+        }
+      : undefined;
+
   return (
     <td
       key={key}
       className={dataCellBase}
-      style={bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined}
+      style={cellStyle}
       data-row-index={rowIndex}
       data-col-index={colIndex}
       data-col-key={key}

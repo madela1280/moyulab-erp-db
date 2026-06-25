@@ -8,9 +8,12 @@ type Props = {
   // ✅ 양식추가(새 컬럼 추가) 버튼 핸들러
   onAddTemplate: () => void;
 
-  // ✅ (추가) 필터/칼라/다운로드: 버튼 위치/모양은 그대로, onClick만 연결
+  // ✅ (추가) 필터/검색/칼라/다운로드: 버튼 위치/모양은 그대로, 연결만 추가
   filterMode?: boolean;
   onToggleFilterMode?: () => void;
+
+  searchActive?: boolean;
+  onOpenSearch?: (anchor: { x: number; y: number }) => void;
 
   onOpenColor?: (anchor: { x: number; y: number }) => void;
 
@@ -134,6 +137,8 @@ export default function GridHeader({
 
   filterMode,
   onToggleFilterMode,
+  searchActive,
+  onOpenSearch,
   onOpenColor,
   onDownload,
 }: Props) {
@@ -146,7 +151,16 @@ export default function GridHeader({
           필터
         </ToolButton>
 
-        <ToolButton icon="search">검색</ToolButton>
+        <div
+          onMouseDown={(e) => {
+            if (!onOpenSearch) return;
+            onOpenSearch({ x: e.clientX, y: e.clientY });
+          }}
+        >
+          <ToolButton icon="search" active={!!searchActive}>
+            검색
+          </ToolButton>
+        </div>
 
         {/* ✅ 칼라 버튼: 모양/위치 그대로, 클릭 위치(anchor)만 전달 */}
         <div

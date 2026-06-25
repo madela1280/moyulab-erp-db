@@ -24,6 +24,11 @@ import { createEmptyFilterState, type ColumnFilterState } from "@/unified/filter
 import { defaultSortState, type UnifiedSortState } from "@/unified/filter/useUnifiedSort";
 import { exportUnifiedCsv } from "@/unified/export/serviceUnifiedExport";
 
+// ✅ (추가) 통합관리 검색
+import UnifiedSearchPanel from "@/unified/search/UnifiedSearchPanel";
+import { useUnifiedSearch } from "@/unified/search/useUnifiedSearch";
+import { buildUnifiedSearchHighlight } from "@/unified/search/buildUnifiedSearchHighlight";
+
 function normalizeName(v: any) {
   return String(v ?? "").trim();
 }
@@ -102,8 +107,79 @@ export default function UnifiedMainView() {
     initialValue: "",
   });
 
+   // ✅ 통합관리 검색
+  const unifiedSearch = useUnifiedSearch({ limit: 300 });
+  const [searchPanelAnchor, setSearchPanelAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [searchFocusVersion, setSearchFocusVersion] = useState(0);
+
+  const searchHighlight = useMemo(
+    () =>
+      buildUnifiedSearchHighlight({
+        results: unifiedSearch.results,
+        currentIndex: unifiedSearch.currentIndex,
+      }),
+    [unifiedSearch.results, unifiedSearch.currentIndex]
+  );
+
+    function bumpSearchFocus(afterFrameCount = 0) {
+    const run = (left: number) => {
+      if (left <= 0) {
+        setSearchFocusVersion((v) => v + 1);
+        return;
+      }
+      requestAnimationFrame(() => run(left - 1));
+    };
+    run(afterFrameCount);
+  }
+
+  function openSearchPanel(anchor: { x: number; y: number }) {
+    setSearchPanelAnchor(anchor);
+    unifiedSearch.openSearch();
+  }
+
+  async function handleSearchSubmit() {
+    try {
+      const shouldReleaseFilter = filterMode;
+      if (shouldReleaseFilter) {
+        setFilterMode(false);
+      }
+
+      const res = await unifiedSearch.submitSearch();
+      if (res && res.results.length > 0) {
+        bumpSearchFocus(shouldReleaseFilter ? 2 : 0);
+      }
+    } catch {
+      // 에러 표시는 훅 상태(error)로 처리
+    }
+  }
+
+  function handleSearchNext() {
+    const shouldReleaseFilter = filterMode;
+    if (shouldReleaseFilter) {
+      setFilterMode(false);
+    }
+
+    const moved = unifiedSearch.moveNext();
+    if (moved) {
+      bumpSearchFocus(shouldReleaseFilter ? 2 : 0);
+    }
+  }
+
+  function handleSearchClose() {
+    unifiedSearch.closeSearch();
+    setSearchPanelAnchor(null);
+  }
+
   // (결제수단 추가등록 기능은 다음 단계 — 지금은 고정 옵션 + 패널에서 직접입력 지원)
   const paymentOptions = useMemo(() => ["계좌이체", "서비스", "카드", "온라인연장"], []);
+
+  useEffect(() => {
+    if (!filterMode) return;
+    if (!unifiedSearch.open) return;
+    if (unifiedSearch.results.length <= 0) return;
+
+    setFilterMode(false);
+  }, [filterMode, unifiedSearch.open, unifiedSearch.results.length]);
 
   const {
     availableColumns,
@@ -525,6 +601,8 @@ export default function UnifiedMainView() {
         onAddTemplate={() => setIsAddTemplateOpen(true)}
         filterMode={filterMode}
         onToggleFilterMode={handleToggleFilterMode}
+        onOpenSearch={openSearchPanel}
+        searchActive={unifiedSearch.open}
         onOpenColor={openColor}
         onDownload={handleDownload}
       />
@@ -535,7 +613,7 @@ export default function UnifiedMainView() {
         onMouseMoveCapture={onGridMouseMoveCapture}
         onMouseUpCapture={onGridMouseUpCapture}
       >
-        <UnifiedGrid
+       <UnifiedGrid
           ref={gridRef}
           isColumnEditMode={isColumnEditMode}
           columnOrder={columnOrder}
@@ -547,8 +625,28 @@ export default function UnifiedMainView() {
           onFilterStateChange={setFilterState}
           sortState={effectiveSortState}
           onSortStateChange={setSortState}
+          searchMatchedRowIds={searchHighlight.matchedRowIds}
+          searchActiveRowId={searchHighlight.activeRowId}
+          searchActiveColKey={searchHighlight.activeColKey}
+          searchFocusVersion={searchFocusVersion}
         />
       </div>
+
+      <UnifiedSearchPanel
+        open={unifiedSearch.open}
+        anchor={searchPanelAnchor}
+        keyword={unifiedSearch.keyword}
+        loading={unifiedSearch.loading}
+        currentIndex={unifiedSearch.currentIndex}
+        total={unifiedSearch.total}
+        returnedCount={unifiedSearch.returnedCount}
+        truncated={unifiedSearch.truncated}
+        error={unifiedSearch.error}
+        onKeywordChange={unifiedSearch.setKeyword}
+        onSearch={handleSearchSubmit}
+        onNext={handleSearchNext}
+        onClose={handleSearchClose}
+      />
 
       <AddTemplateModal
         open={isAddTemplateOpen}
