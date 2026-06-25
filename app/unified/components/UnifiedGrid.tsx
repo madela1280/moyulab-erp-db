@@ -125,6 +125,22 @@ function createEmptyData(): Record<string, any> {
   return obj;
 }
 
+function hasMeaningfulUnifiedRowData(rowData: Record<string, any> | null | undefined) {
+  const data = rowData ?? {};
+
+  for (const key of Object.keys(data)) {
+    if (key.startsWith("__")) continue;
+
+    const value = data[key];
+    if (value === null || value === undefined) continue;
+    if (String(value).trim() === "") continue;
+
+    return true;
+  }
+
+  return false;
+}
+
 type UnifiedGridProps = {
   isColumnEditMode?: boolean;
 
@@ -400,19 +416,45 @@ const computedDisplayRows = useMemo(() => {
     }
   }
 
-  // sort: 표시값 기준
+   // sort: 표시값 기준
   if (sortState?.key) {
     const k = sortState.key;
     const dir = sortState.dir === "desc" ? "desc" : "asc";
     const copy = [...out];
+
     copy.sort((a, b) => {
+      const aHasData = hasMeaningfulUnifiedRowData(a.data);
+      const bHasData = hasMeaningfulUnifiedRowData(b.data);
+
+      // ✅ 완전 빈 행은 항상 맨 아래로
+      if (aHasData !== bHasData) {
+        return aHasData ? -1 : 1;
+      }
+
       const av = getDisplayText(a, k).trim();
       const bv = getDisplayText(b, k).trim();
+
+      // ✅ 정렬 대상 값이 빈칸인 행도 항상 아래로
+      const aBlank = av === "";
+      const bBlank = bv === "";
+      if (aBlank !== bBlank) {
+        return aBlank ? 1 : -1;
+      }
+
       const cmp = av.localeCompare(bv, "ko-KR");
-      return dir === "asc" ? cmp : -cmp;
+      if (cmp !== 0) {
+        return dir === "asc" ? cmp : -cmp;
+      }
+
+      const aSortKey = Number(a.sort_key ?? 0);
+      const bSortKey = Number(b.sort_key ?? 0);
+      if (aSortKey !== bSortKey) return aSortKey - bSortKey;
+
+      return Number(a.id) - Number(b.id);
     });
+
     out = copy;
-  }
+  } 
 
   return out;
 }, [rows, filterState, sortState, today]);
@@ -504,8 +546,22 @@ function closeFilterPopover() {
 
 const filterActive = filterState ? isFilterActive(filterState) : false;
 
+useEffect(() => {
+  if (!filterMode) return;
+  if (!sortState?.key && !filterActive) return;
+
+  requestAnimationFrame(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    el.scrollTop = 0;
+    updateVisibleRangeNow();
+  });
+}, [filterMode, sortState?.key, sortState?.dir, filterActive]);
+
 function toggleFilterValue(colKey: string, v: string) {
   if (!props.onFilterStateChange || !filterState) return;
+
   const prev = filterState.selectedByKey[colKey] ?? new Set<string>();
   const nextSet = new Set(prev);
   if (nextSet.has(v)) nextSet.delete(v);
@@ -931,8 +987,7 @@ async function refreshCountAndMaybeReload() {
 }
 
 function scrollToTailData() {
-  // ✅ “스크롤만” 하면 현재 rows가 빈 행 위주일 때 그대로 빈 행 지옥을 보여줌
-  // ✅ tailData를 다시 로드한 뒤, 그 기준으로 스크롤 위치를 잡는다
+  // ✅ tailData를 다시 로드한 뒤 “마지막 실제 데이터 행” 기준으로 위치를 잡는다
   void (async () => {
     try {
       await loadTailPage();
@@ -945,10 +1000,22 @@ function scrollToTailData() {
         const el = scrollRef.current;
         if (!el) return;
 
-        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-        // 마지막 데이터가 화면 중간~하단에 오도록 약간 위로
-        el.scrollTop = Math.max(0, maxTop - Math.floor(el.clientHeight * 0.6));
+        const currentRows =
+          rowsRef.current && rowsRef.current.length ? rowsRef.current : rows;
 
+        let lastDataIndex = -1;
+        for (let i = currentRows.length - 1; i >= 0; i--) {
+          if (hasMeaningfulUnifiedRowData(currentRows[i]?.data ?? {})) {
+            lastDataIndex = i;
+            break;
+          }
+        }
+
+        const targetIndex = lastDataIndex >= 0 ? lastDataIndex : Math.max(0, currentRows.length - 1);
+        const desiredTop = Math.max(0, targetIndex * ROW_HEIGHT - Math.floor(el.clientHeight * 0.8));
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+
+        el.scrollTop = Math.max(0, Math.min(desiredTop, maxTop));
         updateVisibleRangeNow();
       });
     });
