@@ -454,8 +454,11 @@ export default function UnifiedMainView() {
 
     const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
-      // ✅ 여기서 preventDefault/stopPropagation을 하면 UnifiedGrid의 선택/드래그가 막힘
-      //    → mousedown에서는 “클릭 후보”만 기록하고, mouseup에서 확정 시 팝오버 오픈
+      // ✅ 거래처분류 셀은 “설정 진입 전용”으로만 사용
+      //    → 통합관리 그리드의 셀 선택/드래그 시작을 막아 민감한 영역지정 방지
+      e.preventDefault();
+      e.stopPropagation();
+
       partnerDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -468,7 +471,11 @@ export default function UnifiedMainView() {
 
     const guideInfo = findGuideCellInfoFromTarget(t);
     if (guideInfo) {
-      // ✅ 동일: 선택/드래그를 막지 않기 위해 mousedown에서는 차단하지 않음
+      // ✅ 안내분류 셀도 “설정 진입 전용”으로만 사용
+      //    → 클릭 후 마우스 이동 시 통합관리 셀 영역지정이 시작되지 않게 차단
+      e.preventDefault();
+      e.stopPropagation();
+
       guideDownRef.current = {
         pending: true,
         startX: e.clientX,

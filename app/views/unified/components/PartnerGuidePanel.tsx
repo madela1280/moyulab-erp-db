@@ -195,7 +195,7 @@ export default function PartnerGuidePanel(props: {
             className="text-xs px-2 py-1 border rounded bg-white hover:bg-slate-100"
             onClick={onClose}
           >
-            닫기
+            확인
           </button>
         </div>
 
@@ -250,7 +250,7 @@ export default function PartnerGuidePanel(props: {
           {/* right */}
           <div className="flex flex-col min-h-0">
             <div className="px-3 py-2 text-xs font-semibold text-slate-700 border-b bg-white">
-              안내분류 ({sortedCategories.length})
+              안내분류 ({sortedCategories.length + 1})
             </div>
 
             <div className="px-3 py-2 text-xs text-slate-600 border-b bg-white">
@@ -262,6 +262,21 @@ export default function PartnerGuidePanel(props: {
 
             <div className="flex-1 min-h-0 overflow-auto">
               <div className="p-2">
+                <button
+                  type="button"
+                  className={
+                    "w-full text-left px-2 py-1.5 text-xs border rounded mb-1 " +
+                    (!selectedGuide ? "bg-blue-600 text-white border-blue-600" : "bg-white hover:bg-slate-50")
+                  }
+                  onClick={async () => {
+                    if (!selectedPartner) return;
+                    setSelectedGuide("");
+                    await patchMapping(selectedPartner, null);
+                  }}
+                >
+                  공난
+                </button>
+
                 {sortedCategories.map((c) => {
                   const isSelected = c.name === selectedGuide;
                   return (
@@ -282,8 +297,11 @@ export default function PartnerGuidePanel(props: {
                     </button>
                   );
                 })}
+
                 {!sortedCategories.length && (
-                  <div className="px-2 py-4 text-xs text-slate-400">안내분류가 없습니다. 아래에서 추가하세요.</div>
+                  <div className="px-2 py-4 text-xs text-slate-400">
+                    안내분류가 없습니다. 아래에서 추가하세요.
+                  </div>
                 )}
               </div>
             </div>
