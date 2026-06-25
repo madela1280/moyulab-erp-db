@@ -56,8 +56,8 @@ import { computeEndDateFromStartAndTotalDays } from "@/views/unified/extensions/
 // ✅ (추가) 통합관리 필터/정렬 UI (심포니 동일 UX)
 import ColumnFilterPopover from "@/unified/filter/ColumnFilterPopover";
 import {
-  applyUnifiedFilter,
   getUniqueValuesForColumn,
+  getUnifiedFilterValueForColumn,
   isFilterActive,
   type ColumnFilterState,
 } from "@/unified/filter/useUnifiedFilter";
@@ -398,17 +398,22 @@ const computedDisplayRows = useMemo(() => {
     return String(row.data?.[key] ?? "");
   }
 
+  function getFilterText(row: UnifiedRow, key: string) {
+    if (key === "상태") return String(getDerivedStatusForRow(row.data ?? {}).status ?? "");
+    if (key === "총연장횟수") return String(countExtensionRounds(row.data ?? {}));
+    return getUnifiedFilterValueForColumn(key, row.data?.[key]);
+  }
+
   let out = rows;
 
-   // filter: 표시값 기준
+  // filter: 표시값 기준
   if (filterState?.selectedByKey) {
     const entries = Object.entries(filterState.selectedByKey);
     if (entries.length) {
       out = out.filter((row) => {
-       
         for (const [key, selectedSet] of entries) {
           if (!selectedSet || selectedSet.size === 0) continue;
-          const v = getDisplayText(row, key);
+          const v = getFilterText(row, key);
           if (!selectedSet.has(v)) return false;
         }
         return true;
@@ -416,7 +421,7 @@ const computedDisplayRows = useMemo(() => {
     }
   }
 
-   // sort: 표시값 기준
+  // sort: 표시값 기준
   if (sortState?.key) {
     const k = sortState.key;
     const dir = sortState.dir === "desc" ? "desc" : "asc";
@@ -454,7 +459,7 @@ const computedDisplayRows = useMemo(() => {
     });
 
     out = copy;
-  } 
+  }
 
   return out;
 }, [rows, filterState, sortState, today]);
@@ -516,16 +521,21 @@ const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
 const filterValues = useMemo(() => {
   if (!filterColumnKey) return [];
 
-  function getDisplayText(row: UnifiedRow, key: string) {
-    if (key === "상태") return String(getDerivedStatusForRow(row.data ?? {}).status ?? "");
-    if (key === "총연장횟수") return String(countExtensionRounds(row.data ?? {}));
-    return String(row.data?.[key] ?? "");
+  if (filterColumnKey === "상태" || filterColumnKey === "총연장횟수") {
+    const set = new Set<string>();
+
+    for (const r of rows) {
+      if (filterColumnKey === "상태") {
+        set.add(String(getDerivedStatusForRow(r.data ?? {}).status ?? ""));
+      } else {
+        set.add(String(countExtensionRounds(r.data ?? {})));
+      }
+    }
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
   }
 
-  const set = new Set<string>();
-  for (const r of rows) set.add(getDisplayText(r, filterColumnKey));
-
-  return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
+  return getUniqueValuesForColumn(rows, filterColumnKey);
 }, [rows, filterColumnKey, today]);
 
 const filterSelectedSet = useMemo(() => {
