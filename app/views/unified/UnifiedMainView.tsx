@@ -137,14 +137,17 @@ export default function UnifiedMainView() {
     unifiedSearch.openSearch();
   }
 
-  async function handleSearchSubmit() {
+  async function handleSearchSubmit(nextKeyword?: string) {
     try {
+      const keyword = normalizeName(nextKeyword ?? unifiedSearch.keyword);
+      unifiedSearch.setKeyword(keyword);
+
       const shouldReleaseFilter = filterMode;
       if (shouldReleaseFilter) {
         setFilterMode(false);
       }
 
-      const res = await unifiedSearch.submitSearch();
+      const res = await unifiedSearch.submitSearch(keyword);
       if (res && res.results.length > 0) {
         bumpSearchFocus(shouldReleaseFilter ? 2 : 0);
       }

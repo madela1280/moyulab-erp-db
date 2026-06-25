@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Props = {
   open: boolean;
@@ -13,7 +13,7 @@ type Props = {
   truncated?: boolean;
   error?: string;
   onKeywordChange: (value: string) => void;
-  onSearch: () => void | Promise<void>;
+  onSearch: (keyword: string) => void | Promise<void>;
   onNext: () => void;
   onClose: () => void;
 };
@@ -39,6 +39,7 @@ export default function UnifiedSearchPanel({
 }: Props) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [inputValue, setInputValue] = useState(keyword);
 
   const hasResults = returnedCount > 0;
   const currentLabel = hasResults ? currentIndex + 1 : 0;
@@ -80,6 +81,11 @@ export default function UnifiedSearchPanel({
     return () => window.clearTimeout(t);
   }, [open]);
 
+   useEffect(() => {
+    if (!open) return;
+    setInputValue(keyword);
+  }, [open, keyword]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -118,11 +124,12 @@ export default function UnifiedSearchPanel({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <form
+    <form
         className="flex flex-col gap-2 p-3"
         onSubmit={(e) => {
           e.preventDefault();
-          void onSearch();
+          onKeywordChange(inputValue);
+          void onSearch(inputValue);
         }}
       >
         <div className="flex items-center justify-between">
@@ -137,10 +144,13 @@ export default function UnifiedSearchPanel({
         </div>
 
         <div className="flex items-center gap-2">
-          <input
+         <input
             ref={inputRef}
-            value={keyword}
-            onChange={(e) => onKeywordChange(e.target.value)}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") e.stopPropagation();
+            }}
             placeholder="검색어 입력"
             className="h-8 flex-1 rounded border border-slate-300 px-2 text-[12px] outline-none focus:border-slate-500"
           />
@@ -173,7 +183,7 @@ export default function UnifiedSearchPanel({
               {currentLabel} / {returnedCount}
               {truncated ? ` (전체 ${total}건 중 ${returnedCount}건만 표시)` : ` (총 ${total}건)`}
             </span>
-          ) : keyword ? (
+                    ) : inputValue ? (
             <span>검색 결과 없음</span>
           ) : (
             <span>기기번호 ~ 반납완료일 범위에서 검색</span>
