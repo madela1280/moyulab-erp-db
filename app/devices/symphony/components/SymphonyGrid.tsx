@@ -352,12 +352,19 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
   // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
+  const myRowLocksRef = useRef<Record<number, boolean>>({});
+  const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
+
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
   const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
-  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+  useEffect(() => {
+    myRowLocksRef.current = myRowLocks;
+  }, [myRowLocks]);
+
+    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
@@ -367,17 +374,57 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setActiveEditCell({ rowId, key });
     setActiveEditValue(initialValue ?? "");
 
-    const result = await acquireLock("symphony", rowId);
+    const pending = acquireLock("symphony", rowId);
+    lockPendingRef.current[rowId] = pending;
+
+    const result = await pending.catch(() => null);
+    lockPendingRef.current[rowId] = null;
 
     const stillActive =
       editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
 
     if (!stillActive) {
-      if (result.ok) await releaseLock("symphony", rowId);
+      if (result?.ok) await releaseLock("symphony", rowId);
       return;
     }
 
-    if (result.ok) {
+    if (result?.ok) {
+      myRowLocksRef.current[rowId] = true;
+      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      return;
+    }
+
+    editingCellRef.current = null;
+    setActiveEditCell(null);
+    setActiveEditValue("");
+    alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
+    e.target.blur();
+  }  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+    if (isComputedColumn(key)) {
+      e.target.blur();
+      return;
+    }
+
+    editingCellRef.current = { rowId, key };
+    setActiveEditCell({ rowId, key });
+    setActiveEditValue(initialValue ?? "");
+
+    const pending = acquireLock("symphony", rowId);
+    lockPendingRef.current[rowId] = pending;
+
+    const result = await pending.catch(() => null);
+    lockPendingRef.current[rowId] = null;
+
+    const stillActive =
+      editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
+
+    if (!stillActive) {
+      if (result?.ok) await releaseLock("symphony", rowId);
+      return;
+    }
+
+    if (result?.ok) {
+      myRowLocksRef.current[rowId] = true;
       setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
       return;
     }
@@ -1131,24 +1178,56 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                             }
                             if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
                           }}
-                          onBlur={async (e) => {
+                                                    onBlur={async (e) => {
                             const v = String(e.target.value ?? "");
 
                             editingCellRef.current = null;
                             setActiveEditCell(null);
                             setActiveEditValue("");
 
-                            if (!myRowLocks[row.id]) return;
+                            let hasLock = !!myRowLocksRef.current[row.id];
 
-                            updateLocalCell(row.id, key, v);
-                            await saveCell(row.id, key, v);
-                            await releaseLock("symphony", row.id);
+                            // focus 락 완료보다 blur가 먼저 온 경우 대기
+                            if (!hasLock) {
+                              const pending = lockPendingRef.current[row.id];
+                              if (pending) {
+                                const r = await pending.catch(() => null);
+                                if (r?.ok) {
+                                  hasLock = true;
+                                  myRowLocksRef.current[row.id] = true;
+                                  setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                                }
+                              }
+                            }
 
-                            setMyRowLocks((prev) => {
-                              const copy = { ...prev };
-                              delete copy[row.id];
-                              return copy;
-                            });
+                            // 1회 재시도
+                            if (!hasLock) {
+                              const retry = await acquireLock("symphony", row.id).catch(() => null);
+                              if (retry?.ok) {
+                                hasLock = true;
+                                myRowLocksRef.current[row.id] = true;
+                                setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                              }
+                            }
+
+                            if (!hasLock) {
+                              await reload({ silent: true });
+                              return;
+                            }
+
+                            try {
+                              updateLocalCell(row.id, key, v);
+                              await saveCell(row.id, key, v);
+                            } finally {
+                              await releaseLock("symphony", row.id).catch(() => {});
+
+                              delete myRowLocksRef.current[row.id];
+                              setMyRowLocks((prev) => {
+                                const copy = { ...prev };
+                                delete copy[row.id];
+                                return copy;
+                              });
+                            }
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                         />

@@ -60,32 +60,33 @@ export async function POST(req: Request) {
       }
     }
 
-    const updatedIds: number[] = [];
+    // ✅ 파생 컬럼 저장 차단 + 원자적 jsonb merge(동시 수정 안정화)
+    const sanitized = updates.map((u) => {
+      const p: Record<string, any> = { ...(u.patch ?? {}) };
+      delete p["수리횟수"];
+      delete p["거래처"];
+      delete p["대여자명"];
+      return { id: u.id, patch: p };
+    });
 
-    await query("BEGIN");
-    try {
-      for (const u of updates) {
-        const old = await query(`SELECT data FROM device_symphony WHERE id=$1`, [u.id]);
-        if (!old.rows.length) continue;
+    const r = await query(
+      `
+      WITH v AS (
+        SELECT
+          (x->>'id')::int AS id,
+          x->'patch'       AS patch
+        FROM jsonb_array_elements($1::jsonb) AS x
+      )
+      UPDATE device_symphony s
+      SET data = COALESCE(s.data, '{}'::jsonb) || COALESCE(v.patch, '{}'::jsonb)
+      FROM v
+      WHERE s.id = v.id
+      RETURNING s.id
+      `,
+      [JSON.stringify(sanitized)]
+    );
 
-        const source = old.rows[0]?.data || {};
-        const merged: Record<string, any> = { ...source };
-        for (const key in u.patch) {
-          merged[key] = (u.patch as any)[key];
-        }
-
-        const r = await query(
-          `UPDATE device_symphony SET data=$1 WHERE id=$2 RETURNING id`,
-          [merged, u.id]
-        );
-        if (r.rows.length) updatedIds.push(Number(r.rows[0].id));
-      }
-
-      await query("COMMIT");
-    } catch (e) {
-      await query("ROLLBACK");
-      throw e;
-    }
+    const updatedIds = (r.rows ?? []).map((x: any) => Number(x.id));
 
     return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds });
   } catch (e) {

@@ -53,23 +53,30 @@ export async function PATCH(req: Request) {
     const id = getId(req);
     const body = await req.json().catch(() => ({}));
 
-    const old = await query(`SELECT data FROM device_symphony WHERE id=$1`, [id]);
-    if (!old.rows.length) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+    }
+
+    // ✅ 파생 컬럼은 저장 차단
+    const patch: Record<string, any> = { ...body };
+    delete patch["수리횟수"];
+    delete patch["거래처"];
+    delete patch["대여자명"];
+
+    // ✅ 원자적 jsonb merge (동시 저장 덮어쓰기 완화)
+    const r = await query(
+      `
+      UPDATE device_symphony
+      SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
+      WHERE id = $2
+      RETURNING id, data
+      `,
+      [JSON.stringify(patch), id]
+    );
+
+    if (!r.rows.length) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
-
-    const source = old.rows[0]?.data || {};
-
-    // null 포함 merge
-    const merged: Record<string, any> = { ...source };
-    for (const key in body) {
-      merged[key] = (body as any)[key];
-    }
-
-    const r = await query(
-      `UPDATE device_symphony SET data=$1 WHERE id=$2 RETURNING id, data`,
-      [merged, id]
-    );
 
     return NextResponse.json(r.rows[0]);
   } catch (e) {
