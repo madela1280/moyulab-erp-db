@@ -2144,7 +2144,7 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
       return () => window.removeEventListener("mousemove", handleMouseMove);
     }, [isRowDragging, rowDragAnchor]);
 
-        useEffect(() => {
+         useEffect(() => {
       function endAllDragging() {
         setIsRowDragging(false);
         setRowDragAnchor(null);
@@ -2162,16 +2162,18 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
         if (document.hidden) endAllDragging();
       }
 
-      window.addEventListener("mouseup", endAllDragging);
+      // ✅ 거래처분류/안내분류 클릭 오픈 로직이 mouseup 전파를 막아도
+      // Grid의 드래그 상태는 반드시 먼저 종료되게 capture 단계에서 처리한다.
+      window.addEventListener("mouseup", endAllDragging, true);
       window.addEventListener("blur", endAllDragging);
       document.addEventListener("visibilitychange", onVisibilityChange);
 
       return () => {
-        window.removeEventListener("mouseup", endAllDragging);
+        window.removeEventListener("mouseup", endAllDragging, true);
         window.removeEventListener("blur", endAllDragging);
         document.removeEventListener("visibilitychange", onVisibilityChange);
       };
-    }, []);
+    }, []); 
 
       // ✅ 셀 드래그 민감도 완화: threshold 넘기 전에는 moved=false 유지
     useEffect(() => {

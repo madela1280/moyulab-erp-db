@@ -347,7 +347,7 @@ export default function UnifiedMainView() {
     currentValue: "",
   });
 
-  const OPEN_THRESHOLD_PX = 4;
+    const OPEN_THRESHOLD_PX = 10;
 
   const partnerDownRef = useRef<{
     pending: boolean;
@@ -373,80 +373,7 @@ export default function UnifiedMainView() {
     cellValue: string;
   } | null>(null);
 
-  function findCellTd(t: HTMLElement | null) {
-    if (!t) return null;
-    return t.closest("td[data-col-key]") as HTMLElement | null;
-  }
-
-  function findRowTrFromTd(td: HTMLElement | null) {
-    if (!td) return null;
-    return td.closest("tr[data-unified-id]") as HTMLElement | null;
-  }
-
-  function getRowIdFromTr(tr: HTMLElement | null) {
-    if (!tr) return null;
-    const id = Number((tr as any).dataset?.unifiedId ?? 0);
-    if (!Number.isFinite(id) || id <= 0) return null;
-    return id;
-  }
-
-  function readCellValue(td: HTMLElement | null) {
-    if (!td) return "";
-    const input = td.querySelector("input,select,textarea") as
-      | HTMLInputElement
-      | HTMLSelectElement
-      | HTMLTextAreaElement
-      | null;
-
-    return normalizeName(input?.value ?? td.textContent ?? "");
-  }
-
-  function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
-    const td = findCellTd(t);
-    if (!td) return null;
-
-    const colKey = String((td as any).dataset?.colKey ?? "");
-    if (colKey !== "거래처분류") return null;
-
-    const tr = findRowTrFromTd(td);
-    const id = getRowIdFromTr(tr);
-    if (!id) return null;
-
-    const currentValue = readCellValue(td);
-    return { unifiedId: id, currentValue };
-  }
-
-  function findGuideCellInfoFromTarget(t: HTMLElement | null) {
-    const td = findCellTd(t);
-    if (!td) return null;
-
-    const colKey = String((td as any).dataset?.colKey ?? "");
-    if (colKey !== "안내분류") return null;
-
-    const tr = findRowTrFromTd(td);
-    if (!tr) return { partnerName: "" };
-
-    const partnerTd = tr.querySelector('td[data-col-key="거래처분류"]') as HTMLElement | null;
-    const partnerName = readCellValue(partnerTd);
-    return { partnerName };
-  }
-
-  function findExtCellInfoFromTarget(t: HTMLElement | null) {
-    const td = findCellTd(t);
-    if (!td) return null;
-
-    const colKey = String((td as any).dataset?.colKey ?? "");
-    if (!EXT_KEYS.includes(colKey as ExtKey)) return null;
-
-    const tr = findRowTrFromTd(td);
-    const rowId = getRowIdFromTr(tr);
-    if (!rowId) return null;
-
-    const cellValue = readCellValue(td);
-    return { rowId, colKey: colKey as ExtKey, cellValue };
-  }
-
-    function onGridMouseDownCapture(e: React.MouseEvent) {
+  function onGridMouseDownCapture(e: React.MouseEvent) {
     if (isColumnEditMode) return;
     if (e.button !== 0) return;
 
@@ -454,8 +381,8 @@ export default function UnifiedMainView() {
 
     const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
-      // ✅ 거래처분류 셀은 "클릭이면 설정창, 드래그면 셀영역선택"으로 처리
-      //    → mousedown 단계에서는 막지 않고, mousemove threshold로 클릭/드래그를 구분한다.
+      // ✅ 거래처분류 셀은 클릭/드래그를 mouseup/move로 구분한다.
+      //    mousedown 단계에서 막지 않아야 셀 영역 선택이 정상 동작한다.
       partnerDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -468,7 +395,6 @@ export default function UnifiedMainView() {
 
     const guideInfo = findGuideCellInfoFromTarget(t);
     if (guideInfo) {
-      // ✅ 안내분류도 동일하게 클릭/드래그 분리
       guideDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -480,7 +406,6 @@ export default function UnifiedMainView() {
 
     const extInfo = findExtCellInfoFromTarget(t);
     if (extInfo) {
-      // ✅ 동일
       extDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -498,7 +423,12 @@ export default function UnifiedMainView() {
     if (st1?.pending) {
       const dx = Math.abs(e.clientX - st1.startX);
       const dy = Math.abs(e.clientY - st1.startY);
-      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) partnerDownRef.current = null;
+
+      // ✅ 일정 거리 이상 움직였을 때만 "클릭"이 아니라 "드래그"로 판정
+      //    여기서는 이벤트를 막지 말고, popup 오픈 후보만 취소한다.
+      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) {
+        partnerDownRef.current = null;
+      }
     }
 
     const st2 = guideDownRef.current;
