@@ -364,7 +364,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
 
-  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
