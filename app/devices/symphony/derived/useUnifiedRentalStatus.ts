@@ -76,15 +76,7 @@ export function useUnifiedRentalStatus() {
     };
   }, []);
 
-  // ✅ 통합관리 변경(unified:update) 수신 시 파생데이터도 즉시 재조회하여 갱신
-  useEffect(() => {
-    const off = syncListen(() => {
-      void fetchUnified({ silent: true });
-    });
-    return off;
-  }, []);
-
-  const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useMemo(() => {
+    const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useMemo(() => {
     const set = new Set<string>();
     const map: Record<string, { 거래처분류: string; 수취인명: string }> = {};
 
@@ -107,6 +99,7 @@ export function useUnifiedRentalStatus() {
       };
       map[deviceNo] = info;
       if (deviceNoKey) map[deviceNoKey] = info;
+    }
 
     return { rentingDeviceNoSet: set, rentingInfoByDeviceNo: map };
   }, [rows]);
