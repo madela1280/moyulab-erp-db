@@ -350,7 +350,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setFilterColumnKey(null);
   }
 
-  // ===== 편집(락) =====
+    // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const myRowLocksRef = useRef<Record<number, boolean>>({});
   const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
@@ -360,11 +360,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
-   useEffect(() => {
+  useEffect(() => {
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
 
-    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
@@ -405,6 +405,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
     );
+  }
+
+  async function saveCell(rowId: number, key: string, value: string) {
+    const v = value === "" ? null : value;
+    await patchSymphonyRow(rowId, { [key]: v });
   }
 
     editingCellRef.current = { rowId, key };
