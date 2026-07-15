@@ -411,49 +411,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     const v = value === "" ? null : value;
     await patchSymphonyRow(rowId, { [key]: v });
   }
-
-    editingCellRef.current = { rowId, key };
-    setActiveEditCell({ rowId, key });
-    setActiveEditValue(initialValue ?? "");
-
-    const pending = acquireLock("symphony", rowId);
-    lockPendingRef.current[rowId] = pending;
-
-    const result = await pending.catch(() => null);
-    lockPendingRef.current[rowId] = null;
-
-    const stillActive =
-      editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
-
-    if (!stillActive) {
-      if (result?.ok) await releaseLock("symphony", rowId);
-      return;
-    }
-
-    if (result?.ok) {
-      myRowLocksRef.current[rowId] = true;
-      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
-      return;
-    }
-
-    editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
-    alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
-    e.target.blur();
-  }
-
-  function updateLocalCell(rowId: number, key: string, value: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
-    );
-  }
-
-  async function saveCell(rowId: number, key: string, value: string) {
-    const v = value === "" ? null : value;
-    await patchSymphonyRow(rowId, { [key]: v });
-  }
-
+   
   // ===== 유틸: 셀 표시값(파생 포함) =====
   function getDisplayValue(row: SymphonyRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
