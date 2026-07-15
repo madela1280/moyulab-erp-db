@@ -1147,7 +1147,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                             }
                             if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
                           }}
-                                                    onBlur={async (e) => {
+                          onBlur={async (e) => {
                             const v = String(e.target.value ?? "");
 
                             editingCellRef.current = null;
@@ -1179,25 +1179,25 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                               }
                             }
 
-                            if (!hasLock) {
-                              await reload({ silent: true });
-                              return;
-                            }
-
+                            // ✅ 저장은 락 유무와 무관하게 시도(회귀 방지: 저장 누락 차단)
                             try {
                               updateLocalCell(row.id, key, v);
                               await saveCell(row.id, key, v);
+                            } catch {
+                              await reload({ silent: true });
                             } finally {
-                              await releaseLock("symphony", row.id).catch(() => {});
-
-                              delete myRowLocksRef.current[row.id];
-                              setMyRowLocks((prev) => {
-                                const copy = { ...prev };
-                                delete copy[row.id];
-                                return copy;
-                              });
+                              // 락을 잡은 경우에만 해제
+                              if (hasLock) {
+                                await releaseLock("symphony", row.id).catch(() => {});
+                                delete myRowLocksRef.current[row.id];
+                                setMyRowLocks((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[row.id];
+                                  return copy;
+                                });
+                              }
                             }
-                          }}
+                          }} 
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                         />
                       </td>
