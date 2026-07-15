@@ -33,12 +33,27 @@ function toYmd(v: any) {
   return "";
 }
 
-function todayYmd() {
+function parseYmdToDate(ymd: string) {
+  if (!ymd) return null;
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+
+  const dt = new Date(y, mo - 1, d);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function startOfToday() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 /**
@@ -108,28 +123,43 @@ export function useUnifiedRentalStatus() {
     const map: Record<string, { 거래처분류: string; 수취인명: string }> = {};
     const statusMap: Record<string, "대여중" | "회수중" | "미회수"> = {};
 
+    // ✅ 우선순위: 미회수 > 회수중 > 대여중
     const rank: Record<"대여중" | "회수중" | "미회수", number> = {
       대여중: 1,
-      미회수: 2,
-      회수중: 3,
+      회수중: 2,
+      미회수: 3,
     };
 
-    const today = todayYmd();
+    const today = startOfToday();
 
     for (const row of rows) {
       const deviceNo = t(row?.data?.["기기번호"]);
       const deviceNoKey = deviceKey(row?.data?.["기기번호"]);
       if (!deviceNo) continue;
 
-      const returned = t(row?.data?.["반납완료일"]);
-      if (returned) continue; // 반납완료면 제외
-
       const requested = t(row?.data?.["반납요청일"]);
-      const end = toYmd(row?.data?.["종료일"]);
+      const returned = t(row?.data?.["반납완료일"]);
+
+      // 반납완료가 있으면 대여 상태 집계 제외
+      if (returned) continue;
+
+      const endYmd = toYmd(row?.data?.["종료일"]);
+      const endDate = parseYmdToDate(endYmd);
+
+      // ✅ 판정 규칙(요청 기준)
+      // - 반납요청일/반납완료일 공란 + 종료일이 오늘 이전 => 미회수
+      // - 반납완료일 공란 + 반납요청일 값 있음 => 회수중
+      // - 그 외 => 대여중
+      const isRequestedBlank = requested === "";
+      const isReturnedBlank = returned === "";
+      const isEndPast = !!endDate && endDate.getTime() < today.getTime();
 
       let status: "대여중" | "회수중" | "미회수" = "대여중";
-      if (requested) status = "회수중";
-      else if (end && end === today) status = "미회수";
+      if (isRequestedBlank && isReturnedBlank && isEndPast) {
+        status = "미회수";
+      } else if (!isRequestedBlank && isReturnedBlank) {
+        status = "회수중";
+      }
 
       set.add(deviceNo);
       if (deviceNoKey) set.add(deviceNoKey);
@@ -155,7 +185,7 @@ export function useUnifiedRentalStatus() {
       rentingInfoByDeviceNo: map,
       statusByDeviceNo: statusMap,
     };
-  }, [rows]);
+  }, [rows]); 
 
   return { rentingDeviceNoSet, rentingInfoByDeviceNo, statusByDeviceNo, loading };
 }  
