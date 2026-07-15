@@ -360,11 +360,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
-  useEffect(() => {
+   useEffect(() => {
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
 
-    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
@@ -399,11 +399,13 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setActiveEditValue("");
     alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
     e.target.blur();
-  }  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
-    if (isComputedColumn(key)) {
-      e.target.blur();
-      return;
-    }
+  }
+
+  function updateLocalCell(rowId: number, key: string, value: string) {
+    setRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
+    );
+  }
 
     editingCellRef.current = { rowId, key };
     setActiveEditCell({ rowId, key });
