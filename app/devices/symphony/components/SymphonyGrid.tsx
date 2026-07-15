@@ -415,8 +415,12 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   // ===== 유틸: 셀 표시값(파생 포함) =====
   function getDisplayValue(row: SymphonyRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
-    const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
-    const rentalInfo = deviceNo ? rentingInfoByDeviceNo?.[deviceNo] : undefined;
+    const deviceNoLower = deviceNo.toLowerCase();
+    const renting =
+      !!deviceNo && (rentingDeviceNoSet.has(deviceNo) || rentingDeviceNoSet.has(deviceNoLower));
+    const rentalInfo = deviceNo
+      ? rentingInfoByDeviceNo?.[deviceNo] ?? rentingInfoByDeviceNo?.[deviceNoLower]
+      : undefined;
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
