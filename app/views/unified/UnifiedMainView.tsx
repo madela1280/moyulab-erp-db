@@ -373,6 +373,72 @@ export default function UnifiedMainView() {
     cellValue: string;
   } | null>(null);
 
+   function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
+    const td = t?.closest("td[data-col-key]") as HTMLElement | null;
+    if (!td) return null;
+
+    const colKey = String(td.dataset?.colKey ?? "");
+    if (colKey !== "거래처분류") return null;
+
+    const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
+    if (!tr) return null;
+
+    const unifiedId = Number(tr.dataset?.unifiedId ?? 0);
+    if (!Number.isFinite(unifiedId) || unifiedId <= 0) return null;
+
+    const input = td.querySelector("input,select,textarea") as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null;
+
+    const currentValue = normalizeName(input?.value ?? td.textContent ?? "");
+    return { unifiedId, currentValue };
+  }
+
+  function findGuideCellInfoFromTarget(t: HTMLElement | null) {
+    const td = t?.closest("td[data-col-key]") as HTMLElement | null;
+    if (!td) return null;
+
+    const colKey = String(td.dataset?.colKey ?? "");
+    if (colKey !== "안내분류") return null;
+
+    const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
+    const partnerTd = tr?.querySelector('td[data-col-key="거래처분류"]') as HTMLElement | null;
+
+    const input = partnerTd?.querySelector("input,select,textarea") as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null;
+
+    const partnerName = normalizeName(input?.value ?? partnerTd?.textContent ?? "");
+    return { partnerName };
+  }
+
+  function findExtCellInfoFromTarget(t: HTMLElement | null) {
+    const td = t?.closest("td[data-col-key]") as HTMLElement | null;
+    if (!td) return null;
+
+    const colKeyRaw = String(td.dataset?.colKey ?? "");
+    if (!EXT_KEYS.includes(colKeyRaw as ExtKey)) return null;
+
+    const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
+    if (!tr) return null;
+
+    const rowId = Number(tr.dataset?.unifiedId ?? 0);
+    if (!Number.isFinite(rowId) || rowId <= 0) return null;
+
+    const input = td.querySelector("input,select,textarea") as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null;
+
+    const cellValue = normalizeName(input?.value ?? td.textContent ?? "");
+    return { rowId, colKey: colKeyRaw as ExtKey, cellValue };
+  }
+
   function onGridMouseDownCapture(e: React.MouseEvent) {
     if (isColumnEditMode) return;
     if (e.button !== 0) return;
