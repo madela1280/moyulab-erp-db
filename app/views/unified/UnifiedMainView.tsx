@@ -446,7 +446,7 @@ export default function UnifiedMainView() {
     return { rowId, colKey: colKey as ExtKey, cellValue };
   }
 
-  function onGridMouseDownCapture(e: React.MouseEvent) {
+    function onGridMouseDownCapture(e: React.MouseEvent) {
     if (isColumnEditMode) return;
     if (e.button !== 0) return;
 
@@ -454,11 +454,8 @@ export default function UnifiedMainView() {
 
     const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
-      // ✅ 거래처분류 셀은 “설정 진입 전용”으로만 사용
-      //    → 통합관리 그리드의 셀 선택/드래그 시작을 막아 민감한 영역지정 방지
-      e.preventDefault();
-      e.stopPropagation();
-
+      // ✅ 거래처분류 셀은 "클릭이면 설정창, 드래그면 셀영역선택"으로 처리
+      //    → mousedown 단계에서는 막지 않고, mousemove threshold로 클릭/드래그를 구분한다.
       partnerDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -471,11 +468,7 @@ export default function UnifiedMainView() {
 
     const guideInfo = findGuideCellInfoFromTarget(t);
     if (guideInfo) {
-      // ✅ 안내분류 셀도 “설정 진입 전용”으로만 사용
-      //    → 클릭 후 마우스 이동 시 통합관리 셀 영역지정이 시작되지 않게 차단
-      e.preventDefault();
-      e.stopPropagation();
-
+      // ✅ 안내분류도 동일하게 클릭/드래그 분리
       guideDownRef.current = {
         pending: true,
         startX: e.clientX,
@@ -527,7 +520,6 @@ export default function UnifiedMainView() {
     const st1 = partnerDownRef.current;
     partnerDownRef.current = null;
     if (st1?.pending) {
-      // ✅ 팝오버 오픈 직전에 현재 포커스를 정리(커서/입력 잔상 방지)
       const ae = document.activeElement as HTMLElement | null;
       if (ae && typeof (ae as any).blur === "function") {
         try {
@@ -537,7 +529,6 @@ export default function UnifiedMainView() {
         }
       }
 
-      // ✅ “클릭 확정” 케이스에서만 팝오버를 열어야 하므로 여기서 stopPropagation
       e.preventDefault();
       e.stopPropagation();
 
