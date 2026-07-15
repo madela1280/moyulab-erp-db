@@ -202,7 +202,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } =
     useSymphonyRows();
 
-  const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
+  const { rentingDeviceNoSet, rentingInfoByDeviceNo, statusByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -413,34 +413,40 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
    
   // ===== 유틸: 셀 표시값(파생 포함) =====
-  function getDisplayValue(row: SymphonyRow, colKey: string) {
+ function getDisplayValue(row: SymphonyRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
     const deviceNoLower = deviceNo.toLowerCase();
+
     const renting =
       !!deviceNo && (rentingDeviceNoSet.has(deviceNo) || rentingDeviceNoSet.has(deviceNoLower));
+
     const rentalInfo = deviceNo
       ? rentingInfoByDeviceNo?.[deviceNo] ?? rentingInfoByDeviceNo?.[deviceNoLower]
       : undefined;
 
+    const status = deviceNo
+      ? statusByDeviceNo?.[deviceNo] ?? statusByDeviceNo?.[deviceNoLower] ?? ""
+      : "";
+
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
-    // ✅ 대여중 표시(안정화: 비대여중일 때 "대여중" 문구는 항상 제거)
+    // ✅ 상태표시: 대여중/회수중/미회수
     if (colKey === "유축기 위치") {
       const raw0 = String(row.data?.[colKey] ?? "");
       const raw = stripRentingMarker(raw0);
 
-      if (!renting) return raw;
-      return raw ? `${raw} (대여중)` : "대여중";
+      if (!status) return raw;
+      return raw ? `${raw} (${status})` : status;
     }
 
-    // ✅ 거래처/대여자명 자동 반영(대여중일 때만)
+    // ✅ 거래처/대여자명 자동 반영(대여중/회수중/미회수 공통)
     if (colKey === "거래처") {
-      if (renting) return String(rentalInfo?.거래처분류 ?? "");
+      if (renting || status) return String(rentalInfo?.거래처분류 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
     if (colKey === "대여자명") {
-      if (renting) return String(rentalInfo?.수취인명 ?? "");
+      if (renting || status) return String(rentalInfo?.수취인명 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
