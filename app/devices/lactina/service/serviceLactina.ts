@@ -2,6 +2,17 @@
 
 import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
+let _lastLactinaLocalEmitAt = 0;
+
+export function getLastLactinaLocalEmitAt() {
+  return _lastLactinaLocalEmitAt;
+}
+
+function emitLactinaUpdate() {
+  _lastLactinaLocalEmitAt = Date.now();
+  emitLactinaUpdate();
+}
+
 export type LactinaRow = {
   id: number;
   data: Record<string, any>;
@@ -67,7 +78,7 @@ export async function patchLactinaRow(id: number, patch: Record<string, any>) {
   });
 
   // ✅ 다른 탭/PC에 변경 알림(공용 unified:update 재사용)
-  syncEmitUnifiedUpdate();
+    emitLactinaUpdate();
 
   return res;
 }
@@ -79,7 +90,7 @@ export async function createLactinaRow(data: Record<string, any>) {
     body: JSON.stringify(data),
   });
 
-  syncEmitUnifiedUpdate();
+  emitLactinaUpdate();
   return res;
 }
 
@@ -93,7 +104,7 @@ export async function insertLactinaRows(args: InsertArgs) {
     }
   );
 
-  syncEmitUnifiedUpdate();
+  emitLactinaUpdate();
   return res;
 }
 
@@ -107,7 +118,7 @@ export async function bulkPatchLactina(args: BulkPatchArgs) {
     }
   );
 
-  syncEmitUnifiedUpdate();
+  emitLactinaUpdate();
   return res;
 }
 
@@ -121,7 +132,7 @@ export async function bulkDeleteLactina(args: BulkDeleteArgs) {
     }
   );
 
-  syncEmitUnifiedUpdate();
+  emitLactinaUpdate();
   return res;
 }
 

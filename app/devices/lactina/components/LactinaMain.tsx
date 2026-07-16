@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import LactinaHeader from "@/devices/lactina/components/LactinaHeader";
 import LactinaGrid, { LactinaGridHandle } from "@/devices/lactina/components/LactinaGrid";
 import { useLactinaColumnConfig } from "@/devices/lactina/column-config/useLactinaColumnConfig";
-import { exportLactinaCsv, insertLactinaRows } from "@/devices/lactina/service/serviceLactina";
+import {
+  exportLactinaCsv,
+  insertLactinaRows,
+  getLastLactinaLocalEmitAt,
+} from "@/devices/lactina/service/serviceLactina";
 
 import AddTemplateModalLactina from "@/devices/lactina/template/AddTemplateModalLactina";
 
@@ -49,10 +53,16 @@ export default function LactinaMain() {
   } = useLactinaColumnConfig();
 
   // ✅ 다른 탭/PC의 변경을 수신하면 "점멸 없이(silent)" reload
-  useEffect(() => {
+   useEffect(() => {
+    const SELF_ECHO_IGNORE_MS = 900;
+
     const off = syncListen(() => {
+      // 같은 탭에서 방금 저장 후 온 echo는 무시(점멸 완화)
+      if (Date.now() - getLastLactinaLocalEmitAt() < SELF_ECHO_IGNORE_MS) return;
+
       void gridRef.current?.reload({ silent: true });
     });
+
     return off;
   }, []);
 
