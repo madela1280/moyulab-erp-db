@@ -470,7 +470,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-  async function clearSingleSelectedCell() {
+    async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -489,14 +489,6 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
     setActiveEditDraft({ rowId: row.id, key }, "");
 
-    const input = document.querySelector<HTMLInputElement>(
-      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
-    );
-
-    if (input) input.value = "";
-
-    updateLocalCell(row.id, key, "");
-
     const hasLock = await ensureLactinaRowLock(row.id);
 
     if (!hasLock) {
@@ -506,8 +498,28 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     try {
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      if (input) input.value = "";
+
+      updateLocalCell(row.id, key, "");
       await saveCell(row.id, key, "");
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      });
+
       setContextMenu(null);
+
+      // ✅ Delete 후 같은 셀에서 바로 재입력 가능하게 포커스 복구
+      setActiveEditDraft({ rowId: row.id, key }, "");
+      focusCellSoon(rowIndex, colIndex);
     } catch {
       clearActiveEditDraftIfSame(row.id, key);
       await reload({ silent: true });
@@ -570,6 +582,21 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     return false;
+  }
+
+  function focusCellSoon(rowIndex: number, colIndex: number) {
+    // 값 변경 후 input remount 타이밍을 기다렸다가 포커스 복구
+    requestAnimationFrame(() => {
+      if (focusCell(rowIndex, colIndex)) return;
+
+      setTimeout(() => {
+        if (focusCell(rowIndex, colIndex)) return;
+
+        setTimeout(() => {
+          focusCell(rowIndex, colIndex);
+        }, 0);
+      }, 0);
+    });
   }
 
    function handleCellKeyDown(
