@@ -502,14 +502,22 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       return true;
     }
 
-    try {
+       try {
       const input = document.querySelector<HTMLInputElement>(
         `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
       );
 
-      if (input) input.value = "";
+      // ✅ 1) 화면에서 즉시 삭제 + 같은 셀 커서 유지(바로 재입력 가능)
+      if (input) {
+        input.value = "";
+        input.focus();
+        try {
+          input.setSelectionRange(0, 0); // 커서 깜박임 유지
+        } catch {}
+      }
 
-      updateLocalCell(row.id, key, "");
+      // ✅ 2) 로컬 setRows로 즉시 리렌더(=셀 remount) 유발하지 않음
+      //    -> Delete 직후 커서 사라짐/입력불가 회귀 방지
       await saveCell(row.id, key, "");
 
       setSelectedRowRange(null);
@@ -521,8 +529,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       });
 
       setContextMenu(null);
-
       setActiveEditDraft({ rowId: row.id, key }, "");
+
+      // 혹시 focus가 튀는 케이스 보강
       focusCellSoon(rowIndex, colIndex);
 
       setTimeout(() => {
