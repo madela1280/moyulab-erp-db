@@ -530,16 +530,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
       setContextMenu(null);
       setActiveEditDraft({ rowId: row.id, key }, "");
-
-      // 혹시 focus가 튀는 케이스 보강
       focusCellSoon(rowIndex, colIndex);
-
-      setTimeout(() => {
-        const cur = deleteRefocusRef.current;
-        if (cur && cur.rowId === row.id && cur.key === key) {
-          deleteRefocusRef.current = null;
-        }
-      }, 500);
     } catch {
       clearActiveEditDraftIfSame(row.id, key);
       deleteRefocusRef.current = null;
@@ -1353,9 +1344,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           onFocus={(e) => {
                             setSelectedRowRange(null);
 
-                            // ✅ Delete 재포커스 성공 시 플래그 정리
+                            // ✅ Delete 직후 복구 대상 셀은 유지, 다른 셀 포커스 시에는 플래그 해제
                             const cur = deleteRefocusRef.current;
-                            if (cur && cur.rowId === row.id && cur.key === key) {
+                            if (cur && !(cur.rowId === row.id && cur.key === key)) {
                               deleteRefocusRef.current = null;
                             }
 
@@ -1365,9 +1356,15 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           onChange={(e) => {
                             const next = e.target.value;
 
+                            // ✅ Delete 후 같은 셀 재입력 시작 시 refocus 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur && cur.rowId === row.id && cur.key === key) {
+                              deleteRefocusRef.current = null;
+                            }
+
                             // 입력 중에는 setRows 하지 않음.
-                            // setRows가 displayRows 재계산/리렌더를 유발해서 빈셀 입력이 사라지는 문제를 막는다.
                             activeEditCellRef.current = { rowId: row.id, key };
+                            activeEditValueRef.current = next;
                             activeEditValueRef.current = next;
                             editingCellRef.current = { rowId: row.id, key };
                           }}
