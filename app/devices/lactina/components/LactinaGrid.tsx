@@ -473,9 +473,21 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-    async function clearSingleSelectedCell() {
+     async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
-    ...
+
+    const isSingleCell =
+      selectedCellRange.startRow === selectedCellRange.endRow &&
+      selectedCellRange.startCol === selectedCellRange.endCol;
+
+    if (!isSingleCell) return false;
+
+    const rowIndex = selectedCellRange.startRow;
+    const colIndex = selectedCellRange.startCol;
+
+    const row = displayRows[rowIndex];
+    const key = viewColumns[colIndex];
+
     if (!row || !key || isComputedColumn(key)) return false;
 
     // ✅ Delete 후 같은 셀 재포커스 진행중 표시
@@ -483,7 +495,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     setActiveEditDraft({ rowId: row.id, key }, "");
 
     const hasLock = await ensureLactinaRowLock(row.id);
-    ...
+
+    if (!hasLock) {
+      clearActiveEditDraftIfSame(row.id, key);
+      await reload({ silent: true });
+      return true;
+    }
+
     try {
       const input = document.querySelector<HTMLInputElement>(
         `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
@@ -494,13 +512,19 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       updateLocalCell(row.id, key, "");
       await saveCell(row.id, key, "");
 
-      ...
+      setSelectedRowRange(null);
+      setSelectedCellRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      });
+
       setContextMenu(null);
 
       setActiveEditDraft({ rowId: row.id, key }, "");
       focusCellSoon(rowIndex, colIndex);
 
-      // 안전 타이머로 플래그 해제
       setTimeout(() => {
         const cur = deleteRefocusRef.current;
         if (cur && cur.rowId === row.id && cur.key === key) {
@@ -514,7 +538,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     return true;
-  }  
+  }
 
     try {
       const input = document.querySelector<HTMLInputElement>(
