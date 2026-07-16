@@ -473,7 +473,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-     async function clearSingleSelectedCell() {
+   async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -540,39 +540,8 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return true;
   }
 
-    try {
-      const input = document.querySelector<HTMLInputElement>(
-        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
-      );
-
-      if (input) input.value = "";
-
-      updateLocalCell(row.id, key, "");
-      await saveCell(row.id, key, "");
-
-      setSelectedRowRange(null);
-      setSelectedCellRange({
-        startRow: rowIndex,
-        endRow: rowIndex,
-        startCol: colIndex,
-        endCol: colIndex,
-      });
-
-      setContextMenu(null);
-
-      // ✅ Delete 후 같은 셀에서 바로 재입력 가능하게 포커스 복구
-      setActiveEditDraft({ rowId: row.id, key }, "");
-      focusCellSoon(rowIndex, colIndex);
-    } catch {
-      clearActiveEditDraftIfSame(row.id, key);
-      await reload({ silent: true });
-    }
-
-    return true;
-  }
-
-  // ===== 유틸: 셀 표시값(파생 포함) =====
-
+  // ===== 유틸: 셀 표시값(파생 포함) =====  
+ 
   function getDisplayValue(row: LactinaRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
     const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
