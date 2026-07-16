@@ -2355,10 +2355,9 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
       };
     }, []);
 
-          // ✅ Delete는 원래 입력 기본 동작이 잘 되던 기능이었음
-    //    → 우리가 “선택 없을 때도” 가로채면서 망가졌으니,
-    //      선택 범위가 있을 때만 범위 지우기 처리하고,
-    //      선택이 없으면 브라우저 기본 Delete 동작을 그대로 둔다.
+     // ✅ Delete는 선택 범위가 있을 때만 처리한다.
+    // ✅ 단일 셀 Delete는 blur를 강제로 태우지 않는다.
+    //    이유: blur → 저장 → 리렌더/remount 흐름 때문에 Delete 후 바로 입력할 커서가 사라졌음.
    useEffect(() => {
   function onKeyDown(e: KeyboardEvent) {
     if (e.key !== "Delete") return;
@@ -2374,39 +2373,99 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
 
     const ae = document.activeElement as HTMLElement | null;
     const isInput = !!ae && ae.tagName === "INPUT";
-    const input = isInput ? (ae as HTMLInputElement) : null;
+    const activeInput = isInput ? (ae as HTMLInputElement) : null;
 
-    // ✅ input 포커스 상태에서 "전체 선택 상태"로 Delete를 누르면
-    // 셀 범위 선택이 없어도 강제로 blur → onBlur 저장까지 타게 한다(저장 누락 방지)
     const isAllSelected =
-      !!input &&
-      typeof input.selectionStart === "number" &&
-      typeof input.selectionEnd === "number" &&
-      input.selectionStart === 0 &&
-      input.selectionEnd === (input.value ?? "").length;
+      !!activeInput &&
+      typeof activeInput.selectionStart === "number" &&
+      typeof activeInput.selectionEnd === "number" &&
+      activeInput.selectionStart === 0 &&
+      activeInput.selectionEnd === (activeInput.value ?? "").length;
 
-    if (input && !input.readOnly && (isSingleCell || isAllSelected)) {
-      e.preventDefault();
-      e.stopPropagation();
+    // ✅ 단일 셀 선택 상태면, activeElement가 아니어도 해당 셀 input을 직접 찾는다.
+    let targetInput: HTMLInputElement | null = null;
 
-      input.value = "";
+    if (isSingleCell && selectedCellRange) {
+      targetInput = document.querySelector<HTMLInputElement>(
+        `input[data-row="${selectedCellRange.startRow}"][data-col="${selectedCellRange.startCol}"]`
+      );
+    }
 
-      requestAnimationFrame(() => {
+    if (!targetInput && activeInput) {
+      targetInput = activeInput;
+    }
+
+    // ✅ 단일 셀 Delete / input 전체선택 Delete:
+    //    값을 비우되 blur하지 않고 같은 input에 커서를 유지한다.
+    if (targetInput && !targetInput.readOnly && (isSingleCell || isAllSelected)) {
+      const rowAttr = targetInput.getAttribute("data-row");
+      const colAttr = targetInput.getAttribute("data-col");
+
+      const rowIndex = Number(rowAttr);
+      const colIndex = Number(colAttr);
+      const colKey = viewColumns[colIndex];
+
+      const tr = targetInput.closest("tr[data-unified-id]");
+      const rowId = Number(tr?.getAttribute("data-unified-id"));
+
+      const isBlockedKey =
+        colKey === "상태" ||
+        colKey === "총연장횟수" ||
+        colKey === "안내분류" ||
+        isExtensionKey(colKey);
+
+      if (
+        Number.isFinite(rowIndex) &&
+        Number.isFinite(colIndex) &&
+        Number.isFinite(rowId) &&
+        colKey &&
+        !isBlockedKey
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // ✅ 편집 상태 유지: onBlur가 나중에 정상 저장하도록 현재 셀을 편집중으로 표시
+        editingCellRef.current = { rowId, key: colKey };
+        setActiveEditCell({ rowId, key: colKey });
+        setActiveEditValue("");
+
+        setSelectedRowRange(null);
+        setSelectedCellRange({
+          startRow: rowIndex,
+          endRow: rowIndex,
+          startCol: colIndex,
+          endCol: colIndex,
+        });
+        lastFocusForPasteRef.current = { rowIndex, colIndex };
+
+        // ✅ 핵심: blur 금지. input 값만 비우고 같은 셀 커서 유지.
+        targetInput.value = "";
+        targetInput.focus();
+
+        try {
+          targetInput.setSelectionRange(0, 0);
+        } catch {
+          // ignore
+        }
+
+        // ✅ 렌더/선택 표시 갱신 후에도 커서 유지 보강
         requestAnimationFrame(() => {
           try {
-            input.blur();
+            targetInput?.focus();
+            targetInput?.setSelectionRange(0, 0);
           } catch {
             // ignore
           }
         });
-      });
-      return;
+
+        return;
+      }
     }
 
     // ✅ 선택이 없으면 기본 Delete 동작을 건드리지 않음
     if (!hasCellRange && !hasRowRange) return;
 
-    // ✅ 범위 선택(여러 셀/행)일 때만 가로챔
+    // ✅ 범위 선택(여러 셀/행)일 때만 기존 지우기/삭제 흐름 유지
     e.preventDefault();
     e.stopPropagation();
 
@@ -2429,7 +2488,7 @@ async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string
 
   window.addEventListener("keydown", onKeyDown);
   return () => window.removeEventListener("keydown", onKeyDown);
-}, [selectedCellRange, selectedRowRange]);
+}, [selectedCellRange, selectedRowRange, viewColumns]);   
 
 // ✅ (Fix #4) Delete 등으로 INPUT 포커스가 사라진 상태에서도
 // 선택된 셀 범위가 있으면 방향키로 셀 이동이 되게 한다(화면 스크롤 방지)
