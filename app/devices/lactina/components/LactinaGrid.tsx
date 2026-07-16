@@ -337,6 +337,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
   const activeEditCellRef = useRef<{ rowId: number; key: string } | null>(null);
   const activeEditValueRef = useRef<string>("");
 
+  // ✅ Delete 직후 remount/blur 중에도 같은 셀 재포커스를 보장하기 위한 플래그
+  const deleteRefocusRef = useRef<{ rowId: number; key: string } | null>(null);
+
   const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
@@ -472,30 +475,46 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
     async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
-
-    const isSingleCell =
-      selectedCellRange.startRow === selectedCellRange.endRow &&
-      selectedCellRange.startCol === selectedCellRange.endCol;
-
-    if (!isSingleCell) return false;
-
-    const rowIndex = selectedCellRange.startRow;
-    const colIndex = selectedCellRange.startCol;
-
-    const row = displayRows[rowIndex];
-    const key = viewColumns[colIndex];
-
+    ...
     if (!row || !key || isComputedColumn(key)) return false;
 
+    // ✅ Delete 후 같은 셀 재포커스 진행중 표시
+    deleteRefocusRef.current = { rowId: row.id, key };
     setActiveEditDraft({ rowId: row.id, key }, "");
 
     const hasLock = await ensureLactinaRowLock(row.id);
+    ...
+    try {
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
 
-    if (!hasLock) {
+      if (input) input.value = "";
+
+      updateLocalCell(row.id, key, "");
+      await saveCell(row.id, key, "");
+
+      ...
+      setContextMenu(null);
+
+      setActiveEditDraft({ rowId: row.id, key }, "");
+      focusCellSoon(rowIndex, colIndex);
+
+      // 안전 타이머로 플래그 해제
+      setTimeout(() => {
+        const cur = deleteRefocusRef.current;
+        if (cur && cur.rowId === row.id && cur.key === key) {
+          deleteRefocusRef.current = null;
+        }
+      }, 500);
+    } catch {
       clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
       await reload({ silent: true });
-      return true;
     }
+
+    return true;
+  }  
 
     try {
       const input = document.querySelector<HTMLInputElement>(
@@ -584,19 +603,37 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-  function focusCellSoon(rowIndex: number, colIndex: number) {
-    // 값 변경 후 input remount 타이밍을 기다렸다가 포커스 복구
-    requestAnimationFrame(() => {
-      if (focusCell(rowIndex, colIndex)) return;
+    function focusCellSoon(rowIndex: number, colIndex: number) {
+    let tries = 0;
+    const maxTries = 12;
 
-      setTimeout(() => {
-        if (focusCell(rowIndex, colIndex)) return;
+    const tryFocus = () => {
+      tries += 1;
 
-        setTimeout(() => {
-          focusCell(rowIndex, colIndex);
-        }, 0);
-      }, 0);
-    });
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      if (input) {
+        input.focus();
+        // ✅ "선택(select)"가 아니라 커서 깜박임 상태로
+        const len = (input.value ?? "").length;
+        try {
+          input.setSelectionRange(len, len);
+        } catch {}
+        return true;
+      }
+
+      return false;
+    };
+
+    const loop = () => {
+      if (tryFocus()) return;
+      if (tries >= maxTries) return;
+      setTimeout(loop, 16);
+    };
+
+    requestAnimationFrame(loop);
   }
 
    function handleCellKeyDown(
@@ -1313,6 +1350,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           data-col={colIndex}
                           onFocus={(e) => {
                             setSelectedRowRange(null);
+
+                            // ✅ Delete 재포커스 성공 시 플래그 정리
+                            const cur = deleteRefocusRef.current;
+                            if (cur && cur.rowId === row.id && cur.key === key) {
+                              deleteRefocusRef.current = null;
+                            }
+
                             const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
@@ -1365,7 +1409,17 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
-                            } finally {
+                                                       } finally {
+                              // ✅ Delete 직후 remount로 발생한 blur는 잠시 무시(같은 셀 재입력 유지)
+                              const refocusPending =
+                                deleteRefocusRef.current?.rowId === blurRowId &&
+                                deleteRefocusRef.current?.key === blurKey;
+
+                              if (refocusPending) {
+                                focusCellSoon(rowIndex, colIndex);
+                                return;
+                              }
+
                               const nextFocusedRowId = getActiveLactinaRowId();
                               const keepRowLock = nextFocusedRowId === blurRowId;
 
