@@ -356,7 +356,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
   }
 
-   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
@@ -369,25 +369,38 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     // 같은 행 내 셀 이동이면 기존 락 재사용
     if (myRowLocksRef.current[rowId]) return;
 
-    const pending = acquireLock("lactina", rowId);
-    lockPendingRef.current[rowId] = pending;
+    // 같은 행에서 락 요청이 이미 진행 중이면 새로 acquire하지 않고 기존 pending 재사용
+    const existingPending = lockPendingRef.current[rowId];
+    const pending = existingPending ?? acquireLock("lactina", rowId);
+
+    if (!existingPending) {
+      lockPendingRef.current[rowId] = pending;
+    }
 
     const result = await pending.catch(() => null);
-    lockPendingRef.current[rowId] = null;
 
-    const stillActive =
-      editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
-
-    if (!stillActive) {
-      if (result?.ok) await releaseLock("lactina", rowId);
-      return;
+    if (lockPendingRef.current[rowId] === pending) {
+      lockPendingRef.current[rowId] = null;
     }
+
+    const active = editingCellRef.current;
+    const stillActiveSameCell = active?.rowId === rowId && active?.key === key;
+    const stillActiveSameRow = active?.rowId === rowId;
 
     if (result?.ok) {
-      myRowLocksRef.current[rowId] = true;
-      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      // ✅ 핵심: 같은 행의 다른 셀로 이미 이동한 상태면 락을 풀면 안 됨
+      if (stillActiveSameRow) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return;
+      }
+
+      await releaseLock("lactina", rowId).catch(() => {});
       return;
     }
+
+    // 이미 다른 셀/행으로 이동한 오래된 focus 응답이면 조용히 무시
+    if (!stillActiveSameCell) return;
 
     editingCellRef.current = null;
     setActiveEditCell(null);
@@ -408,6 +421,92 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
   }
 
   // ===== 유틸: 셀 표시값(파생 포함) =====
+    async function ensureLactinaRowLock(rowId: number) {
+    if (myRowLocksRef.current[rowId]) return true;
+
+    const pending = lockPendingRef.current[rowId];
+    if (pending) {
+      const r = await pending.catch(() => null);
+      if (r?.ok) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return true;
+      }
+    }
+
+    const retry = await acquireLock("lactina", rowId).catch(() => null);
+    if (retry?.ok) {
+      myRowLocksRef.current[rowId] = true;
+      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function clearSingleSelectedCell() {
+    if (!selectedCellRange) return false;
+
+    const isSingleCell =
+      selectedCellRange.startRow === selectedCellRange.endRow &&
+      selectedCellRange.startCol === selectedCellRange.endCol;
+
+    if (!isSingleCell) return false;
+
+    const rowIndex = selectedCellRange.startRow;
+    const colIndex = selectedCellRange.startCol;
+
+    const row = displayRows[rowIndex];
+    const key = viewColumns[colIndex];
+
+    if (!row || !key || isComputedColumn(key)) return false;
+
+    editingCellRef.current = { rowId: row.id, key };
+    setActiveEditCell({ rowId: row.id, key });
+    setActiveEditValue("");
+
+    const hasLock = await ensureLactinaRowLock(row.id);
+
+    if (!hasLock) {
+      editingCellRef.current = null;
+      setActiveEditCell(null);
+      setActiveEditValue("");
+      await reload({ silent: true });
+      return true;
+    }
+
+    try {
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      if (input) input.value = "";
+
+      updateLocalCell(row.id, key, "");
+      await saveCell(row.id, key, "");
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      });
+
+      setContextMenu(null);
+      focusCell(rowIndex, colIndex);
+    } catch {
+      editingCellRef.current = null;
+      setActiveEditCell(null);
+      setActiveEditValue("");
+      await reload({ silent: true });
+    }
+
+    return true;
+  }
+
+  // ===== 유틸: 셀 표시값(파생 포함) =====
+
   function getDisplayValue(row: LactinaRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
     const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
@@ -663,14 +762,16 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
           selectedCellRange.startRow === selectedCellRange.endRow &&
           selectedCellRange.startCol === selectedCellRange.endCol;
 
-        const ae = document.activeElement as HTMLElement | null;
-        const isInput = !!ae && ae.tagName === "INPUT";
-
-        // 단일 셀 input 편집 중 Delete는 기본동작(커서 유지)
-        if (isInput && isSingleCell) return;
-
         e.preventDefault();
         e.stopPropagation();
+
+        // ✅ 단일셀 Delete도 input 기본동작이 아니라 저장 확정 경로로 강제
+        if (isSingleCell) {
+          void clearSingleSelectedCell();
+          return;
+        }
+
+        // 여러 셀/행 범위는 기존 bulk clear 경로
         void clearSelection();
         return;
       }
