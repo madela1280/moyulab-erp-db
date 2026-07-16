@@ -473,7 +473,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-    async function clearSingleSelectedCell() {
+      async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -516,11 +516,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
         } catch {}
       }
 
-      // ✅ 2) 로컬 데이터도 즉시 반영해서 방향키 이동 시 "삭제 전 값 잔상" 점멸 방지
+      // ✅ 2) 로컬 데이터 즉시 반영
+      // input key를 안정화했기 때문에 이 setRows가 더 이상 input remount를 만들지 않음
       updateLocalCell(row.id, key, "");
-
-      // ✅ 3) 서버 저장
-      await saveCell(row.id, key, "");
 
       setSelectedRowRange(null);
       setSelectedCellRange({
@@ -532,6 +530,14 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
       setContextMenu(null);
       setActiveEditDraft({ rowId: row.id, key }, "");
+
+      // ✅ 서버 저장을 기다리기 전부터 커서 유지
+      focusCellSoon(rowIndex, colIndex);
+
+      // ✅ 3) 서버 저장
+      await saveCell(row.id, key, "");
+
+      // ✅ 저장 완료 후에도 같은 셀 커서 유지
       focusCellSoon(rowIndex, colIndex);
     } catch {
       clearActiveEditDraftIfSame(row.id, key);
@@ -630,6 +636,33 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
     requestAnimationFrame(loop);
   }
+
+   // ✅ input key를 안정화하면 defaultValue만으로는 외부 데이터 변경이 화면에 안 보일 수 있음.
+  // 그래서 rows가 바뀔 때, 현재 포커스 중인 input은 건드리지 않고 나머지 input 값만 DOM으로 동기화한다.
+  useEffect(() => {
+    const inputs = document.querySelectorAll<HTMLInputElement>('input[data-row][data-col]');
+
+    inputs.forEach((input) => {
+      // 현재 입력 중인 셀은 절대 건드리지 않음 = 커서/타이핑 보호
+      if (document.activeElement === input) return;
+
+      const rowIndex = Number(input.getAttribute("data-row"));
+      const colIndex = Number(input.getAttribute("data-col"));
+
+      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
+
+      const row = displayRows[rowIndex];
+      const colKey = viewColumns[colIndex];
+
+      if (!row || !colKey || isComputedColumn(colKey)) return;
+
+      const nextValue = String(row.data?.[colKey] ?? "");
+
+      if (input.value !== nextValue) {
+        input.value = nextValue;
+      }
+    });
+  }, [displayRows, viewColumns]);
 
     function handleCellKeyDown(
     e: React.KeyboardEvent<HTMLElement>,
@@ -1343,7 +1376,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                         }}
                       >
                       <input
-                          key={`${row.id}:${key}:${String(row.data?.[key] ?? "")}`}
+                          key={`${row.id}:${key}`}
                           className={`w-full bg-transparent outline-none`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
                           defaultValue={String(row.data?.[key] ?? "")}
@@ -1364,8 +1397,14 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           onChange={(e) => {
                             const next = e.target.value;
 
+                            // ✅ Delete 후 사용자가 바로 입력을 시작하면,
+                            // 더 이상 "강제 재포커스 상태"가 아니므로 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur?.rowId === row.id && cur.key === key) {
+                              deleteRefocusRef.current = null;
+                            }
+
                             // 입력 중에는 setRows 하지 않음.
-                            // Delete 직후에는 refocus 플래그를 유지해야 서버 저장/리로드에도 커서가 안 사라짐.
                             activeEditCellRef.current = { rowId: row.id, key };
                             activeEditValueRef.current = next;
                             editingCellRef.current = { rowId: row.id, key };
@@ -1374,29 +1413,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const blurRowId = row.id;
                             const blurKey = key;
                             const v = String(e.target.value ?? "");
-                            const nextFocusTarget = e.relatedTarget as HTMLElement | null;
 
-                            const refocusPendingNow =
+                            // ✅ blur가 발생했다는 건 사용자가 셀을 떠났거나 브라우저 포커스가 바뀐 것.
+                            // 여기서 강제 재포커스하면 Delete 후 입력/이동 흐름이 다시 꼬이므로 플래그만 종료한다.
+                            if (
                               deleteRefocusRef.current?.rowId === blurRowId &&
-                              deleteRefocusRef.current?.key === blurKey;
-
-                            const nextInput = nextFocusTarget?.closest?.(
-                              "input[data-row][data-col]"
-                            ) as HTMLInputElement | null | undefined;
-
-                            const movingToAnotherCell =
-                              !!nextInput &&
-                              (nextInput.getAttribute("data-row") !== String(rowIndex) ||
-                                nextInput.getAttribute("data-col") !== String(colIndex));
-
-                            // ✅ Delete 직후 같은 셀 유지 케이스는 최우선: 중복저장/락재처리 없이 즉시 재포커스
-                            if (refocusPendingNow && !movingToAnotherCell) {
-                              focusCellSoon(rowIndex, colIndex);
-                              return;
-                            }
-
-                            // ✅ 다른 셀로 이동이면 Delete 재포커스 플래그 해제
-                            if (refocusPendingNow && movingToAnotherCell) {
+                              deleteRefocusRef.current?.key === blurKey
+                            ) {
                               deleteRefocusRef.current = null;
                             }
 
