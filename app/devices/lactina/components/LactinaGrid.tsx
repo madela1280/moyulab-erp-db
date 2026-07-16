@@ -1343,12 +1343,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                         }}
                       >
                       <input
-                         key={
-                            deleteRefocusRef.current?.rowId === row.id &&
-                            deleteRefocusRef.current?.key === key
-                              ? `${row.id}:${key}:delete-refocus`
-                              : `${row.id}:${key}:${String(row.data?.[key] ?? "")}`
-                          }
+                          key={`${row.id}:${key}:${String(row.data?.[key] ?? "")}`}
                           className={`w-full bg-transparent outline-none`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
                           defaultValue={String(row.data?.[key] ?? "")}
@@ -1381,9 +1376,29 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const v = String(e.target.value ?? "");
                             const nextFocusTarget = e.relatedTarget as HTMLElement | null;
 
-                            const refocusPendingAtBlur =
+                            const refocusPendingNow =
                               deleteRefocusRef.current?.rowId === blurRowId &&
                               deleteRefocusRef.current?.key === blurKey;
+
+                            const nextInput = nextFocusTarget?.closest?.(
+                              "input[data-row][data-col]"
+                            ) as HTMLInputElement | null | undefined;
+
+                            const movingToAnotherCell =
+                              !!nextInput &&
+                              (nextInput.getAttribute("data-row") !== String(rowIndex) ||
+                                nextInput.getAttribute("data-col") !== String(colIndex));
+
+                            // ✅ Delete 직후 같은 셀 유지 케이스는 최우선: 중복저장/락재처리 없이 즉시 재포커스
+                            if (refocusPendingNow && !movingToAnotherCell) {
+                              focusCellSoon(rowIndex, colIndex);
+                              return;
+                            }
+
+                            // ✅ 다른 셀로 이동이면 Delete 재포커스 플래그 해제
+                            if (refocusPendingNow && movingToAnotherCell) {
+                              deleteRefocusRef.current = null;
+                            }
 
                             let hasLock = !!myRowLocksRef.current[blurRowId];
 
@@ -1415,39 +1430,12 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             }
 
                             try {
-                              // ✅ Delete 단일셀 경로에서 이미 local+server 저장한 케이스는 중복 저장 생략
-                              const skipPersistBecauseAlreadyDeleted = refocusPendingAtBlur && v === "";
-                              if (!skipPersistBecauseAlreadyDeleted) {
-                                updateLocalCell(blurRowId, blurKey, v);
-                                await saveCell(blurRowId, blurKey, v);
-                              }
+                              updateLocalCell(blurRowId, blurKey, v);
+                              await saveCell(blurRowId, blurKey, v);
                             } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
                             } finally {
-                              // ✅ Delete 직후 remount/저장 반영으로 생긴 blur는 같은 셀 커서 유지
-                              const refocusPending =
-                                deleteRefocusRef.current?.rowId === blurRowId &&
-                                deleteRefocusRef.current?.key === blurKey;
-
-                              const nextInput = nextFocusTarget?.closest?.(
-                                "input[data-row][data-col]"
-                              ) as HTMLInputElement | null | undefined;
-
-                              const movingToAnotherCell =
-                                !!nextInput &&
-                                (nextInput.getAttribute("data-row") !== String(rowIndex) ||
-                                  nextInput.getAttribute("data-col") !== String(colIndex));
-
-                              if (refocusPending && movingToAnotherCell) {
-                                deleteRefocusRef.current = null;
-                              }
-
-                              if (refocusPending && !movingToAnotherCell) {
-                                focusCellSoon(rowIndex, colIndex);
-                                return;
-                              }
-
                               const nextFocusedRowId = getActiveLactinaRowId();
                               const keepRowLock = nextFocusedRowId === blurRowId;
 
