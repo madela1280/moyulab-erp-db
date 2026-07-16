@@ -327,7 +327,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     setFilterColumnKey(null);
   }
 
-    // ===== 편집(락) =====
+      // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const myRowLocksRef = useRef<Record<number, boolean>>({});
   const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
@@ -341,11 +341,10 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
 
-  function getActiveLactinaRowId() {
+  function getActiveLactinaRowId(): number | null {
     try {
       const ae = document.activeElement as HTMLElement | null;
-      if (!ae) return null;
-      if (ae.tagName !== "INPUT") return null;
+      if (!ae || ae.tagName !== "INPUT") return null;
 
       const rowAttr = (ae as HTMLInputElement).getAttribute("data-row");
       const rowIndex = Number(rowAttr);
@@ -357,7 +356,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
   }
 
-  async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
@@ -397,7 +396,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     e.target.blur();
   }
 
-  function updateLocalCell(rowId: number, key: string, value: string) {
+  function updateLocalCell(rowId: number, key: string, value: string) { 
     setRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
     );
@@ -463,33 +462,39 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-  function handleCellKeyDown(
+   function handleCellKeyDown(
     e: React.KeyboardEvent<HTMLElement>,
     rowIndex: number,
     colIndex: number
   ) {
+    const isArrow =
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft";
+
+    if (!isArrow) return;
+
+    // 경계에서도 화면 스크롤이 아니라 셀 이동 규칙이 우선
+    e.preventDefault();
+    e.stopPropagation();
+
     let r = rowIndex;
     let c = colIndex;
 
     switch (e.key) {
       case "ArrowDown":
         if (rowIndex < displayRows.length - 1) r = rowIndex + 1;
-        else return;
         break;
       case "ArrowUp":
         if (rowIndex > 0) r = rowIndex - 1;
-        else return;
         break;
       case "ArrowRight":
         if (colIndex < viewColumns.length - 1) c = colIndex + 1;
-        else return;
         break;
       case "ArrowLeft":
         if (colIndex > 0) c = colIndex - 1;
-        else return;
         break;
-      default:
-        return;
     }
 
     setSelectedRowRange(null);
@@ -498,8 +503,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     closeFilterPopover();
 
     focusCell(r, c);
-    e.preventDefault();
-  }
+  } 
 
   // ===== 붙여넣기/삭제: paste capture 단일 경로 =====
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
@@ -639,7 +643,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return () => window.removeEventListener("paste", onPasteCapture, true);
   }, [selectedCellRange, selectedRowRange, displayRows, viewColumns, rows]);
 
-  useEffect(() => {
+    useEffect(() => {
     async function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setContextMenu(null);
@@ -647,7 +651,24 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
         return;
       }
 
-      if (e.key === "Delete" && (selectedCellRange || selectedRowRange)) {
+      if (e.key === "Delete") {
+        const hasCellRange = !!selectedCellRange;
+        const hasRowRange = !!selectedRowRange;
+
+        // 선택이 없으면 기본 Delete 유지
+        if (!hasCellRange && !hasRowRange) return;
+
+        const isSingleCell =
+          !!selectedCellRange &&
+          selectedCellRange.startRow === selectedCellRange.endRow &&
+          selectedCellRange.startCol === selectedCellRange.endCol;
+
+        const ae = document.activeElement as HTMLElement | null;
+        const isInput = !!ae && ae.tagName === "INPUT";
+
+        // 단일 셀 input 편집 중 Delete는 기본동작(커서 유지)
+        if (isInput && isSingleCell) return;
+
         e.preventDefault();
         e.stopPropagation();
         void clearSelection();
@@ -690,6 +711,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       }
 
       if (k === "v" && (selectedCellRange || selectedRowRange)) {
+        // paste 이벤트를 캡처 경로로 유도
         pasteCatcherRef.current?.focus();
         return;
       }
@@ -698,7 +720,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedCellRange, selectedRowRange, displayRows, viewColumns, rows, filterPopoverOpen]);
-
+  
   useEffect(() => {
     function onMouseUp() {
       setIsRowDragging(false);
@@ -710,13 +732,59 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return () => window.removeEventListener("mouseup", onMouseUp);
   }, []);
 
-  useEffect(() => {
+   useEffect(() => {
     function onClick() {
       setContextMenu(null);
     }
     window.addEventListener("click", onClick);
     return () => window.removeEventListener("click", onClick);
   }, []);
+
+  useEffect(() => {
+    function onArrowKeyDown(e: KeyboardEvent) {
+      const isArrow =
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight";
+      if (!isArrow) return;
+
+      // input 포커스면 기존 input onKeyDown(handleCellKeyDown)에 맡김
+      const ae = document.activeElement as HTMLElement | null;
+      const tag = (ae?.tagName || "").toUpperCase();
+      const isEditable =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!ae?.isContentEditable;
+      if (isEditable) return;
+
+      if (!selectedCellRange) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      let r = selectedCellRange.startRow;
+      let c = selectedCellRange.startCol;
+
+      if (e.key === "ArrowDown") {
+        if (r < displayRows.length - 1) r += 1;
+      } else if (e.key === "ArrowUp") {
+        if (r > 0) r -= 1;
+      } else if (e.key === "ArrowRight") {
+        if (c < viewColumns.length - 1) c += 1;
+      } else if (e.key === "ArrowLeft") {
+        if (c > 0) c -= 1;
+      }
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
+      setContextMenu(null);
+      closeFilterPopover();
+
+      focusCell(r, c);
+    }
+
+    window.addEventListener("keydown", onArrowKeyDown, true);
+    return () => window.removeEventListener("keydown", onArrowKeyDown, true);
+  }, [selectedCellRange, displayRows.length, viewColumns.length]);
 
   // ===== 행 삽입/삭제 =====
   async function handleInsertRows() {
@@ -1120,7 +1188,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             }
                             if (myRowLocksRef.current[row.id]) updateLocalCell(row.id, key, e.target.value);
                           }}
-                          onBlur={async (e) => {
+                         onBlur={async (e) => {
                             const v = String(e.target.value ?? "");
 
                             // stale 방지: 현재 시점의 락 보유 여부 고정
@@ -1149,11 +1217,22 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                               }
                             }
 
+                            // ✅ 락 끝까지 실패하면 저장 시도 금지(삭제 부활/튕김 방지)
+                            if (!hasLock) {
+                              editingCellRef.current = null;
+                              setActiveEditCell(null);
+                              setActiveEditValue("");
+                              await reload({ silent: true });
+                              return;
+                            }
+
                             try {
-                              // 저장은 시도(누락 방지)
                               updateLocalCell(row.id, key, v);
                               await saveCell(row.id, key, v);
                             } catch {
+                              editingCellRef.current = null;
+                              setActiveEditCell(null);
+                              setActiveEditValue("");
                               await reload({ silent: true });
                             } finally {
                               const nextFocusedRowId = getActiveLactinaRowId();
