@@ -473,7 +473,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return false;
   }
 
-   async function clearSingleSelectedCell() {
+    async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -502,22 +502,24 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       return true;
     }
 
-       try {
+    try {
       const input = document.querySelector<HTMLInputElement>(
         `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
       );
 
-      // ✅ 1) 화면에서 즉시 삭제 + 같은 셀 커서 유지(바로 재입력 가능)
+      // ✅ 1) 화면에서 즉시 삭제 + 같은 셀 커서 유지
       if (input) {
         input.value = "";
         input.focus();
         try {
-          input.setSelectionRange(0, 0); // 커서 깜박임 유지
+          input.setSelectionRange(0, 0);
         } catch {}
       }
 
-      // ✅ 2) 로컬 setRows로 즉시 리렌더(=셀 remount) 유발하지 않음
-      //    -> Delete 직후 커서 사라짐/입력불가 회귀 방지
+      // ✅ 2) 로컬 데이터도 즉시 반영해서 방향키 이동 시 "삭제 전 값 잔상" 점멸 방지
+      updateLocalCell(row.id, key, "");
+
+      // ✅ 3) 서버 저장
       await saveCell(row.id, key, "");
 
       setSelectedRowRange(null);
@@ -538,7 +540,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     return true;
-  }
+  } 
 
   // ===== 유틸: 셀 표시값(파생 포함) =====  
  
@@ -629,7 +631,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     requestAnimationFrame(loop);
   }
 
-   function handleCellKeyDown(
+    function handleCellKeyDown(
     e: React.KeyboardEvent<HTMLElement>,
     rowIndex: number,
     colIndex: number
@@ -641,6 +643,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       e.key === "ArrowLeft";
 
     if (!isArrow) return;
+
+    // ✅ 방향키로 다른 셀로 이동 의도 시 Delete 재포커스 플래그 해제
+    deleteRefocusRef.current = null;
 
     // 경계에서도 화면 스크롤이 아니라 셀 이동 규칙이 우선
     e.preventDefault();
@@ -907,7 +912,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     return () => window.removeEventListener("click", onClick);
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     function onArrowKeyDown(e: KeyboardEvent) {
       const isArrow =
         e.key === "ArrowDown" ||
@@ -924,6 +929,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       if (isEditable) return;
 
       if (!selectedCellRange) return;
+
+      // ✅ 방향키 이동 의도 시 Delete 재포커스 플래그 해제
+      deleteRefocusRef.current = null;
 
       e.preventDefault();
       e.stopPropagation();
@@ -1373,6 +1381,10 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const v = String(e.target.value ?? "");
                             const nextFocusTarget = e.relatedTarget as HTMLElement | null;
 
+                            const refocusPendingAtBlur =
+                              deleteRefocusRef.current?.rowId === blurRowId &&
+                              deleteRefocusRef.current?.key === blurKey;
+
                             let hasLock = !!myRowLocksRef.current[blurRowId];
 
                             if (!hasLock) {
@@ -1403,9 +1415,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             }
 
                             try {
-                              updateLocalCell(blurRowId, blurKey, v);
-                              await saveCell(blurRowId, blurKey, v);
-                                                       } catch {
+                              // ✅ Delete 단일셀 경로에서 이미 local+server 저장한 케이스는 중복 저장 생략
+                              const skipPersistBecauseAlreadyDeleted = refocusPendingAtBlur && v === "";
+                              if (!skipPersistBecauseAlreadyDeleted) {
+                                updateLocalCell(blurRowId, blurKey, v);
+                                await saveCell(blurRowId, blurKey, v);
+                              }
+                            } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
                             } finally {
