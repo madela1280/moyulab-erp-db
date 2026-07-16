@@ -40,7 +40,6 @@ import { buildColorBulkPatch } from "@/devices/symphony/color/applySymphonyColor
 import type { SymphonySoftColor } from "@/devices/symphony/color/ColorPopover";
 
 export type SymphonyGridHandle = {
-  // ✅ 실시간 수신 시 점멸 줄이기 위해 silent reload 옵션 지원
   reload: (options?: { silent?: boolean }) => Promise<void>;
   applyColorToSelection: (
     color: SymphonySoftColor,
@@ -84,7 +83,6 @@ function stripRentingMarker(v: any) {
   const raw = String(v ?? "");
   if (!raw) return "";
 
-  // "대여중" 표기(예: "대여중", " (대여중)", "(대여중)")만 제거해서 안정화
   let s = raw;
   s = s.replace(/\(대여중\)/g, "");
   s = s.replace(/\s*대여중\s*/g, " ");
@@ -107,7 +105,7 @@ function formatWon(v: any) {
   const raw = String(v ?? "").trim();
   if (!raw) return "";
   const n = Number(raw.replace(/,/g, ""));
-  if (!Number.isFinite(n)) return raw; // 숫자 아니면 원본 유지
+  if (!Number.isFinite(n)) return raw;
   return n.toLocaleString("ko-KR");
 }
 
@@ -117,14 +115,13 @@ function cellStyleKey(rowId: number, colKey: string) {
   return `${rowId}:${colKey}`;
 }
 
-// ✅ Tailwind class가 생성/적용 안 되는 환경에서도 100% 동작하도록 inline color로 렌더링
 const INLINE_PALETTE: Record<string, { bg: string; text: string }> = {
-  red: { bg: "#FECACA", text: "#991B1B" }, // red-200 / red-800
-  yellow: { bg: "#FEF08A", text: "#854D0E" }, // yellow-200 / yellow-800
-  blue: { bg: "#BFDBFE", text: "#1E40AF" }, // blue-200 / blue-800
-  green: { bg: "#BBF7D0", text: "#166534" }, // green-200 / green-800
-  purple: { bg: "#E9D5FF", text: "#6B21A8" }, // purple-200 / purple-800
-  black: { bg: "#CBD5E1", text: "#0F172A" }, // slate-300 / slate-900
+  red: { bg: "#FECACA", text: "#991B1B" },
+  yellow: { bg: "#FEF08A", text: "#854D0E" },
+  blue: { bg: "#BFDBFE", text: "#1E40AF" },
+  green: { bg: "#BBF7D0", text: "#166534" },
+  purple: { bg: "#E9D5FF", text: "#6B21A8" },
+  black: { bg: "#CBD5E1", text: "#0F172A" },
 };
 
 function getCellStyleInfo(
@@ -136,10 +133,6 @@ function getCellStyleInfo(
   return map[cellStyleKey(rowId, colKey)] ?? {};
 }
 
-// ✅ Excel 클립보드 TSV 파서(따옴표 처리 + 셀 내부 줄바꿈 유지)
-// - 탭(\t): 컬럼 구분
-// - 개행(\n): 행 구분(단, 따옴표 내부 개행은 셀 값으로 유지)
-// - 따옴표("..."): 셀 감싸기, 내부 따옴표는 "" 로 escape 되는 형태 지원
 function parseExcelClipboardTSV(text: string): string[][] {
   const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -152,7 +145,6 @@ function parseExcelClipboardTSV(text: string): string[][] {
     const ch = s[i];
 
     if (ch === '"') {
-      // 따옴표 내부에서 "" -> " 로 처리
       if (inQuotes && s[i + 1] === '"') {
         cell += '"';
         i++;
@@ -179,11 +171,9 @@ function parseExcelClipboardTSV(text: string): string[][] {
     cell += ch;
   }
 
-  // 마지막 셀/행 flush
   row.push(cell);
   rows.push(row);
 
-  // Excel/구글시트는 끝에 개행이 붙는 경우가 많아서 "마지막 1개"만 제거(기존 parseTSV 정책 유지)
   if (rows.length > 1) {
     const last = rows[rows.length - 1];
     const lastAllEmpty = last.every((v) => String(v ?? "") === "");
@@ -193,9 +183,6 @@ function parseExcelClipboardTSV(text: string): string[][] {
   return rows.length ? rows : [[""]];
 }
 
-// ✅ 옵션: 셀 내부 줄바꿈(Alt+Enter)을 공백으로 치환해서 저장할지
-// - true: "insert card\nerror" -> "insert card error"
-// - false: 줄바꿈을 그대로 유지
 const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
 
 const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid(props, ref) {
@@ -350,19 +337,70 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setFilterColumnKey(null);
   }
 
-    // ===== 편집(락) =====
+  // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
   const myRowLocksRef = useRef<Record<number, boolean>>({});
   const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
 
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
-  const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
+  const activeEditCellRef = useRef<{ rowId: number; key: string } | null>(null);
+  const activeEditValueRef = useRef<string>("");
+
+  // ✅ Delete 직후 remount/blur 중에도 같은 셀 재포커스를 보장하기 위한 플래그
+  const deleteRefocusRef = useRef<{ rowId: number; key: string } | null>(null);
+
+  const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(
+    null
+  );
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
   useEffect(() => {
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
+
+  function setActiveEditDraft(cell: { rowId: number; key: string }, value: string) {
+    activeEditCellRef.current = cell;
+    activeEditValueRef.current = value;
+    editingCellRef.current = cell;
+    setActiveEditCell(cell);
+    setActiveEditValue(value);
+  }
+
+  function clearActiveEditDraftIfSame(rowId: number, key?: string) {
+    const cur = activeEditCellRef.current;
+    if (!cur) return;
+    if (cur.rowId !== rowId) return;
+    if (key && cur.key !== key) return;
+
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
+
+    if (
+      editingCellRef.current?.rowId === rowId &&
+      (!key || editingCellRef.current?.key === key)
+    ) {
+      editingCellRef.current = null;
+    }
+
+    setActiveEditCell(null);
+    setActiveEditValue("");
+  }
+
+  function getActiveSymphonyRowId(): number | null {
+    try {
+      const ae = document.activeElement as HTMLElement | null;
+      if (!ae || ae.tagName !== "INPUT") return null;
+
+      const rowAttr = (ae as HTMLInputElement).getAttribute("data-row");
+      const rowIndex = Number(rowAttr);
+      if (!Number.isFinite(rowIndex)) return null;
+
+      return displayRows[rowIndex]?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
@@ -370,33 +408,45 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       return;
     }
 
-    editingCellRef.current = { rowId, key };
-    setActiveEditCell({ rowId, key });
-    setActiveEditValue(initialValue ?? "");
+    setActiveEditDraft({ rowId, key }, initialValue ?? "");
 
-    const pending = acquireLock("symphony", rowId);
-    lockPendingRef.current[rowId] = pending;
+    // 같은 행 내 셀 이동이면 기존 락 재사용
+    if (myRowLocksRef.current[rowId]) return;
+
+    // 같은 행 lock pending이 있으면 중복 acquire 금지
+    const existingPending = lockPendingRef.current[rowId];
+    const pending = existingPending ?? acquireLock("symphony", rowId);
+
+    if (!existingPending) {
+      lockPendingRef.current[rowId] = pending;
+    }
 
     const result = await pending.catch(() => null);
-    lockPendingRef.current[rowId] = null;
 
-    const stillActive =
-      editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
-
-    if (!stillActive) {
-      if (result?.ok) await releaseLock("symphony", rowId);
-      return;
+    if (lockPendingRef.current[rowId] === pending) {
+      lockPendingRef.current[rowId] = null;
     }
+
+    const active = editingCellRef.current;
+    const stillSameCell = active?.rowId === rowId && active?.key === key;
+    const stillSameRow = active?.rowId === rowId;
 
     if (result?.ok) {
-      myRowLocksRef.current[rowId] = true;
-      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      // 핵심: 같은 행 다른 셀로 이미 이동했으면 락 유지
+      if (stillSameRow) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return;
+      }
+
+      await releaseLock("symphony", rowId).catch(() => {});
       return;
     }
 
-    editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
+    // 오래된 focus 응답이면 현재 입력을 건드리지 않음
+    if (!stillSameCell) return;
+
+    clearActiveEditDraftIfSame(rowId, key);
     alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
     e.target.blur();
   }
@@ -411,9 +461,102 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     const v = value === "" ? null : value;
     await patchSymphonyRow(rowId, { [key]: v });
   }
-   
+
+  async function ensureSymphonyRowLock(rowId: number) {
+    if (myRowLocksRef.current[rowId]) return true;
+
+    const pending = lockPendingRef.current[rowId];
+    if (pending) {
+      const r = await pending.catch(() => null);
+      if (r?.ok) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return true;
+      }
+    }
+
+    const retry = await acquireLock("symphony", rowId).catch(() => null);
+    if (retry?.ok) {
+      myRowLocksRef.current[rowId] = true;
+      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function clearSingleSelectedCell() {
+    if (!selectedCellRange) return false;
+
+    const isSingleCell =
+      selectedCellRange.startRow === selectedCellRange.endRow &&
+      selectedCellRange.startCol === selectedCellRange.endCol;
+
+    if (!isSingleCell) return false;
+
+    const rowIndex = selectedCellRange.startRow;
+    const colIndex = selectedCellRange.startCol;
+
+    const row = displayRows[rowIndex];
+    const key = viewColumns[colIndex];
+
+    if (!row || !key || isComputedColumn(key)) return false;
+
+    // ✅ Delete 후 같은 셀 재포커스 진행중 표시
+    deleteRefocusRef.current = { rowId: row.id, key };
+    setActiveEditDraft({ rowId: row.id, key }, "");
+
+    const hasLock = await ensureSymphonyRowLock(row.id);
+
+    if (!hasLock) {
+      clearActiveEditDraftIfSame(row.id, key);
+      await reload({ silent: true });
+      return true;
+    }
+
+    try {
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      // ✅ 1) 화면에서 즉시 삭제 + 같은 셀 커서 유지
+      if (input) {
+        input.value = "";
+        input.focus();
+        try {
+          input.setSelectionRange(0, 0);
+        } catch {}
+      }
+
+      // ✅ 2) 로컬 데이터 즉시 반영
+      updateLocalCell(row.id, key, "");
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      });
+
+      setContextMenu(null);
+      setActiveEditDraft({ rowId: row.id, key }, "");
+
+      // ✅ 서버 저장 전/후 모두 커서 유지
+      focusCellSoon(rowIndex, colIndex);
+      await saveCell(row.id, key, "");
+      focusCellSoon(rowIndex, colIndex);
+    } catch {
+      clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
+      await reload({ silent: true });
+    }
+
+    return true;
+  }
+
   // ===== 유틸: 셀 표시값(파생 포함) =====
- function getDisplayValue(row: SymphonyRow, colKey: string) {
+  function getDisplayValue(row: SymphonyRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
     const deviceNoLower = deviceNo.toLowerCase();
 
@@ -430,7 +573,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
-    // ✅ 상태표시: 대여중/회수중/미회수
     if (colKey === "유축기 위치") {
       const raw0 = String(row.data?.[colKey] ?? "");
       const raw = stripRentingMarker(raw0);
@@ -439,7 +581,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       return raw ? `${raw} (${status})` : status;
     }
 
-    // ✅ 거래처/대여자명 자동 반영(대여중/회수중/미회수 공통)
     if (colKey === "거래처") {
       if (renting || status) return String(rentalInfo?.거래처분류 ?? "");
       return String(row.data?.[colKey] ?? "");
@@ -468,7 +609,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       return true;
     }
 
-    // ✅ computed 컬럼(거래처/대여자명/수리횟수)은 input이 없으므로 td에 포커스
     const td = document.querySelector<HTMLElement>(`td[data-row="${rowIndex}"][data-col="${colIndex}"]`);
     if (td) {
       td.focus();
@@ -478,47 +618,115 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     return false;
   }
 
-  function handleCellKeyDown(e: React.KeyboardEvent<HTMLElement>, rowIndex: number, colIndex: number) {
+  function focusCellSoon(rowIndex: number, colIndex: number) {
+    let tries = 0;
+    const maxTries = 12;
+
+    const tryFocus = () => {
+      tries += 1;
+
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      if (input) {
+        input.focus();
+        const len = (input.value ?? "").length;
+        try {
+          input.setSelectionRange(len, len);
+        } catch {}
+        return true;
+      }
+
+      return false;
+    };
+
+    const loop = () => {
+      if (tryFocus()) return;
+      if (tries >= maxTries) return;
+      setTimeout(loop, 16);
+    };
+
+    requestAnimationFrame(loop);
+  }
+
+  function handleCellKeyDown(
+    e: React.KeyboardEvent<HTMLElement>,
+    rowIndex: number,
+    colIndex: number
+  ) {
+    const isArrow =
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft";
+
+    if (!isArrow) return;
+
+    // ✅ 방향키 이동 의도 시 Delete 재포커스 플래그 해제
+    deleteRefocusRef.current = null;
+
+    e.preventDefault();
+    e.stopPropagation();
+
     let r = rowIndex;
     let c = colIndex;
 
     switch (e.key) {
       case "ArrowDown":
         if (rowIndex < displayRows.length - 1) r = rowIndex + 1;
-        else return;
         break;
       case "ArrowUp":
         if (rowIndex > 0) r = rowIndex - 1;
-        else return;
         break;
       case "ArrowRight":
         if (colIndex < viewColumns.length - 1) c = colIndex + 1;
-        else return;
         break;
       case "ArrowLeft":
         if (colIndex > 0) c = colIndex - 1;
-        else return;
         break;
-      default:
-        return;
     }
 
-    // ✅ 방향키 이동 = 선택(파란 표시)도 함께 이동
     setSelectedRowRange(null);
     setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
     setContextMenu(null);
     closeFilterPopover();
 
     focusCell(r, c);
-    e.preventDefault();
   }
 
-  // ===== 붙여넣기/삭제: “첫 셀 누락” 방지를 위해 paste capture 단일 경로로 처리 =====
+  // ===== 붙여넣기/삭제: paste capture 단일 경로 =====
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ✅ input key를 안정화(defaultValue)하면 외부 rows 변경이 즉시 안 보일 수 있어
+  // 현재 포커스 input 제외한 나머지 input DOM 값을 동기화
+  useEffect(() => {
+    const inputs = document.querySelectorAll<HTMLInputElement>("input[data-row][data-col]");
+
+    inputs.forEach((input) => {
+      if (document.activeElement === input) return;
+
+      const rowIndex = Number(input.getAttribute("data-row"));
+      const colIndex = Number(input.getAttribute("data-col"));
+
+      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
+
+      const row = displayRows[rowIndex];
+      const colKey = viewColumns[colIndex];
+
+      if (!row || !colKey || isComputedColumn(colKey)) return;
+
+      const nextValue = String(row.data?.[colKey] ?? "");
+      if (input.value !== nextValue) {
+        input.value = nextValue;
+      }
+    });
+  }, [displayRows, viewColumns]);
+
   async function clearSelection() {
-    // 편집 draft 제거(첫 셀만 안 지워지는 잔상 방지)
     editingCellRef.current = null;
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
     setActiveEditCell(null);
     setActiveEditValue("");
 
@@ -531,7 +739,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       const updates: Array<{ id: number; patch: Record<string, any> }> = [];
       const local = [...rows];
 
-      // displayRows 기준 선택이므로 rowId를 기반으로 처리
       for (let r = startRow; r <= endRow; r++) {
         const dRow = displayRows[r];
         if (!dRow) continue;
@@ -546,7 +753,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
           patch[k] = null;
         }
 
-        // 로컬 rows(원본)에도 반영
         const idx = local.findIndex((x) => x.id === dRow.id);
         if (idx >= 0) local[idx] = { ...local[idx], data: nextData };
 
@@ -559,7 +765,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       return;
     }
 
-    // 셀 범위 없으면 행 선택 지우기(행 전체 clear)
     const { slice } = getSelectedRowSlice();
     if (!slice.length) return;
 
@@ -592,12 +797,9 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
     const parsed = parseExcelClipboardTSV(text);
 
-    // 전부 빈 값(예: ""만 있는 경우)이면 무시
     const hasAnyValue = parsed.some((row) => row.some((cell) => String(cell ?? "") !== ""));
     if (!hasAnyValue) return;
 
-    // ✅ 핵심: "완전 빈 행"("")도 엑셀처럼 '빈 행'으로 유지되도록,
-    // 전체 붙여넣기 블록의 최대 컬럼 수로 행 폭을 맞춰 패딩한다.
     const maxCols = parsed.reduce((m, row) => Math.max(m, row.length), 0);
     const matrix = parsed.map((row) => {
       if (row.length >= maxCols) return row;
@@ -626,7 +828,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
 
         nextData[k] = v;
-        patch[k] = v === "" ? null : v; 
+        patch[k] = v === "" ? null : v;
       }
 
       const idx = local.findIndex((x) => x.id === dRow.id);
@@ -640,7 +842,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     setContextMenu(null);
   }
 
-  // paste 캡처(핵심)
   useEffect(() => {
     function onPasteCapture(e: ClipboardEvent) {
       const hasRange = !!selectedCellRange || !!selectedRowRange;
@@ -659,7 +860,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     return () => window.removeEventListener("paste", onPasteCapture, true);
   }, [selectedCellRange, selectedRowRange, displayRows, viewColumns, rows]);
 
-  // Ctrl+C만 keydown에서 처리, Ctrl+V는 paste 캡처로만 처리(첫 셀 누락 방지)
   useEffect(() => {
     async function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -668,9 +868,25 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         return;
       }
 
-      if (e.key === "Delete" && (selectedCellRange || selectedRowRange)) {
+      if (e.key === "Delete") {
+        const hasCellRange = !!selectedCellRange;
+        const hasRowRange = !!selectedRowRange;
+
+        if (!hasCellRange && !hasRowRange) return;
+
+        const isSingleCell =
+          !!selectedCellRange &&
+          selectedCellRange.startRow === selectedCellRange.endRow &&
+          selectedCellRange.startCol === selectedCellRange.endCol;
+
         e.preventDefault();
         e.stopPropagation();
+
+        if (isSingleCell) {
+          void clearSingleSelectedCell();
+          return;
+        }
+
         void clearSelection();
         return;
       }
@@ -684,7 +900,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         e.preventDefault();
         e.stopPropagation();
 
-        // copy
         if (selectedCellRange) {
           const { startRow, endRow, startCol, endCol } = selectedCellRange;
           const lines: string[] = [];
@@ -711,10 +926,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         return;
       }
 
-      // Ctrl+V는 여기서 처리하지 않음(브라우저 paste 이벤트로만)
       if (k === "v" && (selectedCellRange || selectedRowRange)) {
-        // 포커스가 input에 있으면 그 input에서 paste가 발생할 수 있음(우린 capture에서 처리)
-        // 포커스가 애매하면 hidden textarea로 포커스를 이동시켜 paste 이벤트를 확실히 받게 함
         pasteCatcherRef.current?.focus();
         return;
       }
@@ -742,6 +954,54 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     window.addEventListener("click", onClick);
     return () => window.removeEventListener("click", onClick);
   }, []);
+
+  useEffect(() => {
+    function onArrowKeyDown(e: KeyboardEvent) {
+      const isArrow =
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight";
+      if (!isArrow) return;
+
+      const ae = document.activeElement as HTMLElement | null;
+      const tag = (ae?.tagName || "").toUpperCase();
+      const isEditable =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!ae?.isContentEditable;
+      if (isEditable) return;
+
+      if (!selectedCellRange) return;
+
+      // ✅ 방향키 이동 의도 시 Delete 재포커스 플래그 해제
+      deleteRefocusRef.current = null;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      let r = selectedCellRange.startRow;
+      let c = selectedCellRange.startCol;
+
+      if (e.key === "ArrowDown") {
+        if (r < displayRows.length - 1) r += 1;
+      } else if (e.key === "ArrowUp") {
+        if (r > 0) r -= 1;
+      } else if (e.key === "ArrowRight") {
+        if (c < viewColumns.length - 1) c += 1;
+      } else if (e.key === "ArrowLeft") {
+        if (c > 0) c -= 1;
+      }
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
+      setContextMenu(null);
+      closeFilterPopover();
+
+      focusCell(r, c);
+    }
+
+    window.addEventListener("keydown", onArrowKeyDown, true);
+    return () => window.removeEventListener("keydown", onArrowKeyDown, true);
+  }, [selectedCellRange, displayRows.length, viewColumns.length]);
 
   // ===== 행 삽입/삭제 =====
   async function handleInsertRows() {
@@ -772,14 +1032,12 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
   }
 
   async function handleCopyFromContext() {
-    // keydown copy 로직 재사용하기 위해 강제 dispatch 대신 단순 호출
     const ev = new KeyboardEvent("keydown", { key: "c", ctrlKey: true });
     window.dispatchEvent(ev);
     setContextMenu(null);
   }
 
   async function handlePasteFromContext() {
-    // 컨텍스트 붙여넣기도 paste 캡처 경로로 동일 처리
     const text = await navigator.clipboard.readText().catch(() => "");
     if (!text) return;
     await pasteTextToSelection(text);
@@ -800,7 +1058,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
     if (!updates.length) return;
 
-    // 로컬 반영
     setRows((prev) => {
       const map = new Map<number, Record<string, any>>();
       for (const u of updates) map.set(u.id, u.patch.__cellStyle);
@@ -885,7 +1142,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         closeFilterPopover();
       }}
     >
-      {/* paste 이벤트를 확실히 받기 위한 숨은 textarea */}
       <textarea
         ref={pasteCatcherRef}
         aria-hidden="true"
@@ -995,7 +1251,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
               return (
                 <tr key={row.id}>
-                 <td
+                  <td
                     className={
                       "border px-1 py-[3px] text-[0.68rem] text-center select-none " +
                       (rowSelected ? "bg-blue-200 text-gray-800" : "bg-gray-100 text-gray-500")
@@ -1036,19 +1292,15 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                     const bgColor = info?.bg ? (INLINE_PALETTE[info.bg]?.bg ?? undefined) : undefined;
                     const textColor = info?.fg ? (INLINE_PALETTE[info.fg]?.text ?? undefined) : undefined;
 
-                    // td 배경은 inline style로(=Tailwind 빌드/스캔 이슈 완전 제거)
                     const tdStyle = bgColor ? ({ backgroundColor: bgColor } as React.CSSProperties) : undefined;
 
                     const baseBg = rowSelected ? "bg-blue-50" : "bg-white";
-
-                    // 선택 오버레이(원하면 나중에 조정 가능). 배경색이 있어도 살짝만 덮게 고정.
                     const selectionOverlay = cellSelected
                       ? "relative before:content-[''] before:absolute before:inset-0 before:bg-blue-200/20 before:pointer-events-none"
                       : "";
 
                     const cls = `border px-2 py-[3px] ${baseBg} ${selectionOverlay}`;
 
-                    // computed: 수리횟수/거래처/대여자명은 편집 불가 + 표시만
                     if (isComputedColumn(key)) {
                       return (
                         <td
@@ -1061,7 +1313,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                           onMouseDown={(e) => {
                             if (e.button !== 0) return;
-                            (e.currentTarget as HTMLElement).focus(); // ✅ computed 셀도 클릭 시 포커스 확보 → 방향키 동작
+                            (e.currentTarget as HTMLElement).focus();
                             setIsCellDragging(true);
                             setCellDragAnchor({ row: rowIndex, col: colIndex });
                             setCellRangeByPoints(rowIndex, colIndex, rowIndex, colIndex);
@@ -1133,77 +1385,104 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                         }}
                       >
                         <input
+                          key={`${row.id}:${key}`}
                           className={`w-full bg-transparent outline-none ${key === "에러횟수" ? "text-center" : ""}`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          value={
-                            activeEditCell?.rowId === row.id && activeEditCell?.key === key
-                              ? activeEditValue
-                              : getDisplayValue(row, key)
-                          }
+                          defaultValue={String(row.data?.[key] ?? "")}
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
                             setSelectedRowRange(null);
+
+                            // ✅ Delete 직후 복구 대상 셀은 유지, 다른 셀 포커스 시에는 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur && !(cur.rowId === row.id && cur.key === key)) {
+                              deleteRefocusRef.current = null;
+                            }
+
                             const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
-                            if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
-                              setActiveEditValue(e.target.value);
+                            const next = e.target.value;
+
+                            // ✅ Delete 후 바로 입력 시작하면 재포커스 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur?.rowId === row.id && cur.key === key) {
+                              deleteRefocusRef.current = null;
                             }
-                            if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
+
+                            // 입력 중 setRows 금지
+                            activeEditCellRef.current = { rowId: row.id, key };
+                            activeEditValueRef.current = next;
+                            editingCellRef.current = { rowId: row.id, key };
                           }}
                           onBlur={async (e) => {
+                            const blurRowId = row.id;
+                            const blurKey = key;
                             const v = String(e.target.value ?? "");
 
-                            editingCellRef.current = null;
-                            setActiveEditCell(null);
-                            setActiveEditValue("");
+                            if (
+                              deleteRefocusRef.current?.rowId === blurRowId &&
+                              deleteRefocusRef.current?.key === blurKey
+                            ) {
+                              deleteRefocusRef.current = null;
+                            }
 
-                            let hasLock = !!myRowLocksRef.current[row.id];
+                            let hasLock = !!myRowLocksRef.current[blurRowId];
 
-                            // focus 락 완료보다 blur가 먼저 온 경우 대기
                             if (!hasLock) {
-                              const pending = lockPendingRef.current[row.id];
+                              const pending = lockPendingRef.current[blurRowId];
                               if (pending) {
                                 const r = await pending.catch(() => null);
                                 if (r?.ok) {
                                   hasLock = true;
-                                  myRowLocksRef.current[row.id] = true;
-                                  setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                                  myRowLocksRef.current[blurRowId] = true;
+                                  setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
                                 }
                               }
                             }
 
-                            // 1회 재시도
                             if (!hasLock) {
-                              const retry = await acquireLock("symphony", row.id).catch(() => null);
+                              const retry = await acquireLock("symphony", blurRowId).catch(() => null);
                               if (retry?.ok) {
                                 hasLock = true;
-                                myRowLocksRef.current[row.id] = true;
-                                setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                                myRowLocksRef.current[blurRowId] = true;
+                                setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
                               }
                             }
 
-                            // ✅ 저장은 락 유무와 무관하게 시도(회귀 방지: 저장 누락 차단)
+                            if (!hasLock) {
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
+                              await reload({ silent: true });
+                              return;
+                            }
+
                             try {
-                              updateLocalCell(row.id, key, v);
-                              await saveCell(row.id, key, v);
+                              updateLocalCell(blurRowId, blurKey, v);
+                              await saveCell(blurRowId, blurKey, v);
                             } catch {
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
                             } finally {
-                              // 락을 잡은 경우에만 해제
-                              if (hasLock) {
-                                await releaseLock("symphony", row.id).catch(() => {});
-                                delete myRowLocksRef.current[row.id];
+                              const nextFocusedRowId = getActiveSymphonyRowId();
+                              const keepRowLock = nextFocusedRowId === blurRowId;
+
+                              if (!keepRowLock) {
+                                clearActiveEditDraftIfSame(blurRowId, blurKey);
+                              }
+
+                              if (!keepRowLock && hasLock) {
+                                await releaseLock("symphony", blurRowId).catch(() => {});
+                                delete myRowLocksRef.current[blurRowId];
                                 setMyRowLocks((prev) => {
                                   const copy = { ...prev };
-                                  delete copy[row.id];
+                                  delete copy[blurRowId];
                                   return copy;
                                 });
                               }
                             }
-                          }} 
+                          }}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                         />
                       </td>
@@ -1216,7 +1495,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         </table>
       </div>
 
-      {/* 우클릭 메뉴 */}
       {contextMenu && (
         <div
           className="fixed z-50 bg-white border shadow text-xs"
@@ -1257,7 +1535,6 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
         </div>
       )}
 
-      {/* 필터 팝오버 */}
       <div data-filter-popover="1">
         <ColumnFilterPopover
           open={filterPopoverOpen}
