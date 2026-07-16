@@ -334,12 +334,43 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
+  const activeEditCellRef = useRef<{ rowId: number; key: string } | null>(null);
+  const activeEditValueRef = useRef<string>("");
+
   const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
   const [activeEditValue, setActiveEditValue] = useState<string>("");
 
   useEffect(() => {
     myRowLocksRef.current = myRowLocks;
   }, [myRowLocks]);
+
+  function setActiveEditDraft(cell: { rowId: number; key: string }, value: string) {
+    activeEditCellRef.current = cell;
+    activeEditValueRef.current = value;
+    editingCellRef.current = cell;
+    setActiveEditCell(cell);
+    setActiveEditValue(value);
+  }
+
+  function clearActiveEditDraftIfSame(rowId: number, key?: string) {
+    const cur = activeEditCellRef.current;
+    if (!cur) return;
+    if (cur.rowId !== rowId) return;
+    if (key && cur.key !== key) return;
+
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
+
+    if (
+      editingCellRef.current?.rowId === rowId &&
+      (!key || editingCellRef.current?.key === key)
+    ) {
+      editingCellRef.current = null;
+    }
+
+    setActiveEditCell(null);
+    setActiveEditValue("");
+  }
 
   function getActiveLactinaRowId(): number | null {
     try {
@@ -356,20 +387,18 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
   }
 
-    async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
+ async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
       e.target.blur();
       return;
     }
 
-    editingCellRef.current = { rowId, key };
-    setActiveEditCell({ rowId, key });
-    setActiveEditValue(initialValue ?? "");
+    setActiveEditDraft({ rowId, key }, initialValue ?? "");
 
     // 같은 행 내 셀 이동이면 기존 락 재사용
     if (myRowLocksRef.current[rowId]) return;
 
-    // 같은 행에서 락 요청이 이미 진행 중이면 새로 acquire하지 않고 기존 pending 재사용
+    // 같은 행 lock pending이 있으면 중복 acquire 금지
     const existingPending = lockPendingRef.current[rowId];
     const pending = existingPending ?? acquireLock("lactina", rowId);
 
@@ -384,12 +413,12 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     const active = editingCellRef.current;
-    const stillActiveSameCell = active?.rowId === rowId && active?.key === key;
-    const stillActiveSameRow = active?.rowId === rowId;
+    const stillSameCell = active?.rowId === rowId && active?.key === key;
+    const stillSameRow = active?.rowId === rowId;
 
     if (result?.ok) {
-      // ✅ 핵심: 같은 행의 다른 셀로 이미 이동한 상태면 락을 풀면 안 됨
-      if (stillActiveSameRow) {
+      // 핵심: 같은 행 다른 셀로 이미 이동했으면 락 유지
+      if (stillSameRow) {
         myRowLocksRef.current[rowId] = true;
         setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
         return;
@@ -399,15 +428,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       return;
     }
 
-    // 이미 다른 셀/행으로 이동한 오래된 focus 응답이면 조용히 무시
-    if (!stillActiveSameCell) return;
+    // 오래된 focus 응답이면 현재 입력을 건드리지 않음
+    if (!stillSameCell) return;
 
-    editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
+    clearActiveEditDraftIfSame(rowId, key);
     alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
     e.target.blur();
-  }
+  } 
 
   function updateLocalCell(rowId: number, key: string, value: string) { 
     setRows((prev) =>
@@ -420,8 +447,8 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     await patchLactinaRow(rowId, { [key]: v });
   }
 
-  // ===== 유틸: 셀 표시값(파생 포함) =====
-    async function ensureLactinaRowLock(rowId: number) {
+   // ===== 유틸: 셀 표시값(파생 포함) =====
+  async function ensureLactinaRowLock(rowId: number) {
     if (myRowLocksRef.current[rowId]) return true;
 
     const pending = lockPendingRef.current[rowId];
@@ -461,16 +488,12 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
     if (!row || !key || isComputedColumn(key)) return false;
 
-    editingCellRef.current = { rowId: row.id, key };
-    setActiveEditCell({ rowId: row.id, key });
-    setActiveEditValue("");
+    setActiveEditDraft({ rowId: row.id, key }, "");
 
     const hasLock = await ensureLactinaRowLock(row.id);
 
     if (!hasLock) {
-      editingCellRef.current = null;
-      setActiveEditCell(null);
-      setActiveEditValue("");
+      clearActiveEditDraftIfSame(row.id, key);
       await reload({ silent: true });
       return true;
     }
@@ -496,9 +519,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       setContextMenu(null);
       focusCell(rowIndex, colIndex);
     } catch {
-      editingCellRef.current = null;
-      setActiveEditCell(null);
-      setActiveEditValue("");
+      clearActiveEditDraftIfSame(row.id, key);
       await reload({ silent: true });
     }
 
@@ -754,7 +775,6 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
         const hasCellRange = !!selectedCellRange;
         const hasRowRange = !!selectedRowRange;
 
-        // 선택이 없으면 기본 Delete 유지
         if (!hasCellRange && !hasRowRange) return;
 
         const isSingleCell =
@@ -765,13 +785,12 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
         e.preventDefault();
         e.stopPropagation();
 
-        // ✅ 단일셀 Delete도 input 기본동작이 아니라 저장 확정 경로로 강제
+        // 핵심: 커서 깜박이는 input 상태에서도 단일셀 Delete는 저장 확정 경로로 강제
         if (isSingleCell) {
           void clearSingleSelectedCell();
           return;
         }
 
-        // 여러 셀/행 범위는 기존 bulk clear 경로
         void clearSelection();
         return;
       }
@@ -1283,75 +1302,68 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
-                          onChange={(e) => {
-                            if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
-                              setActiveEditValue(e.target.value);
-                            }
-                            if (myRowLocksRef.current[row.id]) updateLocalCell(row.id, key, e.target.value);
+                                                    onChange={(e) => {
+                            const next = e.target.value;
+
+                            // 핵심: 락 획득 전이라도 draft/local을 먼저 고정해서 빈셀 입력이 사라지지 않게 함
+                            setActiveEditDraft({ rowId: row.id, key }, next);
+                            updateLocalCell(row.id, key, next);
                           }}
-                         onBlur={async (e) => {
+                          onBlur={async (e) => {
+                            const blurRowId = row.id;
+                            const blurKey = key;
                             const v = String(e.target.value ?? "");
 
-                            // stale 방지: 현재 시점의 락 보유 여부 고정
-                            let hasLock = !!myRowLocksRef.current[row.id];
+                            let hasLock = !!myRowLocksRef.current[blurRowId];
 
-                            // focus 락 완료보다 blur가 먼저 온 경우 대기
                             if (!hasLock) {
-                              const pending = lockPendingRef.current[row.id];
+                              const pending = lockPendingRef.current[blurRowId];
                               if (pending) {
                                 const r = await pending.catch(() => null);
                                 if (r?.ok) {
                                   hasLock = true;
-                                  myRowLocksRef.current[row.id] = true;
-                                  setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                                  myRowLocksRef.current[blurRowId] = true;
+                                  setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
                                 }
                               }
                             }
 
-                            // 1회 재시도
                             if (!hasLock) {
-                              const retry = await acquireLock("lactina", row.id).catch(() => null);
+                              const retry = await acquireLock("lactina", blurRowId).catch(() => null);
                               if (retry?.ok) {
                                 hasLock = true;
-                                myRowLocksRef.current[row.id] = true;
-                                setMyRowLocks((prev) => ({ ...prev, [row.id]: true }));
+                                myRowLocksRef.current[blurRowId] = true;
+                                setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
                               }
                             }
 
-                            // ✅ 락 끝까지 실패하면 저장 시도 금지(삭제 부활/튕김 방지)
                             if (!hasLock) {
-                              editingCellRef.current = null;
-                              setActiveEditCell(null);
-                              setActiveEditValue("");
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
                               return;
                             }
 
                             try {
-                              updateLocalCell(row.id, key, v);
-                              await saveCell(row.id, key, v);
+                              updateLocalCell(blurRowId, blurKey, v);
+                              await saveCell(blurRowId, blurKey, v);
                             } catch {
-                              editingCellRef.current = null;
-                              setActiveEditCell(null);
-                              setActiveEditValue("");
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
                             } finally {
                               const nextFocusedRowId = getActiveLactinaRowId();
-                              const keepRowLock = nextFocusedRowId === row.id;
+                              const keepRowLock = nextFocusedRowId === blurRowId;
 
+                              // 현재 active가 이미 다른 셀로 바뀌었으면 건드리지 않음
                               if (!keepRowLock) {
-                                editingCellRef.current = null;
-                                setActiveEditCell(null);
-                                setActiveEditValue("");
+                                clearActiveEditDraftIfSame(blurRowId, blurKey);
                               }
 
-                              // 같은 행 이동이면 락 유지(레이스 방지)
                               if (!keepRowLock && hasLock) {
-                                await releaseLock("lactina", row.id).catch(() => {});
-                                delete myRowLocksRef.current[row.id];
+                                await releaseLock("lactina", blurRowId).catch(() => {});
+                                delete myRowLocksRef.current[blurRowId];
                                 setMyRowLocks((prev) => {
                                   const copy = { ...prev };
-                                  delete copy[row.id];
+                                  delete copy[blurRowId];
                                   return copy;
                                 });
                               }
