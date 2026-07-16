@@ -65,19 +65,25 @@ export async function POST(req: Request) {
     await query("BEGIN");
     try {
       for (const u of updates) {
-        const old = await query(`SELECT data FROM device_lactina WHERE id=$1`, [u.id]);
-        if (!old.rows.length) continue;
+        const patch: Record<string, any> = { ...(u.patch as Record<string, any>) };
 
-        const source = old.rows[0]?.data || {};
-        const merged: Record<string, any> = { ...source };
-        for (const key in u.patch) {
-          merged[key] = (u.patch as any)[key];
-        }
+        // 파생/읽기전용 컬럼 저장 차단
+        delete patch["수리횟수"];
+        delete patch["거래처"];
+        delete patch["대여자명"];
+
+        if (!Object.keys(patch).length) continue;
 
         const r = await query(
-          `UPDATE device_lactina SET data=$1 WHERE id=$2 RETURNING id`,
-          [merged, u.id]
+          `
+          UPDATE device_lactina
+          SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
+          WHERE id = $2
+          RETURNING id
+          `,
+          [JSON.stringify(patch), u.id]
         );
+
         if (r.rows.length) updatedIds.push(Number(r.rows[0].id));
       }
 
