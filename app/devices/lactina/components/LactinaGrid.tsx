@@ -1334,8 +1334,13 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           closeFilterPopover();
                         }}
                       >
-                                                <input
-                          key={`${row.id}:${key}:${String(row.data?.[key] ?? "")}`}
+                      <input
+                         key={
+                            deleteRefocusRef.current?.rowId === row.id &&
+                            deleteRefocusRef.current?.key === key
+                              ? `${row.id}:${key}:delete-refocus`
+                              : `${row.id}:${key}:${String(row.data?.[key] ?? "")}`
+                          }
                           className={`w-full bg-transparent outline-none`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
                           defaultValue={String(row.data?.[key] ?? "")}
@@ -1356,15 +1361,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           onChange={(e) => {
                             const next = e.target.value;
 
-                            // ✅ Delete 후 같은 셀 재입력 시작 시 refocus 플래그 해제
-                            const cur = deleteRefocusRef.current;
-                            if (cur && cur.rowId === row.id && cur.key === key) {
-                              deleteRefocusRef.current = null;
-                            }
-
                             // 입력 중에는 setRows 하지 않음.
+                            // Delete 직후에는 refocus 플래그를 유지해야 서버 저장/리로드에도 커서가 안 사라짐.
                             activeEditCellRef.current = { rowId: row.id, key };
-                            activeEditValueRef.current = next;
                             activeEditValueRef.current = next;
                             editingCellRef.current = { rowId: row.id, key };
                           }}
@@ -1372,6 +1371,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const blurRowId = row.id;
                             const blurKey = key;
                             const v = String(e.target.value ?? "");
+                            const nextFocusTarget = e.relatedTarget as HTMLElement | null;
 
                             let hasLock = !!myRowLocksRef.current[blurRowId];
 
@@ -1405,16 +1405,29 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             try {
                               updateLocalCell(blurRowId, blurKey, v);
                               await saveCell(blurRowId, blurKey, v);
-                            } catch {
+                                                       } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
-                                                       } finally {
-                              // ✅ Delete 직후 remount로 발생한 blur는 잠시 무시(같은 셀 재입력 유지)
+                            } finally {
+                              // ✅ Delete 직후 remount/저장 반영으로 생긴 blur는 같은 셀 커서 유지
                               const refocusPending =
                                 deleteRefocusRef.current?.rowId === blurRowId &&
                                 deleteRefocusRef.current?.key === blurKey;
 
-                              if (refocusPending) {
+                              const nextInput = nextFocusTarget?.closest?.(
+                                "input[data-row][data-col]"
+                              ) as HTMLInputElement | null | undefined;
+
+                              const movingToAnotherCell =
+                                !!nextInput &&
+                                (nextInput.getAttribute("data-row") !== String(rowIndex) ||
+                                  nextInput.getAttribute("data-col") !== String(colIndex));
+
+                              if (refocusPending && movingToAnotherCell) {
+                                deleteRefocusRef.current = null;
+                              }
+
+                              if (refocusPending && !movingToAnotherCell) {
                                 focusCellSoon(rowIndex, colIndex);
                                 return;
                               }
