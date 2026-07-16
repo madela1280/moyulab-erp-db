@@ -442,12 +442,11 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     );
   }
 
-  async function saveCell(rowId: number, key: string, value: string) {
+    async function saveCell(rowId: number, key: string, value: string) {
     const v = value === "" ? null : value;
     await patchLactinaRow(rowId, { [key]: v });
   }
 
-   // ===== 유틸: 셀 표시값(파생 포함) =====
   async function ensureLactinaRowLock(rowId: number) {
     if (myRowLocksRef.current[rowId]) return true;
 
@@ -490,6 +489,14 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
     setActiveEditDraft({ rowId: row.id, key }, "");
 
+    const input = document.querySelector<HTMLInputElement>(
+      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
+
+    if (input) input.value = "";
+
+    updateLocalCell(row.id, key, "");
+
     const hasLock = await ensureLactinaRowLock(row.id);
 
     if (!hasLock) {
@@ -499,25 +506,8 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     }
 
     try {
-      const input = document.querySelector<HTMLInputElement>(
-        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
-      );
-
-      if (input) input.value = "";
-
-      updateLocalCell(row.id, key, "");
       await saveCell(row.id, key, "");
-
-      setSelectedRowRange(null);
-      setSelectedCellRange({
-        startRow: rowIndex,
-        endRow: rowIndex,
-        startCol: colIndex,
-        endCol: colIndex,
-      });
-
       setContextMenu(null);
-      focusCell(rowIndex, colIndex);
     } catch {
       clearActiveEditDraftIfSame(row.id, key);
       await reload({ silent: true });
@@ -1287,14 +1277,11 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           closeFilterPopover();
                         }}
                       >
-                        <input
+                                                <input
+                          key={`${row.id}:${key}:${String(row.data?.[key] ?? "")}`}
                           className={`w-full bg-transparent outline-none`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          value={
-                            activeEditCell?.rowId === row.id && activeEditCell?.key === key
-                              ? activeEditValue
-                              : getDisplayValue(row, key)
-                          }
+                          defaultValue={String(row.data?.[key] ?? "")}
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
@@ -1302,12 +1289,14 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
-                                                    onChange={(e) => {
+                          onChange={(e) => {
                             const next = e.target.value;
 
-                            // 핵심: 락 획득 전이라도 draft/local을 먼저 고정해서 빈셀 입력이 사라지지 않게 함
-                            setActiveEditDraft({ rowId: row.id, key }, next);
-                            updateLocalCell(row.id, key, next);
+                            // 입력 중에는 setRows 하지 않음.
+                            // setRows가 displayRows 재계산/리렌더를 유발해서 빈셀 입력이 사라지는 문제를 막는다.
+                            activeEditCellRef.current = { rowId: row.id, key };
+                            activeEditValueRef.current = next;
+                            editingCellRef.current = { rowId: row.id, key };
                           }}
                           onBlur={async (e) => {
                             const blurRowId = row.id;
@@ -1353,7 +1342,6 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                               const nextFocusedRowId = getActiveLactinaRowId();
                               const keepRowLock = nextFocusedRowId === blurRowId;
 
-                              // 현재 active가 이미 다른 셀로 바뀌었으면 건드리지 않음
                               if (!keepRowLock) {
                                 clearActiveEditDraftIfSame(blurRowId, blurKey);
                               }
