@@ -6,6 +6,31 @@ function getId(req: Request) {
   return url.pathname.split("/").pop();
 }
 
+function n(v: any) {
+  return String(v ?? "").trim();
+}
+
+// ✅ 락티나 저장값을 통합관리 파생 컬럼(기종/구매렌탈/제품)로 즉시 동기화
+async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: n(sourceData?.["기종"]) || null,
+    "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
+    제품: n(sourceData?.["제품명"]) || null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
 // ✅ 테이블 미생성으로 500 나는 것 방지: 자동 생성(있으면 무시)
 async function ensureLactinaTables() {
   await query(`
@@ -77,7 +102,15 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    return NextResponse.json(r.rows[0]);
+    const saved = r.rows[0];
+
+    // ✅ 락티나 수정 즉시 통합관리 파생값 동기화
+    await syncUnifiedDerivedBySystemNo(
+      (saved?.data ?? {})["시스템 기기번호"],
+      saved?.data ?? {}
+    );
+
+    return NextResponse.json(saved);
   } catch (e) {
     console.error("PATCH /api/devices/lactina/[id] error:", e);
     return NextResponse.json({ error: "SERVER" }, { status: 500 });
