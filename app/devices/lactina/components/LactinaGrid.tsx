@@ -78,8 +78,8 @@ function stripRentingMarker(v: any) {
   if (!raw) return "";
 
   let s = raw;
-  s = s.replace(/\(대여중\)/g, "");
-  s = s.replace(/\s*대여중\s*/g, " ");
+  s = s.replace(/\((대여중|회수중|미회수)\)/g, "");
+  s = s.replace(/\s*(대여중|회수중|미회수)\s*/g, " ");
   s = s.replace(/\s+/g, " ").trim();
 
   return s;
@@ -193,7 +193,7 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
     reload,
   } = useLactinaRows();
 
-  const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
+  const { rentingDeviceNoSet, rentingInfoByDeviceNo, statusByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -549,11 +549,26 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
   } 
 
   // ===== 유틸: 셀 표시값(파생 포함) =====  
- 
+  function getStatusBySystemDeviceNo(systemDeviceNo: any) {
+    const deviceNo = normalizeDeviceNo(systemDeviceNo);
+    const deviceNoLower = deviceNo.toLowerCase();
+    return deviceNo
+      ? (statusByDeviceNo as any)?.[deviceNo] ?? (statusByDeviceNo as any)?.[deviceNoLower] ?? ""
+      : "";
+  }
+
   function getDisplayValue(row: LactinaRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
-    const renting = !!deviceNo && rentingDeviceNoSet.has(deviceNo);
-    const rentalInfo = deviceNo ? (rentingInfoByDeviceNo as any)?.[deviceNo] : undefined;
+    const deviceNoLower = deviceNo.toLowerCase();
+
+    const renting =
+      !!deviceNo && (rentingDeviceNoSet.has(deviceNo) || rentingDeviceNoSet.has(deviceNoLower));
+
+    const rentalInfo = deviceNo
+      ? (rentingInfoByDeviceNo as any)?.[deviceNo] ?? (rentingInfoByDeviceNo as any)?.[deviceNoLower]
+      : undefined;
+
+    const status = getStatusBySystemDeviceNo(row.data?.["시스템 기기번호"]);
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
@@ -561,17 +576,17 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
       const raw0 = String(row.data?.[colKey] ?? "");
       const raw = stripRentingMarker(raw0);
 
-      if (!renting) return raw;
-      return raw ? `${raw} (대여중)` : "대여중";
+      if (!status) return raw;
+      return raw ? `${raw} (${status})` : status;
     }
 
     if (colKey === "거래처") {
-      if (renting) return String(rentalInfo?.거래처분류 ?? "");
+      if (renting || status) return String(rentalInfo?.거래처분류 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
     if (colKey === "대여자명") {
-      if (renting) return String(rentalInfo?.수취인명 ?? "");
+      if (renting || status) return String(rentalInfo?.수취인명 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
@@ -656,11 +671,14 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
       if (!row || !colKey || isComputedColumn(colKey)) return;
 
-      const nextValue = String(row.data?.[colKey] ?? "");
+      const nextValue =
+        colKey === "유축기 위치"
+          ? getDisplayValue(row, colKey)
+          : String(row.data?.[colKey] ?? "");
 
       if (input.value !== nextValue) {
         input.value = nextValue;
-      }
+      } 
     });
   }, [displayRows, viewColumns]);
 
@@ -1382,7 +1400,11 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           key={`${row.id}:${key}`}
                           className={`w-full bg-transparent outline-none`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          defaultValue={String(row.data?.[key] ?? "")}
+                          defaultValue={
+                            key === "유축기 위치"
+                              ? getDisplayValue(row, key)
+                              : String(row.data?.[key] ?? "")
+                          }
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
@@ -1394,7 +1416,18 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                               deleteRefocusRef.current = null;
                             }
 
-                            const initial = String(row.data?.[key] ?? "");
+                            // 유축기 위치는 표시용 상태 텍스트를 제거한 "원본값"으로 편집 시작
+                            if (key === "유축기 위치") {
+                              const pure = stripRentingMarker(e.target.value);
+                              if (e.target.value !== pure) {
+                                e.target.value = pure;
+                              }
+                            }
+
+                            const initial =
+                              key === "유축기 위치"
+                                ? stripRentingMarker(String(e.target.value ?? ""))
+                                : String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
@@ -1415,7 +1448,8 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                           onBlur={async (e) => {
                             const blurRowId = row.id;
                             const blurKey = key;
-                            const v = String(e.target.value ?? "");
+                            const inputValue = String(e.target.value ?? "");
+                            const v = blurKey === "유축기 위치" ? stripRentingMarker(inputValue) : inputValue;
 
                             // ✅ blur가 발생했다는 건 사용자가 셀을 떠났거나 브라우저 포커스가 바뀐 것.
                             // 여기서 강제 재포커스하면 Delete 후 입력/이동 흐름이 다시 꼬이므로 플래그만 종료한다.
@@ -1458,6 +1492,12 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
                             try {
                               updateLocalCell(blurRowId, blurKey, v);
                               await saveCell(blurRowId, blurKey, v);
+
+                              if (blurKey === "유축기 위치") {
+                                const status = getStatusBySystemDeviceNo(row.data?.["시스템 기기번호"]);
+                                const display = status ? (v ? `${v} (${status})` : status) : v;
+                                e.target.value = display;
+                              }
                             } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
