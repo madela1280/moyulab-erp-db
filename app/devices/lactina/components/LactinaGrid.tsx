@@ -715,6 +715,9 @@ const LactinaGrid = forwardRef<LactinaGridHandle, Props>(function LactinaGrid(pr
 
   async function clearSelection() {
     editingCellRef.current = null;
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
+    deleteRefocusRef.current = null;
     setActiveEditCell(null);
     setActiveEditValue("");
 

@@ -10,7 +10,7 @@ export function getLastLactinaLocalEmitAt() {
 
 function emitLactinaUpdate() {
   _lastLactinaLocalEmitAt = Date.now();
-  emitLactinaUpdate();
+  syncEmitUnifiedUpdate();
 }
 
 export type LactinaRow = {
