@@ -735,6 +735,7 @@ const SwingGrid = forwardRef<SwingGridHandle, Props>(function SwingGrid(props, r
     editingCellRef.current = null;
     activeEditCellRef.current = null;
     activeEditValueRef.current = "";
+    deleteRefocusRef.current = null;
 
     const el = document.activeElement as HTMLElement | null;
     if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
