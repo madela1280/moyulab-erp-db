@@ -9,6 +9,15 @@ function hasOwn(obj: any, key: string) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+function getSystemNoFromData(data: Record<string, any>) {
+  return n(
+    data?.["시스템 기기번호"] ??
+      data?.["시스템기기번호"] ??
+      data?.["기기번호"] ??
+      data?.["기기 번호"]
+  );
+}
+
 // ✅ 락티나 bulk 수정 후 통합관리 파생 컬럼 즉시 동기화
 // - 제품명/제품 키 혼용을 모두 수용해서 누락 방지
 async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
@@ -36,6 +45,49 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
     `,
     [systemNo, JSON.stringify(patch)]
   );
+}
+
+async function clearUnifiedDerivedBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: null,
+    "구매/렌탈": null,
+    제품: null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function existsLactinaBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return false;
+
+  const r = await query(
+    `
+    SELECT 1
+    FROM device_lactina
+    WHERE lower(trim(COALESCE(
+      data->>'시스템 기기번호',
+      data->>'시스템기기번호',
+      data->>'기기번호',
+      data->>'기기 번호',
+      ''
+    ))) = $1
+    LIMIT 1
+    `,
+    [systemNo]
+  );
+
+  return !!r.rows.length;
 }
 
 async function ensureLactinaTables() {
@@ -83,7 +135,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const updates = updatesRaw.map((u: any) => ({
+      const updates = updatesRaw.map((u: any) => ({
       id: Number(u?.id),
       patch: u?.patch,
     }));
@@ -97,56 +149,79 @@ export async function POST(req: Request) {
       }
     }
 
-      const updatedIds: number[] = [];
-    const updatedRows: Array<{ id: number; data: Record<string, any> }> = [];
+    const ids = updates.map((u) => u.id);
 
-    await query("BEGIN");
-    try {
-      for (const u of updates) {
-        const patch: Record<string, any> = { ...(u.patch as Record<string, any>) };
+    // 변경 전 시스템기기번호 스냅샷
+    const beforeR = await query(
+      `
+      SELECT id, data
+      FROM device_lactina
+      WHERE id = ANY($1::int[])
+      `,
+      [ids]
+    );
+    const beforeMap = new Map<number, Record<string, any>>();
+    for (const row of beforeR.rows ?? []) {
+      beforeMap.set(Number(row.id), (row.data ?? {}) as Record<string, any>);
+    }
 
-        // 파생/읽기전용 컬럼 저장 차단
-        delete patch["수리횟수"];
-        delete patch["거래처"];
-        delete patch["대여자명"];
+    // ✅ 파생 컬럼 저장 차단 + 원자적 jsonb merge(동시 수정 안정화)
+    const sanitized = updates.map((u) => {
+      const p: Record<string, any> = { ...(u.patch ?? {}) };
+      delete p["수리횟수"];
+      delete p["거래처"];
+      delete p["대여자명"];
+      return { id: u.id, patch: p };
+    });
 
-        if (!Object.keys(patch).length) continue;
+    const r = await query(
+      `
+      WITH v AS (
+        SELECT
+          (x->>'id')::int AS id,
+          x->'patch'       AS patch
+        FROM jsonb_array_elements($1::jsonb) AS x
+      )
+      UPDATE device_lactina s
+      SET data = COALESCE(s.data, '{}'::jsonb) || COALESCE(v.patch, '{}'::jsonb)
+      FROM v
+      WHERE s.id = v.id
+      RETURNING s.id, s.data
+      `,
+      [JSON.stringify(sanitized)]
+    );
 
-        const r = await query(
-          `
-          UPDATE device_lactina
-          SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
-          WHERE id = $2
-          RETURNING id, data
-          `,
-          [JSON.stringify(patch), u.id]
-        );
+    const updatedIds = (r.rows ?? []).map((x: any) => Number(x.id));
 
-        if (r.rows.length) {
-          updatedIds.push(Number(r.rows[0].id));
-          updatedRows.push({
-            id: Number(r.rows[0].id),
-            data: (r.rows[0].data ?? {}) as Record<string, any>,
-          });
-        }
+    const seenAfter = new Set<string>();
+    const cleanupCandidates = new Set<string>();
+
+    for (const row of r.rows ?? []) {
+      const id = Number(row.id);
+      const afterData = (row?.data ?? {}) as Record<string, any>;
+      const beforeData = beforeMap.get(id) ?? {};
+
+      const beforeNo = getSystemNoFromData(beforeData).toLowerCase();
+      const afterNo = getSystemNoFromData(afterData).toLowerCase();
+
+      if (afterNo && !seenAfter.has(afterNo)) {
+        seenAfter.add(afterNo);
+        await syncUnifiedDerivedBySystemNo(afterNo, afterData);
       }
 
-      await query("COMMIT");
-    } catch (e) {
-      await query("ROLLBACK");
-      throw e;
+      if (beforeNo && beforeNo !== afterNo) {
+        cleanupCandidates.add(beforeNo);
+      }
     }
 
-    // ✅ bulk 수정된 시스템 기기번호들에 대해 통합관리 파생값 즉시 반영
-    const seen = new Set<string>();
-    for (const row of updatedRows) {
-      const sysNo = n(row?.data?.["시스템 기기번호"]).toLowerCase();
-      if (!sysNo || seen.has(sysNo)) continue;
-      seen.add(sysNo);
-      await syncUnifiedDerivedBySystemNo(sysNo, row.data);
+    for (const oldNo of cleanupCandidates) {
+      const stillExists = await existsLactinaBySystemNo(oldNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(oldNo);
+      }
     }
 
-    return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds }); 
+    return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds });  
   } catch (e) {
     console.error("POST /api/devices/lactina/bulk-patch error:", e);
     return NextResponse.json({ error: "SERVER" }, { status: 500 });

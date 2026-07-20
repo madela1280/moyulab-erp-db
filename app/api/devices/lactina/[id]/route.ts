@@ -14,6 +14,15 @@ function hasOwn(obj: any, key: string) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+function getSystemNoFromData(data: Record<string, any>) {
+  return n(
+    data?.["시스템 기기번호"] ??
+      data?.["시스템기기번호"] ??
+      data?.["기기번호"] ??
+      data?.["기기 번호"]
+  );
+}
+
 // ✅ 락티나 저장값을 통합관리 파생 컬럼(기종/구매렌탈/제품)로 즉시 동기화
 // - 제품명/제품 키 혼용을 모두 수용해서 누락 방지
 async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
@@ -29,7 +38,6 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
     "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
   };
 
-  // 제품명/제품 중 하나라도 payload에 포함된 경우에만 통합관리 제품을 갱신
   if (hasOwn(sourceData, "제품명") || hasOwn(sourceData, "제품")) {
     patch["제품"] = product || null;
   }
@@ -42,6 +50,49 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
     `,
     [systemNo, JSON.stringify(patch)]
   );
+}
+
+async function clearUnifiedDerivedBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: null,
+    "구매/렌탈": null,
+    제품: null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function existsLactinaBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return false;
+
+  const r = await query(
+    `
+    SELECT 1
+    FROM device_lactina
+    WHERE lower(trim(COALESCE(
+      data->>'시스템 기기번호',
+      data->>'시스템기기번호',
+      data->>'기기번호',
+      data->>'기기 번호',
+      ''
+    ))) = $1
+    LIMIT 1
+    `,
+    [systemNo]
+  );
+
+  return !!r.rows.length;
 }
 
 // ✅ 테이블 미생성으로 500 나는 것 방지: 자동 생성(있으면 무시)
@@ -95,6 +146,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
     }
 
+    const beforeR = await query(`SELECT data FROM device_lactina WHERE id=$1`, [id]);
+    if (!beforeR.rows.length) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    const beforeData = (beforeR.rows[0]?.data ?? {}) as Record<string, any>;
+    const beforeSystemNo = getSystemNoFromData(beforeData).toLowerCase();
+
     // 파생/읽기전용 컬럼 저장 차단
     const patch: Record<string, any> = { ...body };
     delete patch["수리횟수"];
@@ -116,12 +174,19 @@ export async function PATCH(req: Request) {
     }
 
     const saved = r.rows[0];
+    const afterData = (saved?.data ?? {}) as Record<string, any>;
+    const afterSystemNo = getSystemNoFromData(afterData).toLowerCase();
 
-    // ✅ 락티나 수정 즉시 통합관리 파생값 동기화
-    await syncUnifiedDerivedBySystemNo(
-      (saved?.data ?? {})["시스템 기기번호"],
-      saved?.data ?? {}
-    );
+    if (afterSystemNo) {
+      await syncUnifiedDerivedBySystemNo(afterSystemNo, afterData);
+    }
+
+    if (beforeSystemNo && beforeSystemNo !== afterSystemNo) {
+      const stillExists = await existsLactinaBySystemNo(beforeSystemNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(beforeSystemNo);
+      }
+    }
 
     return NextResponse.json(saved);
   } catch (e) {
