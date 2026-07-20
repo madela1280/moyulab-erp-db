@@ -5,16 +5,28 @@ function n(v: any) {
   return String(v ?? "").trim();
 }
 
+function hasOwn(obj: any, key: string) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 // ✅ 락티나 bulk 수정 후 통합관리 파생 컬럼 즉시 동기화
+// - 제품명/제품 키 혼용을 모두 수용해서 누락 방지
 async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
   const systemNo = n(systemNoRaw).toLowerCase();
   if (!systemNo) return;
 
-  const patch = {
+  const productFromName = n(sourceData?.["제품명"]);
+  const productFromProduct = n(sourceData?.["제품"]);
+  const product = productFromName || productFromProduct;
+
+  const patch: Record<string, any> = {
     기종: n(sourceData?.["기종"]) || null,
     "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
-    제품: n(sourceData?.["제품명"]) || null,
   };
+
+  if (hasOwn(sourceData, "제품명") || hasOwn(sourceData, "제품")) {
+    patch["제품"] = product || null;
+  }
 
   await query(
     `
