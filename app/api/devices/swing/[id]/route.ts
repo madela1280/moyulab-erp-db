@@ -6,6 +6,51 @@ function getId(req: Request) {
   return url.pathname.split("/").pop();
 }
 
+function n(v: any) {
+  return String(v ?? "").trim();
+}
+
+function hasOwn(obj: any, key: string) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function getSystemNoFromData(data: Record<string, any>) {
+  return n(
+    data?.["시스템 기기번호"] ??
+      data?.["시스템기기번호"] ??
+      data?.["기기번호"] ??
+      data?.["기기 번호"]
+  );
+}
+
+// ✅ 스윙 저장값을 통합관리 파생 컬럼(기종/구매렌탈/제품)로 즉시 동기화
+async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const productFromName = n(sourceData?.["제품명"]);
+  const productFromProduct = n(sourceData?.["제품"]);
+  const product = productFromName || productFromProduct;
+
+  const patch: Record<string, any> = {
+    기종: n(sourceData?.["기종"]) || null,
+    "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
+  };
+
+  if (hasOwn(sourceData, "제품명") || hasOwn(sourceData, "제품")) {
+    patch["제품"] = product || null;
+  }
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
 async function ensureSwingTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS device_swing (
@@ -52,24 +97,38 @@ export async function PATCH(req: Request) {
     const id = getId(req);
     const body = await req.json().catch(() => ({}));
 
-    const old = await query(`SELECT data FROM device_swing WHERE id=$1`, [id]);
-    if (!old.rows.length) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+    }
+
+    // 파생/읽기전용 컬럼 저장 차단
+    const patch: Record<string, any> = { ...body };
+    delete patch["수리횟수"];
+    delete patch["거래처"];
+    delete patch["대여자명"];
+
+    const r = await query(
+      `
+      UPDATE device_swing
+      SET data = COALESCE(data, '{}'::jsonb) || $1::jsonb
+      WHERE id = $2
+      RETURNING id, data
+      `,
+      [JSON.stringify(patch), id]
+    );
+
+    if (!r.rows.length) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    const source = old.rows[0]?.data || {};
+    const saved = r.rows[0];
 
-    const merged: Record<string, any> = { ...source };
-    for (const key in body) {
-      merged[key] = (body as any)[key];
-    }
+    await syncUnifiedDerivedBySystemNo(
+      getSystemNoFromData((saved?.data ?? {}) as Record<string, any>),
+      (saved?.data ?? {}) as Record<string, any>
+    );
 
-    const r = await query(`UPDATE device_swing SET data=$1 WHERE id=$2 RETURNING id, data`, [
-      merged,
-      id,
-    ]);
-
-    return NextResponse.json(r.rows[0]);
+    return NextResponse.json(saved);
   } catch (e) {
     console.error("PATCH /api/devices/swing/[id] error:", e);
     return NextResponse.json({ error: "SERVER" }, { status: 500 });
