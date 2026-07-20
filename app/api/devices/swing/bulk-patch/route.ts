@@ -46,6 +46,49 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
   );
 }
 
+async function clearUnifiedDerivedBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: null,
+    "구매/렌탈": null,
+    제품: null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function existsSwingBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return false;
+
+  const r = await query(
+    `
+    SELECT 1
+    FROM device_swing
+    WHERE lower(trim(COALESCE(
+      data->>'시스템 기기번호',
+      data->>'시스템기기번호',
+      data->>'기기번호',
+      data->>'기기 번호',
+      ''
+    ))) = $1
+    LIMIT 1
+    `,
+    [systemNo]
+  );
+
+  return !!r.rows.length;
+}
+
 async function ensureSwingTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS device_swing (
@@ -91,7 +134,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const updates = updatesRaw.map((u: any) => ({
+      const updates = updatesRaw.map((u: any) => ({
       id: Number(u?.id),
       patch: u?.patch,
     }));
@@ -103,6 +146,22 @@ export async function POST(req: Request) {
       if (!u.patch || typeof u.patch !== "object" || Array.isArray(u.patch)) {
         return NextResponse.json({ error: "INVALID_PATCH" }, { status: 400 });
       }
+    }
+
+    const ids = updates.map((u) => u.id);
+
+    // 변경 전 시스템기기번호 스냅샷
+    const beforeR = await query(
+      `
+      SELECT id, data
+      FROM device_swing
+      WHERE id = ANY($1::int[])
+      `,
+      [ids]
+    );
+    const beforeMap = new Map<number, Record<string, any>>();
+    for (const row of beforeR.rows ?? []) {
+      beforeMap.set(Number(row.id), (row.data ?? {}) as Record<string, any>);
     }
 
     // 파생/읽기전용 컬럼 저장 차단 + 원자적 jsonb merge
@@ -133,16 +192,35 @@ export async function POST(req: Request) {
 
     const updatedIds = (r.rows ?? []).map((x: any) => Number(x.id));
 
-    const seen = new Set<string>();
+    const seenAfter = new Set<string>();
+    const cleanupCandidates = new Set<string>();
+
     for (const row of r.rows ?? []) {
-      const data = (row?.data ?? {}) as Record<string, any>;
-      const sysNo = getSystemNoFromData(data).toLowerCase();
-      if (!sysNo || seen.has(sysNo)) continue;
-      seen.add(sysNo);
-      await syncUnifiedDerivedBySystemNo(sysNo, data);
+      const id = Number(row.id);
+      const afterData = (row?.data ?? {}) as Record<string, any>;
+      const beforeData = beforeMap.get(id) ?? {};
+
+      const beforeNo = getSystemNoFromData(beforeData).toLowerCase();
+      const afterNo = getSystemNoFromData(afterData).toLowerCase();
+
+      if (afterNo && !seenAfter.has(afterNo)) {
+        seenAfter.add(afterNo);
+        await syncUnifiedDerivedBySystemNo(afterNo, afterData);
+      }
+
+      if (beforeNo && beforeNo !== afterNo) {
+        cleanupCandidates.add(beforeNo);
+      }
     }
 
-    return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds });
+    for (const oldNo of cleanupCandidates) {
+      const stillExists = await existsSwingBySystemNo(oldNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(oldNo);
+      }
+    }
+
+    return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds });  
   } catch (e) {
     console.error("POST /api/devices/swing/bulk-patch error:", e);
     return NextResponse.json({ error: "SERVER" }, { status: 500 });
