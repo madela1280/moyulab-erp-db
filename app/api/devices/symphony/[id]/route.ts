@@ -10,6 +10,15 @@ function n(v: any) {
   return String(v ?? "").trim();
 }
 
+function getSystemNoFromData(data: Record<string, any>) {
+  return n(
+    data?.["시스템 기기번호"] ??
+      data?.["시스템기기번호"] ??
+      data?.["기기번호"] ??
+      data?.["기기 번호"]
+  );
+}
+
 // ✅ 심포니 저장값을 통합관리 파생 컬럼(기종/구매렌탈/에러횟수/제품)로 즉시 동기화
 async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
   const systemNo = n(systemNoRaw).toLowerCase();
@@ -19,7 +28,7 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
     기종: n(sourceData?.["기종"]) || null,
     "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
     에러횟수: n(sourceData?.["에러횟수"]) || null,
-    제품: n(sourceData?.["제품명"]) || null,
+    제품: n(sourceData?.["제품명"] ?? sourceData?.["제품"]) || null,
   };
 
   await query(
@@ -30,6 +39,50 @@ async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record
     `,
     [systemNo, JSON.stringify(patch)]
   );
+}
+
+async function clearUnifiedDerivedBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: null,
+    "구매/렌탈": null,
+    에러횟수: null,
+    제품: null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function existsSymphonyBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return false;
+
+  const r = await query(
+    `
+    SELECT 1
+    FROM device_symphony
+    WHERE lower(trim(COALESCE(
+      data->>'시스템 기기번호',
+      data->>'시스템기기번호',
+      data->>'기기번호',
+      data->>'기기 번호',
+      ''
+    ))) = $1
+    LIMIT 1
+    `,
+    [systemNo]
+  );
+
+  return !!r.rows.length;
 }
 
 // ✅ 테이블 미생성으로 500 나는 것 방지: 자동 생성(있으면 무시)
@@ -83,6 +136,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
     }
 
+    const beforeR = await query(`SELECT data FROM device_symphony WHERE id=$1`, [id]);
+    if (!beforeR.rows.length) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    const beforeData = (beforeR.rows[0]?.data ?? {}) as Record<string, any>;
+    const beforeSystemNo = getSystemNoFromData(beforeData).toLowerCase();
+
     // ✅ 파생 컬럼은 저장 차단
     const patch: Record<string, any> = { ...body };
     delete patch["수리횟수"];
@@ -105,12 +165,21 @@ export async function PATCH(req: Request) {
     }
 
     const saved = r.rows[0];
+    const afterData = (saved?.data ?? {}) as Record<string, any>;
+    const afterSystemNo = getSystemNoFromData(afterData).toLowerCase();
 
-    // ✅ 심포니 수정 즉시 통합관리 파생값 동기화
-    await syncUnifiedDerivedBySystemNo(
-      (saved?.data ?? {})["시스템 기기번호"],
-      saved?.data ?? {}
-    );
+    // 신규/현재 시스템기기번호 동기화
+    if (afterSystemNo) {
+      await syncUnifiedDerivedBySystemNo(afterSystemNo, afterData);
+    }
+
+    // 시스템기기번호 변경/삭제 시, 이전 번호가 더 이상 기기관리에 없으면 통합관리 파생값 초기화
+    if (beforeSystemNo && beforeSystemNo !== afterSystemNo) {
+      const stillExists = await existsSymphonyBySystemNo(beforeSystemNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(beforeSystemNo);
+      }
+    }
 
     return NextResponse.json(saved);
   } catch (e) {
