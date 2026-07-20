@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { syncListen } from "@/global-sync/sync-engine";
+import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
 
 type UnifiedRow = { id: number; data: Record<string, any> };
 
@@ -137,29 +138,41 @@ export function useUnifiedRentalStatus() {
       const deviceNoKey = deviceKey(row?.data?.["기기번호"]);
       if (!deviceNo) continue;
 
-      const requested = t(row?.data?.["반납요청일"]);
-      const returned = t(row?.data?.["반납완료일"]);
+      const unifiedStatus = calcUnifiedStatus(
+        {
+          수취인명: row?.data?.["수취인명"],
+          연락처1: row?.data?.["연락처1"],
+          계약자주소: row?.data?.["계약자주소"],
+          택배발송일: row?.data?.["택배발송일"],
+          시작일: row?.data?.["시작일"],
+          종료일: row?.data?.["종료일"],
+          반납요청일: row?.data?.["반납요청일"],
+          반납완료일: row?.data?.["반납완료일"],
+        },
+        today
+      ).status;
 
-      // 반납완료가 있으면 대여 상태 집계 제외
-      if (returned) continue;
+      // ✅ 심포니 표시용 3상태로 매핑
+      let status: "대여중" | "회수중" | "미회수" | "" = "";
 
-      const endYmd = toYmd(row?.data?.["종료일"]);
-      const endDate = parseYmdToDate(endYmd);
-
-      // ✅ 판정 규칙(요청 기준)
-      // - 반납요청일/반납완료일 공란 + 종료일이 오늘 이전 => 미회수
-      // - 반납완료일 공란 + 반납요청일 값 있음 => 회수중
-      // - 그 외 => 대여중
-      const isRequestedBlank = requested === "";
-      const isReturnedBlank = returned === "";
-      const isEndPast = !!endDate && endDate.getTime() < today.getTime();
-
-      let status: "대여중" | "회수중" | "미회수" = "대여중";
-      if (isRequestedBlank && isReturnedBlank && isEndPast) {
-        status = "미회수";
-      } else if (!isRequestedBlank && isReturnedBlank) {
+      if (unifiedStatus === "회수중") {
         status = "회수중";
+      } else if (unifiedStatus === "만기지남") {
+        status = "미회수";
+      } else if (
+        unifiedStatus === "대여중" ||
+        unifiedStatus === "만기5일전" ||
+        unifiedStatus === "만기4일전" ||
+        unifiedStatus === "만기3일전" ||
+        unifiedStatus === "만기2일전" ||
+        unifiedStatus === "만기1일전" ||
+        unifiedStatus === "오늘만기"
+      ) {
+        status = "대여중";
       }
+
+      // 3상태 외(회수완료/발송전/빈상태)는 표시/집계 제외
+      if (!status) continue;
 
       set.add(deviceNo);
       if (deviceNoKey) set.add(deviceNoKey);

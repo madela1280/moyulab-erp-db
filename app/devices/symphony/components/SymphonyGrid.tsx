@@ -84,10 +84,14 @@ function stripRentingMarker(v: any) {
   if (!raw) return "";
 
   let s = raw;
-  s = s.replace(/\(대여중\)/g, "");
-  s = s.replace(/\s*대여중\s*/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
 
+  // 괄호형 상태 제거: (대여중) / (회수중) / (미회수)
+  s = s.replace(/\((대여중|회수중|미회수)\)/g, "");
+
+  // 괄호 없이 들어온 상태 텍스트도 제거
+  s = s.replace(/\s*(대여중|회수중|미회수)\s*/g, " ");
+
+  s = s.replace(/\s+/g, " ").trim();
   return s;
 }
 
@@ -555,6 +559,14 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
     return true;
   }
 
+    function getStatusBySystemDeviceNo(systemDeviceNo: any) {
+    const deviceNo = normalizeDeviceNo(systemDeviceNo);
+    const deviceNoLower = deviceNo.toLowerCase();
+    return deviceNo
+      ? statusByDeviceNo?.[deviceNo] ?? statusByDeviceNo?.[deviceNoLower] ?? ""
+      : "";
+  }
+
   // ===== 유틸: 셀 표시값(파생 포함) =====
   function getDisplayValue(row: SymphonyRow, colKey: string) {
     const deviceNo = normalizeDeviceNo(row.data?.["시스템 기기번호"]);
@@ -567,9 +579,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
       ? rentingInfoByDeviceNo?.[deviceNo] ?? rentingInfoByDeviceNo?.[deviceNoLower]
       : undefined;
 
-    const status = deviceNo
-      ? statusByDeviceNo?.[deviceNo] ?? statusByDeviceNo?.[deviceNoLower] ?? ""
-      : "";
+    const status = getStatusBySystemDeviceNo(row.data?.["시스템 기기번호"]);
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
@@ -716,7 +726,11 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
 
       if (!row || !colKey || isComputedColumn(colKey)) return;
 
-      const nextValue = String(row.data?.[colKey] ?? "");
+      const nextValue =
+        colKey === "유축기 위치"
+          ? getDisplayValue(row, colKey)
+          : String(row.data?.[colKey] ?? "");
+
       if (input.value !== nextValue) {
         input.value = nextValue;
       }
@@ -1384,11 +1398,15 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                           closeFilterPopover();
                         }}
                       >
-                        <input
+                                               <input
                           key={`${row.id}:${key}`}
                           className={`w-full bg-transparent outline-none ${key === "에러횟수" ? "text-center" : ""}`}
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          defaultValue={String(row.data?.[key] ?? "")}
+                          defaultValue={
+                            key === "유축기 위치"
+                              ? getDisplayValue(row, key)
+                              : String(row.data?.[key] ?? "")
+                          }
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
@@ -1400,7 +1418,19 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                               deleteRefocusRef.current = null;
                             }
 
-                            const initial = String(row.data?.[key] ?? "");
+                            // 유축기 위치는 표시용 상태 텍스트를 제거한 "원본값"으로 편집 시작
+                            if (key === "유축기 위치") {
+                              const pure = stripRentingMarker(e.target.value);
+                              if (e.target.value !== pure) {
+                                e.target.value = pure;
+                              }
+                            }
+
+                            const initial =
+                              key === "유축기 위치"
+                                ? stripRentingMarker(String(e.target.value ?? ""))
+                                : String(row.data?.[key] ?? "");
+
                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
@@ -1420,7 +1450,8 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                           onBlur={async (e) => {
                             const blurRowId = row.id;
                             const blurKey = key;
-                            const v = String(e.target.value ?? "");
+                            const inputValue = String(e.target.value ?? "");
+                            const v = blurKey === "유축기 위치" ? stripRentingMarker(inputValue) : inputValue;
 
                             if (
                               deleteRefocusRef.current?.rowId === blurRowId &&
@@ -1461,6 +1492,13 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                             try {
                               updateLocalCell(blurRowId, blurKey, v);
                               await saveCell(blurRowId, blurKey, v);
+
+                              // 유축기 위치는 blur 후 다시 "표시용 상태"를 붙여 보여줌(저장은 원본값)
+                              if (blurKey === "유축기 위치") {
+                                const status = getStatusBySystemDeviceNo(row.data?.["시스템 기기번호"]);
+                                const display = status ? (v ? `${v} (${status})` : status) : v;
+                                e.target.value = display;
+                              }
                             } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
@@ -1484,6 +1522,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                             }
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
+                        /> 
                         />
                       </td>
                     );
