@@ -191,7 +191,7 @@ function parseExcelClipboardTSV(text: string): string[][] {
 const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
 
 const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props, ref) {
-  const { rows, setRows, setTotalCount, baseIndex, loading, error, reload } = useSimileRows();
+  const { rows, setRows, setTotalCount, loading, error, reload } = useSimileRows();
 
   const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
 
@@ -323,11 +323,60 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     setFilterColumnKey(null);
   }
 
+  // ===== 편집(락) =====
   const [myRowLocks, setMyRowLocks] = useState<Record<number, boolean>>({});
+  const myRowLocksRef = useRef<Record<number, boolean>>({});
+  const lockPendingRef = useRef<Record<number, Promise<any> | null>>({});
+
   const editingCellRef = useRef<{ rowId: number; key: string } | null>(null);
 
-  const [activeEditCell, setActiveEditCell] = useState<{ rowId: number; key: string } | null>(null);
-  const [activeEditValue, setActiveEditValue] = useState<string>("");
+  const activeEditCellRef = useRef<{ rowId: number; key: string } | null>(null);
+  const activeEditValueRef = useRef<string>("");
+
+  // ✅ Delete 직후 remount/blur 중에도 같은 셀 재포커스를 보장하기 위한 플래그
+  const deleteRefocusRef = useRef<{ rowId: number; key: string } | null>(null);
+
+  useEffect(() => {
+    myRowLocksRef.current = myRowLocks;
+  }, [myRowLocks]);
+
+  function setActiveEditDraft(cell: { rowId: number; key: string }, value: string) {
+    activeEditCellRef.current = cell;
+    activeEditValueRef.current = value;
+    editingCellRef.current = cell;
+  }
+
+  function clearActiveEditDraftIfSame(rowId: number, key?: string) {
+    const cur = activeEditCellRef.current;
+    if (!cur) return;
+    if (cur.rowId !== rowId) return;
+    if (key && cur.key !== key) return;
+
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
+
+    if (
+      editingCellRef.current?.rowId === rowId &&
+      (!key || editingCellRef.current?.key === key)
+    ) {
+      editingCellRef.current = null;
+    }
+  }
+
+  function getActiveSimileRowId(): number | null {
+    try {
+      const ae = document.activeElement as HTMLElement | null;
+      if (!ae || ae.tagName !== "INPUT") return null;
+
+      const rowAttr = (ae as HTMLInputElement).getAttribute("data-row");
+      const rowIndex = Number(rowAttr);
+      if (!Number.isFinite(rowIndex)) return null;
+
+      return displayRows[rowIndex]?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async function handleFocus(rowId: number, key: string, initialValue: string, e: any) {
     if (isComputedColumn(key)) {
@@ -335,38 +384,156 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
       return;
     }
 
-    editingCellRef.current = { rowId, key };
-    setActiveEditCell({ rowId, key });
-    setActiveEditValue(initialValue ?? "");
+    setActiveEditDraft({ rowId, key }, initialValue ?? "");
 
-    const result = await acquireLock("simile", rowId);
+    // 같은 행 내 셀 이동이면 기존 락 재사용
+    if (myRowLocksRef.current[rowId]) return;
 
-    const stillActive = editingCellRef.current?.rowId === rowId && editingCellRef.current?.key === key;
+    // 같은 행 lock pending이 있으면 중복 acquire 금지
+    const existingPending = lockPendingRef.current[rowId];
+    const pending = existingPending ?? acquireLock("simile", rowId);
 
-    if (!stillActive) {
-      if (result.ok) await releaseLock("simile", rowId);
+    if (!existingPending) {
+      lockPendingRef.current[rowId] = pending;
+    }
+
+    const result = await pending.catch(() => null);
+
+    if (lockPendingRef.current[rowId] === pending) {
+      lockPendingRef.current[rowId] = null;
+    }
+
+    const active = editingCellRef.current;
+    const stillSameCell = active?.rowId === rowId && active?.key === key;
+    const stillSameRow = active?.rowId === rowId;
+
+    if (result?.ok) {
+      // 핵심: 같은 행 다른 셀로 이미 이동했으면 락 유지
+      if (stillSameRow) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return;
+      }
+
+      await releaseLock("simile", rowId).catch(() => {});
       return;
     }
 
-    if (result.ok) {
-      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
-      return;
-    }
+    // 오래된 focus 응답이면 현재 입력을 건드리지 않음
+    if (!stillSameCell) return;
 
-    editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
+    clearActiveEditDraftIfSame(rowId, key);
     alert("이 행을 편집할 수 없습니다. (다른 사용자가 편집 중이거나 권한이 없습니다)");
     e.target.blur();
   }
 
   function updateLocalCell(rowId: number, key: string, value: string) {
-    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r)));
+    setRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, data: { ...r.data, [key]: value } } : r))
+    );
   }
 
   async function saveCell(rowId: number, key: string, value: string) {
     const v = value === "" ? null : value;
     await patchSimileRow(rowId, { [key]: v });
+  }
+
+  async function ensureSimileRowLock(rowId: number) {
+    if (myRowLocksRef.current[rowId]) return true;
+
+    const pending = lockPendingRef.current[rowId];
+    if (pending) {
+      const r = await pending.catch(() => null);
+      if (r?.ok) {
+        myRowLocksRef.current[rowId] = true;
+        setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+        return true;
+      }
+    }
+
+    const retry = await acquireLock("simile", rowId).catch(() => null);
+    if (retry?.ok) {
+      myRowLocksRef.current[rowId] = true;
+      setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function clearSingleSelectedCell() {
+    if (!selectedCellRange) return false;
+
+    const isSingleCell =
+      selectedCellRange.startRow === selectedCellRange.endRow &&
+      selectedCellRange.startCol === selectedCellRange.endCol;
+
+    if (!isSingleCell) return false;
+
+    const rowIndex = selectedCellRange.startRow;
+    const colIndex = selectedCellRange.startCol;
+
+    const row = displayRows[rowIndex];
+    const key = viewColumns[colIndex];
+
+    if (!row || !key || isComputedColumn(key)) return false;
+
+    // ✅ Delete 후 같은 셀 재포커스 진행중 표시
+    deleteRefocusRef.current = { rowId: row.id, key };
+    setActiveEditDraft({ rowId: row.id, key }, "");
+
+    const hasLock = await ensureSimileRowLock(row.id);
+
+    if (!hasLock) {
+      clearActiveEditDraftIfSame(row.id, key);
+      await reload({ silent: true });
+      return true;
+    }
+
+    try {
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      // ✅ 1) 화면에서 즉시 삭제 + 같은 셀 커서 유지
+      if (input) {
+        input.value = "";
+        input.focus();
+        try {
+          input.setSelectionRange(0, 0);
+        } catch {}
+      }
+
+      // ✅ 2) 로컬 데이터 즉시 반영
+      // input key를 안정화했기 때문에 이 setRows가 더 이상 input remount를 만들지 않음
+      updateLocalCell(row.id, key, "");
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      });
+
+      setContextMenu(null);
+      setActiveEditDraft({ rowId: row.id, key }, "");
+
+      // ✅ 서버 저장을 기다리기 전부터 커서 유지
+      focusCellSoon(rowIndex, colIndex);
+
+      // ✅ 3) 서버 저장
+      await saveCell(row.id, key, "");
+
+      // ✅ 저장 완료 후에도 같은 셀 커서 유지
+      focusCellSoon(rowIndex, colIndex);
+    } catch {
+      clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
+      await reload({ silent: true });
+    }
+
+    return true;
   }
 
   function getDisplayValue(row: SimileRow, colKey: string) {
@@ -400,14 +567,18 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
   }
 
   function focusCell(rowIndex: number, colIndex: number) {
-    const input = document.querySelector<HTMLInputElement>(`input[data-row="${rowIndex}"][data-col="${colIndex}"]`);
+    const input = document.querySelector<HTMLInputElement>(
+      `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
     if (input) {
       input.focus();
       input.select();
       return true;
     }
 
-    const td = document.querySelector<HTMLElement>(`td[data-row="${rowIndex}"][data-col="${colIndex}"]`);
+    const td = document.querySelector<HTMLElement>(
+      `td[data-row="${rowIndex}"][data-col="${colIndex}"]`
+    );
     if (td) {
       td.focus();
       return true;
@@ -416,29 +587,98 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     return false;
   }
 
+  function focusCellSoon(rowIndex: number, colIndex: number) {
+    let tries = 0;
+    const maxTries = 12;
+
+    const tryFocus = () => {
+      tries += 1;
+
+      const input = document.querySelector<HTMLInputElement>(
+        `input[data-row="${rowIndex}"][data-col="${colIndex}"]`
+      );
+
+      if (input) {
+        input.focus();
+        // ✅ "선택(select)"가 아니라 커서 깜박임 상태로
+        const len = (input.value ?? "").length;
+        try {
+          input.setSelectionRange(len, len);
+        } catch {}
+        return true;
+      }
+
+      return false;
+    };
+
+    const loop = () => {
+      if (tryFocus()) return;
+      if (tries >= maxTries) return;
+      setTimeout(loop, 16);
+    };
+
+    requestAnimationFrame(loop);
+  }
+
+  // ✅ input key를 안정화하면 defaultValue만으로는 외부 데이터 변경이 화면에 안 보일 수 있음.
+  // 그래서 rows가 바뀔 때, 현재 포커스 중인 input은 건드리지 않고 나머지 input 값만 DOM으로 동기화한다.
+  useEffect(() => {
+    const inputs = document.querySelectorAll<HTMLInputElement>('input[data-row][data-col]');
+
+    inputs.forEach((input) => {
+      // 현재 입력 중인 셀은 절대 건드리지 않음 = 커서/타이핑 보호
+      if (document.activeElement === input) return;
+
+      const rowIndex = Number(input.getAttribute("data-row"));
+      const colIndex = Number(input.getAttribute("data-col"));
+
+      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
+
+      const row = displayRows[rowIndex];
+      const colKey = viewColumns[colIndex];
+
+      if (!row || !colKey || isComputedColumn(colKey)) return;
+
+      const nextValue = String(row.data?.[colKey] ?? "");
+
+      if (input.value !== nextValue) {
+        input.value = nextValue;
+      }
+    });
+  }, [displayRows, viewColumns]);
+
   function handleCellKeyDown(e: React.KeyboardEvent<HTMLElement>, rowIndex: number, colIndex: number) {
+    const isArrow =
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft";
+
+    if (!isArrow) return;
+
+    // ✅ 방향키로 다른 셀로 이동 의도 시 Delete 재포커스 플래그 해제
+    deleteRefocusRef.current = null;
+
+    // 경계에서도 화면 스크롤이 아니라 셀 이동 규칙이 우선
+    e.preventDefault();
+    e.stopPropagation();
+
     let r = rowIndex;
     let c = colIndex;
 
     switch (e.key) {
       case "ArrowDown":
         if (rowIndex < displayRows.length - 1) r = rowIndex + 1;
-        else return;
         break;
       case "ArrowUp":
         if (rowIndex > 0) r = rowIndex - 1;
-        else return;
         break;
       case "ArrowRight":
         if (colIndex < viewColumns.length - 1) c = colIndex + 1;
-        else return;
         break;
       case "ArrowLeft":
         if (colIndex > 0) c = colIndex - 1;
-        else return;
         break;
-      default:
-        return;
     }
 
     setSelectedRowRange(null);
@@ -447,15 +687,14 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     closeFilterPopover();
 
     focusCell(r, c);
-    e.preventDefault();
   }
 
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
   async function clearSelection() {
     editingCellRef.current = null;
-    setActiveEditCell(null);
-    setActiveEditValue("");
+    activeEditCellRef.current = null;
+    activeEditValueRef.current = "";
 
     const el = document.activeElement as HTMLElement | null;
     if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
@@ -595,9 +834,26 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
         return;
       }
 
-      if (e.key === "Delete" && (selectedCellRange || selectedRowRange)) {
+      if (e.key === "Delete") {
+        const hasCellRange = !!selectedCellRange;
+        const hasRowRange = !!selectedRowRange;
+
+        if (!hasCellRange && !hasRowRange) return;
+
+        const isSingleCell =
+          !!selectedCellRange &&
+          selectedCellRange.startRow === selectedCellRange.endRow &&
+          selectedCellRange.startCol === selectedCellRange.endCol;
+
         e.preventDefault();
         e.stopPropagation();
+
+        // 핵심: 커서 깜박이는 input 상태에서도 단일셀 Delete는 저장 확정 경로로 강제
+        if (isSingleCell) {
+          void clearSingleSelectedCell();
+          return;
+        }
+
         void clearSelection();
         return;
       }
@@ -665,6 +921,55 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     window.addEventListener("click", onClick);
     return () => window.removeEventListener("click", onClick);
   }, []);
+
+  useEffect(() => {
+    function onArrowKeyDown(e: KeyboardEvent) {
+      const isArrow =
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight";
+      if (!isArrow) return;
+
+      // input 포커스면 기존 input onKeyDown(handleCellKeyDown)에 맡김
+      const ae = document.activeElement as HTMLElement | null;
+      const tag = (ae?.tagName || "").toUpperCase();
+      const isEditable =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!ae?.isContentEditable;
+      if (isEditable) return;
+
+      if (!selectedCellRange) return;
+
+      // ✅ 방향키 이동 의도 시 Delete 재포커스 플래그 해제
+      deleteRefocusRef.current = null;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      let r = selectedCellRange.startRow;
+      let c = selectedCellRange.startCol;
+
+      if (e.key === "ArrowDown") {
+        if (r < displayRows.length - 1) r += 1;
+      } else if (e.key === "ArrowUp") {
+        if (r > 0) r -= 1;
+      } else if (e.key === "ArrowRight") {
+        if (c < viewColumns.length - 1) c += 1;
+      } else if (e.key === "ArrowLeft") {
+        if (c > 0) c -= 1;
+      }
+
+      setSelectedRowRange(null);
+      setSelectedCellRange({ startRow: r, endRow: r, startCol: c, endCol: c });
+      setContextMenu(null);
+      closeFilterPopover();
+
+      focusCell(r, c);
+    }
+
+    window.addEventListener("keydown", onArrowKeyDown, true);
+    return () => window.removeEventListener("keydown", onArrowKeyDown, true);
+  }, [selectedCellRange, displayRows.length, viewColumns.length]);
 
   async function handleInsertRows() {
     const anchor = selectedRowRange?.start ?? 0;
@@ -910,7 +1215,7 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
 
               return (
                 <tr key={row.id}>
-                 <td
+                  <td
                     className={
                       "border px-1 py-[3px] text-[0.68rem] text-center select-none " +
                       (rowSelected ? "bg-blue-200 text-gray-800" : "bg-gray-100 text-gray-500")
@@ -1044,44 +1349,106 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
                         }}
                       >
                         <input
+                          key={`${row.id}:${key}`}
                           className="w-full bg-transparent outline-none"
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          value={
-                            activeEditCell?.rowId === row.id && activeEditCell?.key === key
-                              ? activeEditValue
-                              : getDisplayValue(row, key)
-                          }
+                          defaultValue={String(row.data?.[key] ?? "")}
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
                             setSelectedRowRange(null);
+
+                            // ✅ Delete 직후 복구 대상 셀은 유지, 다른 셀 포커스 시에는 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur && !(cur.rowId === row.id && cur.key === key)) {
+                              deleteRefocusRef.current = null;
+                            }
+
                             const initial = String(row.data?.[key] ?? "");
                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
-                            if (activeEditCell?.rowId === row.id && activeEditCell?.key === key) {
-                              setActiveEditValue(e.target.value);
+                            const next = e.target.value;
+
+                            // ✅ Delete 후 사용자가 바로 입력을 시작하면,
+                            // 더 이상 "강제 재포커스 상태"가 아니므로 플래그 해제
+                            const cur = deleteRefocusRef.current;
+                            if (cur?.rowId === row.id && cur.key === key) {
+                              deleteRefocusRef.current = null;
                             }
-                            if (myRowLocks[row.id]) updateLocalCell(row.id, key, e.target.value);
+
+                            // 입력 중에는 setRows 하지 않음.
+                            activeEditCellRef.current = { rowId: row.id, key };
+                            activeEditValueRef.current = next;
+                            editingCellRef.current = { rowId: row.id, key };
                           }}
                           onBlur={async (e) => {
+                            const blurRowId = row.id;
+                            const blurKey = key;
                             const v = String(e.target.value ?? "");
 
-                            editingCellRef.current = null;
-                            setActiveEditCell(null);
-                            setActiveEditValue("");
+                            // ✅ blur가 발생했다는 건 사용자가 셀을 떠났거나 브라우저 포커스가 바뀐 것.
+                            // 여기서 강제 재포커스하면 Delete 후 입력/이동 흐름이 다시 꼬이므로 플래그만 종료한다.
+                            if (
+                              deleteRefocusRef.current?.rowId === blurRowId &&
+                              deleteRefocusRef.current?.key === blurKey
+                            ) {
+                              deleteRefocusRef.current = null;
+                            }
 
-                            if (!myRowLocks[row.id]) return;
+                            let hasLock = !!myRowLocksRef.current[blurRowId];
 
-                            updateLocalCell(row.id, key, v);
-                            await saveCell(row.id, key, v);
-                            await releaseLock("simile", row.id);
+                            if (!hasLock) {
+                              const pending = lockPendingRef.current[blurRowId];
+                              if (pending) {
+                                const r = await pending.catch(() => null);
+                                if (r?.ok) {
+                                  hasLock = true;
+                                  myRowLocksRef.current[blurRowId] = true;
+                                  setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
+                                }
+                              }
+                            }
 
-                            setMyRowLocks((prev) => {
-                              const copy = { ...prev };
-                              delete copy[row.id];
-                              return copy;
-                            });
+                            if (!hasLock) {
+                              const retry = await acquireLock("simile", blurRowId).catch(() => null);
+                              if (retry?.ok) {
+                                hasLock = true;
+                                myRowLocksRef.current[blurRowId] = true;
+                                setMyRowLocks((prev) => ({ ...prev, [blurRowId]: true }));
+                              }
+                            }
+
+                            if (!hasLock) {
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
+                              await reload({ silent: true });
+                              return;
+                            }
+
+                            try {
+                              updateLocalCell(blurRowId, blurKey, v);
+                              await saveCell(blurRowId, blurKey, v);
+                            } catch {
+                              clearActiveEditDraftIfSame(blurRowId, blurKey);
+                              await reload({ silent: true });
+                            } finally {
+                              const nextFocusedRowId = getActiveSimileRowId();
+                              const keepRowLock = nextFocusedRowId === blurRowId;
+
+                              if (!keepRowLock) {
+                                clearActiveEditDraftIfSame(blurRowId, blurKey);
+                              }
+
+                              if (!keepRowLock && hasLock) {
+                                await releaseLock("simile", blurRowId).catch(() => {});
+                                delete myRowLocksRef.current[blurRowId];
+                                setMyRowLocks((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[blurRowId];
+                                  return copy;
+                                });
+                              }
+                            }
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                         />
