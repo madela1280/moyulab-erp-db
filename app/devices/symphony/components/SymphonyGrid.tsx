@@ -1523,8 +1523,7 @@ const SymphonyGrid = forwardRef<SymphonyGridHandle, Props>(function SymphonyGrid
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                         /> 
-                        />
-                      </td>
+                     </td>
                     );
                   })}
                 </tr>
