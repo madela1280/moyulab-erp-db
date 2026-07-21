@@ -1132,11 +1132,23 @@ export default function SignupGrid({
 
       const key = (e.key || "").toLowerCase();
       const isMod = e.ctrlKey || e.metaKey;
-      // Delete
-      if (key === "delete") {
-        const rr = rowRangeRef.current;
-        const cr = rangeRef.current;
+
+     // Delete / Backspace
+      if (key === "delete" || key === "backspace") {
+        let rr = rowRangeRef.current;
+        let cr = rangeRef.current;
+
+        // ✅ 선택범위가 없더라도 active 셀이 있으면 1셀 선택으로 간주해서 삭제
+        if (!rr && !cr && activeRef.current) {
+          const p = activeRef.current;
+          anchorRef.current = p;
+          setAnchor(p);
+          setRangeSync(normalizeRange(p, p));
+          cr = rangeRef.current;
+        }
+
         if (!rr && !cr) return;
+
         e.preventDefault();
         e.stopPropagation();
         clearSelectionValues();
