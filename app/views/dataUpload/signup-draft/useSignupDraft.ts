@@ -50,19 +50,34 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
   }
 
   async function waitForIdle() {
-    // inflight + queued 저장이 모두 끝날 때까지 대기
-    // (queued는 inflight 종료 직후 곧바로 2번째 저장이 시작될 수 있어 루프로 처리)
-    for (let i = 0; i < 20; i++) {
-      if (!inflightRef.current) return;
-      const p = inflightPromiseRef.current;
-      if (p) await p;
-      // 다음 tick에서 상태 재확인
+    // timer(in-debounce) + inflight + queued 모두 완전히 비울 때까지 대기
+    for (let i = 0; i < 30; i++) {
+      const hasTimer = timerRef.current != null;
+      const hasInflight = inflightRef.current;
+      const hasQueued = queuedRef.current !== null;
+
+      if (!hasTimer && !hasInflight && !hasQueued) return;
+
+      // 디바운스 대기중이면 즉시 flush해서 "지웠다가 다시 나타남" 레이스 차단
+      if (hasTimer && !hasInflight) {
+        const t = timerRef.current;
+        if (t != null) {
+          window.clearTimeout(t);
+          timerRef.current = null;
+        }
+        await flushSave("debounce");
+        continue;
+      }
+
+      if (hasInflight) {
+        const p = inflightPromiseRef.current;
+        if (p) await p;
+      }
+
       await new Promise((r) => setTimeout(r, 0));
     }
 
-    // 너무 오래 걸리면(네트워크/서버 이슈) 무한대기 방지
-    // 그래도 최대한 안전하게: inflight가 계속이면 여기서 그냥 종료하고 reload는 진행하지 않게 한다.
-    if (inflightRef.current) throw new Error("DRAFT_SAVE_INFLIGHT");
+    throw new Error("DRAFT_SAVE_INFLIGHT");
   }
 
   // 최신 rows 스냅샷(언마운트/이탈 flush 저장용)
@@ -236,15 +251,25 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
   async function clear() {
     try {
-      // 저장 중이면 먼저 안정화(레이스 방지)
+      // 1) 대기중인 디바운스/큐 먼저 정리(이전 스냅샷 재저장 방지)
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      queuedRef.current = null;
+
+      // 2) 저장 중이면 완전 종료까지 대기
       if (inflightRef.current) {
         await waitForIdle();
       }
 
-      await apiDeleteSignupDraft();
+      // 3) 로컬 상태를 먼저 "삭제 의도"로 확정
       setRowsState([]);
       latestRowsRef.current = [];
       touchedRef.current = false;
+
+      // 4) 서버 draft 삭제
+      await apiDeleteSignupDraft();
 
       // 삭제도 알림(폭주 방지 스로틀)
       emitUnifiedUpdateThrottled();
@@ -255,8 +280,11 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
   async function reload() {
     try {
-      // ✅ 저장 중에 reload가 들어오면, 저장 완료 후에만 reload 수행(덮어쓰기/점멸 방지)
-      if (inflightRef.current) {
+      // ✅ 저장 대기(timer) / 저장중(inflight) / 큐(queued) 상태면 먼저 안정화
+      const hasPendingLocalSave =
+        timerRef.current != null || inflightRef.current || queuedRef.current !== null;
+
+      if (hasPendingLocalSave) {
         await waitForIdle();
       }
 
@@ -268,7 +296,6 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
       latestRowsRef.current = restored;
       touchedRef.current = false;
     } catch (e: any) {
-      // waitForIdle 타임아웃 같은 내부 에러는 사용자에게 과도 노출하지 않음
       if (String(e?.message || "") !== "DRAFT_SAVE_INFLIGHT") {
         onError?.(e?.message || "임시저장 불러오기에 실패했습니다.");
       }
