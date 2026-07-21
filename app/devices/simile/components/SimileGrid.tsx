@@ -89,8 +89,8 @@ function stripRentingMarker(v: any) {
   if (!raw) return "";
 
   let s = raw;
-  s = s.replace(/\(대여중\)/g, "");
-  s = s.replace(/\s*대여중\s*/g, " ");
+  s = s.replace(/\((대여중|회수중|미회수)\)/g, "");
+  s = s.replace(/\s*(대여중|회수중|미회수)\s*/g, " ");
   s = s.replace(/\s+/g, " ").trim();
 
   return s;
@@ -193,7 +193,7 @@ const PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE = true;
 const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props, ref) {
   const { rows, setRows, setTotalCount, loading, error, reload } = useSimileRows();
 
-  const { rentingDeviceNoSet, rentingInfoByDeviceNo } = useUnifiedRentalStatus();
+  const { rentingDeviceNoSet, rentingInfoByDeviceNo, statusByDeviceNo } = useUnifiedRentalStatus();
 
   const isColumnEditMode = !!props.isColumnEditMode;
 
@@ -534,13 +534,22 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
       await reload({ silent: true });
     }
 
-    return true;
+      return true;
+  }
+
+  function getStatusBySystemDeviceNo(systemDeviceNo: any) {
+    const deviceNo = normalizeDeviceNo(systemDeviceNo);
+    const deviceNoLower = deviceNo.toLowerCase();
+    return deviceNo
+      ? statusByDeviceNo?.[deviceNo] ?? statusByDeviceNo?.[deviceNoLower] ?? ""
+      : "";
   }
 
   function getDisplayValue(row: SimileRow, colKey: string) {
     const deviceNo = getDeviceNoFromRowData(row.data ?? {});
     const renting = !!deviceNo && setHasDeviceNoCI(rentingDeviceNoSet, deviceNo);
     const rentalInfo = deviceNo ? mapGetDeviceNoCI(rentingInfoByDeviceNo as any, deviceNo) : undefined;
+    const status = getStatusBySystemDeviceNo(getDeviceNoFromRowData(row.data ?? {}));
 
     if (colKey === "수리횟수") return String(calcRepairCount(row.data));
 
@@ -548,17 +557,17 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
       const raw0 = String(row.data?.[colKey] ?? "");
       const raw = stripRentingMarker(raw0);
 
-      if (!renting) return raw;
-      return raw ? `${raw} (대여중)` : "대여중";
+      if (!status) return raw;
+      return raw ? `${raw} (${status})` : status;
     }
 
     if (colKey === "거래처") {
-      if (renting) return String((rentalInfo as any)?.거래처분류 ?? "");
+      if (renting || status) return String((rentalInfo as any)?.거래처분류 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
     if (colKey === "대여자명") {
-      if (renting) return String((rentalInfo as any)?.수취인명 ?? "");
+      if (renting || status) return String((rentalInfo as any)?.수취인명 ?? "");
       return String(row.data?.[colKey] ?? "");
     }
 
@@ -627,7 +636,6 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     const inputs = document.querySelectorAll<HTMLInputElement>('input[data-row][data-col]');
 
     inputs.forEach((input) => {
-      // 현재 입력 중인 셀은 절대 건드리지 않음 = 커서/타이핑 보호
       if (document.activeElement === input) return;
 
       const rowIndex = Number(input.getAttribute("data-row"));
@@ -640,7 +648,10 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
 
       if (!row || !colKey || isComputedColumn(colKey)) return;
 
-      const nextValue = String(row.data?.[colKey] ?? "");
+      const nextValue =
+        colKey === "유축기 위치"
+          ? getDisplayValue(row, colKey)
+          : String(row.data?.[colKey] ?? "");
 
       if (input.value !== nextValue) {
         input.value = nextValue;
@@ -1350,36 +1361,47 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
                           closeFilterPopover();
                         }}
                       >
-                        <input
+                      <input
                           key={`${row.id}:${key}`}
                           className="w-full bg-transparent outline-none"
                           style={textColor ? ({ color: textColor } as React.CSSProperties) : undefined}
-                          defaultValue={String(row.data?.[key] ?? "")}
+                          defaultValue={
+                            key === "유축기 위치"
+                              ? getDisplayValue(row, key)
+                              : String(row.data?.[key] ?? "")
+                          }
                           data-row={rowIndex}
                           data-col={colIndex}
                           onFocus={(e) => {
                             setSelectedRowRange(null);
 
-                            // ✅ Delete 직후 복구 대상 셀은 유지, 다른 셀 포커스 시에는 플래그 해제
                             const cur = deleteRefocusRef.current;
                             if (cur && !(cur.rowId === row.id && cur.key === key)) {
                               deleteRefocusRef.current = null;
                             }
 
-                            const initial = String(row.data?.[key] ?? "");
+                            if (key === "유축기 위치") {
+                              const pure = stripRentingMarker(e.target.value);
+                              if (e.target.value !== pure) {
+                                e.target.value = pure;
+                              }
+                            }
+
+                            const initial =
+                              key === "유축기 위치"
+                                ? stripRentingMarker(String(e.target.value ?? ""))
+                                : String(row.data?.[key] ?? "");
+
                             void handleFocus(row.id, key, initial, e);
                           }}
                           onChange={(e) => {
                             const next = e.target.value;
 
-                            // ✅ Delete 후 사용자가 바로 입력을 시작하면,
-                            // 더 이상 "강제 재포커스 상태"가 아니므로 플래그 해제
                             const cur = deleteRefocusRef.current;
                             if (cur?.rowId === row.id && cur.key === key) {
                               deleteRefocusRef.current = null;
                             }
 
-                            // 입력 중에는 setRows 하지 않음.
                             activeEditCellRef.current = { rowId: row.id, key };
                             activeEditValueRef.current = next;
                             editingCellRef.current = { rowId: row.id, key };
@@ -1387,10 +1409,12 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
                           onBlur={async (e) => {
                             const blurRowId = row.id;
                             const blurKey = key;
-                            const v = String(e.target.value ?? "");
+                            const inputValue = String(e.target.value ?? "");
+                            const v =
+                              blurKey === "유축기 위치"
+                                ? stripRentingMarker(inputValue)
+                                : inputValue;
 
-                            // ✅ blur가 발생했다는 건 사용자가 셀을 떠났거나 브라우저 포커스가 바뀐 것.
-                            // 여기서 강제 재포커스하면 Delete 후 입력/이동 흐름이 다시 꼬이므로 플래그만 종료한다.
                             if (
                               deleteRefocusRef.current?.rowId === blurRowId &&
                               deleteRefocusRef.current?.key === blurKey
@@ -1430,6 +1454,14 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
                             try {
                               updateLocalCell(blurRowId, blurKey, v);
                               await saveCell(blurRowId, blurKey, v);
+
+                              if (blurKey === "유축기 위치") {
+                                const status = getStatusBySystemDeviceNo(
+                                  getDeviceNoFromRowData(row.data ?? {})
+                                );
+                                const display = status ? (v ? `${v} (${status})` : status) : v;
+                                e.target.value = display;
+                              }
                             } catch {
                               clearActiveEditDraftIfSame(blurRowId, blurKey);
                               await reload({ silent: true });
