@@ -96,13 +96,30 @@ export default function PartnerSelectCell({
         onClick={(e) => {
           openPopoverAt(e);
         }}
-        onKeyDown={(e) => {
+               onKeyDown={(e) => {
+          // ✅ Delete/Backspace: 거래처분류 값 즉시 삭제
+          if (e.key === "Delete" || e.key === "Backspace") {
+            e.preventDefault();
+            e.stopPropagation();
+            onFocus();
+            onChange("");
+            setOpen(false);
+            return;
+          }
+
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
             setPos({ x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.bottom) });
             setOpen(true);
             void refreshFromServer();
+            return;
+          }
+
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+            return;
           }
         }}
         title={String(value ?? "")}
