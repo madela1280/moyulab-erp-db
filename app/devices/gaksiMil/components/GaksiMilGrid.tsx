@@ -464,7 +464,7 @@ const GaksiMilGrid = forwardRef<GaksiMilGridHandle, Props>(function GaksiMilGrid
     return false;
   }
 
-  async function clearSingleSelectedCell() {
+    async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -489,6 +489,7 @@ const GaksiMilGrid = forwardRef<GaksiMilGridHandle, Props>(function GaksiMilGrid
 
     if (!hasLock) {
       clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
       await reload({ silent: true });
       return true;
     }
@@ -694,10 +695,11 @@ const GaksiMilGrid = forwardRef<GaksiMilGridHandle, Props>(function GaksiMilGrid
 
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
-  async function clearSelection() {
+   async function clearSelection() {
     editingCellRef.current = null;
     activeEditCellRef.current = null;
     activeEditValueRef.current = "";
+    deleteRefocusRef.current = null;
 
     const el = document.activeElement as HTMLElement | null;
     if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
