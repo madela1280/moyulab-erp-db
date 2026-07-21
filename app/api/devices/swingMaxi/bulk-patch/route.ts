@@ -1,6 +1,84 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
+function n(v: any) {
+  return String(v ?? "").trim();
+}
+
+function getSystemNoFromData(data: Record<string, any>) {
+  return n(
+    data?.["시스템 기기번호"] ??
+      data?.["시스템기기번호"] ??
+      data?.["기기번호"] ??
+      data?.["기기 번호"]
+  );
+}
+
+async function syncUnifiedDerivedBySystemNo(systemNoRaw: any, sourceData: Record<string, any>) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: n(sourceData?.["기종"]) || null,
+    "구매/렌탈": n(sourceData?.["구매/렌탈"]) || null,
+    에러횟수: n(sourceData?.["에러횟수"]) || null,
+    제품: n(sourceData?.["제품명"] ?? sourceData?.["제품"]) || null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function clearUnifiedDerivedBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return;
+
+  const patch = {
+    기종: null,
+    "구매/렌탈": null,
+    에러횟수: null,
+    제품: null,
+  };
+
+  await query(
+    `
+    UPDATE unified
+    SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+    WHERE lower(trim(COALESCE(data->>'기기번호',''))) = $1
+    `,
+    [systemNo, JSON.stringify(patch)]
+  );
+}
+
+async function existsSwingMaxiBySystemNo(systemNoRaw: any) {
+  const systemNo = n(systemNoRaw).toLowerCase();
+  if (!systemNo) return false;
+
+  const r = await query(
+    `
+    SELECT 1
+    FROM device_swing_maxi
+    WHERE lower(trim(COALESCE(
+      data->>'시스템 기기번호',
+      data->>'시스템기기번호',
+      data->>'기기번호',
+      data->>'기기 번호',
+      ''
+    ))) = $1
+    LIMIT 1
+    `,
+    [systemNo]
+  );
+
+  return !!r.rows.length;
+}
+
 async function ensureSwingMaxiTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS device_swing_maxi (
@@ -24,7 +102,10 @@ async function ensureSwingMaxiTables() {
 
 /**
  * POST /api/devices/swingMaxi/bulk-patch
- * body: { updates: Array<{ id: number, patch: Record<string, any> }> }
+ * body:
+ * {
+ *   updates: Array<{ id: number, patch: Record<string, any> }>
+ * }
  */
 export async function POST(req: Request) {
   try {
@@ -54,31 +135,74 @@ export async function POST(req: Request) {
       }
     }
 
-    const updatedIds: number[] = [];
+    const ids = updates.map((u) => u.id);
 
-    await query("BEGIN");
-    try {
-      for (const u of updates) {
-        const old = await query(`SELECT data FROM device_swing_maxi WHERE id=$1`, [u.id]);
-        if (!old.rows.length) continue;
+    const beforeR = await query(
+      `
+      SELECT id, data
+      FROM device_swing_maxi
+      WHERE id = ANY($1::int[])
+      `,
+      [ids]
+    );
+    const beforeMap = new Map<number, Record<string, any>>();
+    for (const row of beforeR.rows ?? []) {
+      beforeMap.set(Number(row.id), (row.data ?? {}) as Record<string, any>);
+    }
 
-        const source = old.rows[0]?.data || {};
-        const merged: Record<string, any> = { ...source };
-        for (const key in u.patch) {
-          merged[key] = (u.patch as any)[key];
-        }
+    const sanitized = updates.map((u) => {
+      const p: Record<string, any> = { ...(u.patch ?? {}) };
+      delete p["수리횟수"];
+      delete p["거래처"];
+      delete p["대여자명"];
+      return { id: u.id, patch: p };
+    });
 
-        const r = await query(
-          `UPDATE device_swing_maxi SET data=$1 WHERE id=$2 RETURNING id`,
-          [merged, u.id]
-        );
-        if (r.rows.length) updatedIds.push(Number(r.rows[0].id));
+    const r = await query(
+      `
+      WITH v AS (
+        SELECT
+          (x->>'id')::int AS id,
+          x->'patch'       AS patch
+        FROM jsonb_array_elements($1::jsonb) AS x
+      )
+      UPDATE device_swing_maxi s
+      SET data = COALESCE(s.data, '{}'::jsonb) || COALESCE(v.patch, '{}'::jsonb)
+      FROM v
+      WHERE s.id = v.id
+      RETURNING s.id, s.data
+      `,
+      [JSON.stringify(sanitized)]
+    );
+
+    const updatedIds = (r.rows ?? []).map((x: any) => Number(x.id));
+
+    const seenAfter = new Set<string>();
+    const cleanupCandidates = new Set<string>();
+
+    for (const row of r.rows ?? []) {
+      const id = Number(row.id);
+      const afterData = (row?.data ?? {}) as Record<string, any>;
+      const beforeData = beforeMap.get(id) ?? {};
+
+      const beforeNo = getSystemNoFromData(beforeData).toLowerCase();
+      const afterNo = getSystemNoFromData(afterData).toLowerCase();
+
+      if (afterNo && !seenAfter.has(afterNo)) {
+        seenAfter.add(afterNo);
+        await syncUnifiedDerivedBySystemNo(afterNo, afterData);
       }
 
-      await query("COMMIT");
-    } catch (e) {
-      await query("ROLLBACK");
-      throw e;
+      if (beforeNo && beforeNo !== afterNo) {
+        cleanupCandidates.add(beforeNo);
+      }
+    }
+
+    for (const oldNo of cleanupCandidates) {
+      const stillExists = await existsSwingMaxiBySystemNo(oldNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(oldNo);
+      }
     }
 
     return NextResponse.json({ ok: true, updatedCount: updatedIds.length, updatedIds });
