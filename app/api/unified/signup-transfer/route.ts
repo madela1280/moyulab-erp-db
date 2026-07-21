@@ -331,121 +331,126 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2.5) ✅ 기기번호 존재 검증(등록된 기기번호가 아닙니다) - force면 스킵
-    // (기기관리 테이블들에서 시스템 기기번호 매칭)
-    const devicesLower = Array.from(
-      new Set(
-        candidates
-          .map((c) => normalizeLower(c.data["기기번호"]))
-          .filter(Boolean)
-      )
-    );
-
-    const deviceInfoMap = await buildDeviceInfoMap(client, devicesLower);
-
-    if (!force) {
-      let anyNotRegistered = false;
-
-      for (const c of candidates) {
-        const dLower = normalizeLower(c.data["기기번호"]);
-        if (!dLower) continue;
-
-        if (!deviceInfoMap.has(dLower)) {
-          anyNotRegistered = true;
-          results.push({
-            rowIndex: c.rowIndex,
-            ok: false,
-            code: "DEVICE_NOT_REGISTERED",
-            reason: "등록된 기기번호가 아닙니다",
-          });
-        }
-      }
-
-      if (anyNotRegistered) {
-        return NextResponse.json({
-          ok: false,
-          anyFailed: true,
-          anyConfirmNeeded: false,
-          results,
-        });
-      }
-    }
-
-    // 3) 중복 규칙(옵션)
-    if (!force) {
-      // 3-1) 중복출고(기기번호): 반납완료일이 비어있으면 무조건 실패
-      const devices = Array.from(
+        // 2.5) ✅ 기기번호 존재 검증 - force면 스킵
+      // (기기관리 테이블들에서 시스템 기기번호 매칭)
+      const devicesLower = Array.from(
         new Set(
           candidates
-            .map((c) => normalizeString(c.data["기기번호"]))
+            .map((c) => normalizeLower(c.data["기기번호"]))
             .filter(Boolean)
         )
       );
 
-      const dupDevices = await checkDeviceDuplicates(client, devices);
+      const deviceInfoMap = await buildDeviceInfoMap(client, devicesLower);
 
-      if (dupDevices.size) {
+      if (!force) {
+        let anyNotRegistered = false;
+
         for (const c of candidates) {
-          const d = normalizeString(c.data["기기번호"]);
-          if (d && dupDevices.has(d)) {
+          const dRaw = normalizeString(c.data["기기번호"]);
+          const dLower = normalizeLower(c.data["기기번호"]);
+          if (!dLower) continue;
+
+          if (!deviceInfoMap.has(dLower)) {
+            anyNotRegistered = true;
             results.push({
               rowIndex: c.rowIndex,
               ok: false,
-              code: "DUP_DEVICE_ACTIVE",
-              reason: "중복출고(동일기기대여중)",
+              code: "DEVICE_NOT_REGISTERED",
+              reason: `없는 기기 입니다(${dRaw})`,
             });
           }
         }
-      }
 
-      // 3-2) 추가출고 확인(수취인명+연락처1): 반납완료일 비어있으면 confirm 필요
-      const pairs = candidates.map((c) => ({
-        name: normalizeString(c.data["수취인명"]),
-        phone: normalizeString(c.data["연락처1"]),
-      }));
-
-      const dupPairs = await checkRecipientPhoneDuplicates(client, pairs);
-
-      const confirmNeededRows: number[] = [];
-      if (dupPairs.size) {
-        for (const c of candidates) {
-          const key = `${normalizeString(c.data["수취인명"])}|${normalizeString(c.data["연락처1"])}`;
-          if (dupPairs.has(key)) {
-            confirmNeededRows.push(c.rowIndex);
-          }
+        if (anyNotRegistered) {
+          return NextResponse.json({
+            ok: false,
+            anyFailed: true,
+            anyConfirmNeeded: false,
+            results,
+          });
         }
       }
 
-      // 중복출고 실패가 있으면 즉시 실패 반환(확인 이전)
-      if (results.length) {
-        return NextResponse.json({
-          ok: false,
-          anyFailed: true,
-          anyConfirmNeeded: false,
-          results,
-        });
-      }
+      // 3) 중복 규칙(옵션)
+      if (!force) {
+        // 3-1) 중복출고(기기번호): 반납완료일이 비어있으면 무조건 실패
+        const devices = Array.from(
+          new Set(
+            candidates
+              .map((c) => normalizeString(c.data["기기번호"]))
+              .filter(Boolean)
+          )
+        );
 
-      // confirm이 필요하고, 아직 confirmDuplicates가 아니면 confirmNeeded 반환
-      if (confirmNeededRows.length && !confirmDuplicates) {
-        for (const idx of confirmNeededRows) {
-          results.push({
-            rowIndex: idx,
+        const dupDevices = await checkDeviceDuplicates(client, devices);
+
+        if (dupDevices.size) {
+          for (const c of candidates) {
+            const d = normalizeString(c.data["기기번호"]);
+            if (d && dupDevices.has(d)) {
+              results.push({
+                rowIndex: c.rowIndex,
+                ok: false,
+                code: "DUP_DEVICE_ACTIVE",
+                reason: `중복된 기기입니다(${d})`,
+              });
+            }
+          }
+        }
+
+        // 3-2) 추가출고 확인(수취인명+연락처1): 반납완료일 비어있으면 confirm 필요
+        const pairs = candidates.map((c) => ({
+          name: normalizeString(c.data["수취인명"]),
+          phone: normalizeString(c.data["연락처1"]),
+        }));
+
+        const dupPairs = await checkRecipientPhoneDuplicates(client, pairs);
+
+        const confirmNeededRows: number[] = [];
+        const confirmNeededInfos: Array<{ rowIndex: number; name: string }> = [];
+
+        if (dupPairs.size) {
+          for (const c of candidates) {
+            const name = normalizeString(c.data["수취인명"]);
+            const key = `${name}|${normalizeString(c.data["연락처1"])}`;
+            if (dupPairs.has(key)) {
+              confirmNeededRows.push(c.rowIndex);
+              confirmNeededInfos.push({ rowIndex: c.rowIndex, name });
+            }
+          }
+        }
+
+        // 중복출고 실패가 있으면 즉시 실패 반환(확인 이전)
+        if (results.length) {
+          return NextResponse.json({
             ok: false,
-            code: "NEED_CONFIRM_DUP_RECIPIENT",
-            reason: "출고된 유축기가 있습니다. 추가 출고 하시겠습니까?",
+            anyFailed: true,
+            anyConfirmNeeded: false,
+            results,
           });
         }
 
-        return NextResponse.json({
-          ok: false,
-          anyFailed: true,
-          anyConfirmNeeded: true,
-          confirmNeededRows,
-          results,
-        });
+        // confirm이 필요하고, 아직 confirmDuplicates가 아니면 confirmNeeded 반환
+        if (confirmNeededRows.length && !confirmDuplicates) {
+          for (const info of confirmNeededInfos) {
+            results.push({
+              rowIndex: info.rowIndex,
+              ok: false,
+              code: "NEED_CONFIRM_DUP_RECIPIENT",
+              reason: `동일인 출고(${info.name})`,
+            });
+          }
+
+          return NextResponse.json({
+            ok: false,
+            anyFailed: true,
+            anyConfirmNeeded: true,
+            confirmNeededRows,
+            results,
+          });
+        }
       }
-    }
 
     // 4) 실제 전송(트랜잭션)
     await client.query("BEGIN");

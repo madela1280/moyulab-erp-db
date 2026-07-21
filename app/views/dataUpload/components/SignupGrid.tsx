@@ -1249,6 +1249,21 @@ export default function SignupGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showToolbar]);
 
+    function buildTransferFailedMessage(resp: any, mode: "confirm" | "fail") {
+    const failed = Array.isArray(resp?.results) ? resp.results.filter((x: any) => x && x.ok === false) : [];
+
+    if (!failed.length) {
+      return mode === "confirm"
+        ? "추가 출고 확인이 필요합니다."
+        : "저장(전송)에 실패했습니다.";
+    }
+
+    const title = mode === "confirm" ? "추가 출고 확인이 필요합니다." : "아래 항목을 수정해 주세요.";
+    const lines = failed.map((x: any, i: number) => `${i + 1}. ${String(x?.reason || "저장(전송)에 실패했습니다.")}`);
+
+    return [title, ...lines].join("\n");
+  }
+
   async function handleSubmit(force: boolean) {
     onError("");
 
@@ -1277,16 +1292,15 @@ export default function SignupGrid({
         confirmDuplicates: false,
       });
 
-      // ✅ 추가출고 확인은 부모 모달에서 처리(강제전송 버튼 = "예")
+      // ✅ 추가출고 확인: 건별 상세(reason) 포함해서 모달에 전체 표시
       if (j1?.anyConfirmNeeded) {
-        onTransferFailed?.("동일한 수취인에게 출고된(미반납된) 유축기가 있습니다\n추가 출고를 하시겠습니까?");
+        onTransferFailed?.(buildTransferFailedMessage(j1, "confirm"));
         return;
       }
 
-      // 일반 실패(필수/중복출고 등)
+      // 일반 실패(필수/중복출고/없는기기 등): 첫 건만이 아니라 전체 표시
       if (!j1?.ok) {
-        const firstFail = Array.isArray(j1?.results) ? j1.results.find((x: any) => x && x.ok === false) : null;
-        onTransferFailed?.((firstFail as any)?.reason || "저장(전송)에 실패했습니다.");
+        onTransferFailed?.(buildTransferFailedMessage(j1, "fail"));
         return;
       }
 
