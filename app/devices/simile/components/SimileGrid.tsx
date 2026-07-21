@@ -461,7 +461,7 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     return false;
   }
 
-  async function clearSingleSelectedCell() {
+ async function clearSingleSelectedCell() {
     if (!selectedCellRange) return false;
 
     const isSingleCell =
@@ -486,6 +486,7 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
 
     if (!hasLock) {
       clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
       await reload({ silent: true });
       return true;
     }
@@ -695,6 +696,7 @@ const SimileGrid = forwardRef<SimileGridHandle, Props>(function SimileGrid(props
     editingCellRef.current = null;
     activeEditCellRef.current = null;
     activeEditValueRef.current = "";
+    deleteRefocusRef.current = null;
 
     const el = document.activeElement as HTMLElement | null;
     if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
