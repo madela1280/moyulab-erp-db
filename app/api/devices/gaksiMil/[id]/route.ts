@@ -187,7 +187,24 @@ export async function DELETE(req: Request) {
     await ensureGaksiMilTables();
 
     const id = getId(req);
+
+    const beforeR = await query(`SELECT data FROM device_gaksimil WHERE id=$1`, [id]);
+    if (!beforeR.rows.length) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+
+    const beforeData = (beforeR.rows[0]?.data ?? {}) as Record<string, any>;
+    const beforeSystemNo = getSystemNoFromData(beforeData).toLowerCase();
+
     await query(`DELETE FROM device_gaksimil WHERE id=$1`, [id]);
+
+    if (beforeSystemNo) {
+      const stillExists = await existsGaksiMilBySystemNo(beforeSystemNo);
+      if (!stillExists) {
+        await clearUnifiedDerivedBySystemNo(beforeSystemNo);
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("DELETE /api/devices/gaksiMil/[id] error:", e);
