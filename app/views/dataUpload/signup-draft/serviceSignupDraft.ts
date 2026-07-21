@@ -17,11 +17,17 @@ export async function apiGetSignupDraft(): Promise<SignupDraftGetResponse> {
   };
 }
 
-export async function apiPatchSignupDraft(rows: RowValues[]): Promise<SignupDraftGetResponse> {
+export async function apiPatchSignupDraft(
+  rows: RowValues[],
+  options?: { allowEmptyOverwrite?: boolean }
+): Promise<SignupDraftGetResponse> {
   const r = await fetch("/api/unified/signup-draft", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({
+      rows,
+      allowEmptyOverwrite: !!options?.allowEmptyOverwrite,
+    }),
   });
   if (!r.ok) {
     const t = await r.text().catch(() => "");

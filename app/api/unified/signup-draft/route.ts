@@ -93,17 +93,21 @@ export async function PATCH(req: Request) {
     const incomingRows = normalizeRows((body as any).rows);
     const incomingHasValue = hasAnyValueInRows(incomingRows);
 
+    // ✅ 사용자가 의도적으로 전체 비움(Del/전체삭제)한 경우를 허용하기 위한 플래그
+    const allowEmptyOverwrite = !!(body as any).allowEmptyOverwrite;
+
     await client.query("BEGIN");
 
     const found = await getDraftRow(client);
 
-    // 핵심 방어: 클라이언트 하이드레이트/초기화 타이밍으로 "빈 rows"가 들어와도
-    // 기존에 값이 있는 draft를 덮어써서 '초기화'되는 것을 막는다.
+    // 핵심 방어:
+    // - allowEmptyOverwrite=false 인 경우에만 "빈 rows 덮어쓰기"를 차단
+    // - allowEmptyOverwrite=true 면 의도적 삭제로 판단하고 그대로 저장
     if (found) {
       const existingRows = Array.isArray(found.data?.rows) ? found.data.rows : [];
       const existingHasValue = hasAnyValueInRows(existingRows);
 
-      if (!incomingHasValue && existingHasValue) {
+      if (!allowEmptyOverwrite && !incomingHasValue && existingHasValue) {
         await client.query("COMMIT");
         return NextResponse.json({
           id: found.id,

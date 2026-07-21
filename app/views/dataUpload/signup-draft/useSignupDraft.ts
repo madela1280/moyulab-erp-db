@@ -148,7 +148,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
 
     beginInflight();
     try {
-      const resp = (await apiPatchSignupDraft(snapshot)) as PatchResponse;
+      const resp = (await apiPatchSignupDraft(snapshot, { allowEmptyOverwrite: true })) as PatchResponse;
 
       // 서버가 "빈 PATCH 무시"를 했다면 서버 rows로 복원해서 빈값 고착 방지
       if (resp?.ignored_empty_patch) {
@@ -173,7 +173,7 @@ export function useSignupDraft({ onError }: { onError?: (msg: string) => void } 
         // 두 번째 저장도 inflight로 처리
         beginInflight();
         try {
-          const resp2 = (await apiPatchSignupDraft(next)) as PatchResponse;
+         const resp2 = (await apiPatchSignupDraft(next, { allowEmptyOverwrite: true })) as PatchResponse;
 
           if (resp2?.ignored_empty_patch) {
             const serverRows2 = Array.isArray(resp2?.rows) ? resp2.rows : [];
