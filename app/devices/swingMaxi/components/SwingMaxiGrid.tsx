@@ -514,6 +514,7 @@ const SwingMaxiGrid = forwardRef<SwingMaxiGridHandle, Props>(function SwingMaxiG
 
     if (!hasLock) {
       clearActiveEditDraftIfSame(row.id, key);
+      deleteRefocusRef.current = null;
       await reload({ silent: true });
       return true;
     }
@@ -719,10 +720,11 @@ const SwingMaxiGrid = forwardRef<SwingMaxiGridHandle, Props>(function SwingMaxiG
 
   const pasteCatcherRef = useRef<HTMLTextAreaElement | null>(null);
 
-  async function clearSelection() {
+    async function clearSelection() {
     editingCellRef.current = null;
     activeEditCellRef.current = null;
     activeEditValueRef.current = "";
+    deleteRefocusRef.current = null;
 
     const el = document.activeElement as HTMLElement | null;
     if (el && el.tagName === "INPUT") (el as HTMLInputElement).blur();
