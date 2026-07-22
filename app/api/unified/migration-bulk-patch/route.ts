@@ -1,18 +1,24 @@
-// app/api/unified/bulk-patch/route.ts
+// app/api/unified/migration-bulk-patch/route.ts
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
+import { UNIFIED_GUIDE_MIGRATION_LOCK_KEY } from "@/unified/migration-mode/guideMigrationLock";
 
 /**
- * POST /api/unified/bulk-patch
+ * POST /api/unified/migration-bulk-patch
+ *
+ * 초기이관 ON 전용 bulk 저장 API
+ *
+ * 목적:
+ * - 엑셀에서 붙여넣은 "안내분류" 값을 그대로 저장한다.
+ * - 해당 행에 안내분류 고정 플래그(__guideMigrationLocked=true)를 저장한다.
+ * - 거래처분류 → 안내분류 자동매핑은 이 API에서 절대 실행하지 않는다.
+ * - 단, 기기번호 → 기종/구매렌탈/에러횟수/제품 자동매핑은 기존처럼 유지한다.
+ *
  * body:
  * {
  *   updates: Array<{ id: number, patch?: Record<string, any>, data?: Record<string, any> }>
  * }
- *
- * - patch/data는 "merge"로 반영됨 (기존 PATCH와 동일하게 null도 그대로 저장)
- * - 한 번의 UPDATE 쿼리로 처리
  */
 
 function isPlainObject(v: any) {
@@ -27,7 +33,7 @@ function normalizeLower(v: any) {
   return normalizeString(v).toLowerCase();
 }
 
-// 기기관리 6개 테이블(소카테고리)
+// 기기관리 6개 테이블
 const DEVICE_TABLES = [
   "device_symphony",
   "device_lactina",
@@ -67,13 +73,14 @@ async function buildDeviceInfoMap(devicesLower: string[]): Promise<Map<string, D
       FROM ${table}
       WHERE lower(COALESCE(data->>'시스템 기기번호','')) = ANY($1::text[])
     `;
+
     const r = await query(sql, [devicesLower]);
 
     for (const row of r.rows || []) {
       const d = normalizeLower(row?.device);
       if (!d) continue;
 
-      // 이미 다른 테이블에서 먼저 찾은 값이 있으면 유지(우선순위: 테이블 배열 순서)
+      // 우선순위는 DEVICE_TABLES 배열 순서
       if (map.has(d)) continue;
 
       const 제품명 = normalizeString(row?.product_name);
@@ -93,63 +100,6 @@ async function buildDeviceInfoMap(devicesLower: string[]): Promise<Map<string, D
   return map;
 }
 
-// ✅ 거래처분류 → 안내분류 매핑 맵(대량 적용용)
-async function buildPartnerGuideMap(partners: string[]): Promise<Map<string, string | null>> {
-  const map = new Map<string, string | null>();
-  const cleaned = Array.from(new Set((partners || []).map(normalizeString).filter(Boolean)));
-  if (!cleaned.length) return map;
-
-  const r = await query(
-    `
-    SELECT partner_name, guide_name
-    FROM partner_guide_map
-    WHERE partner_name = ANY($1::text[])
-    `,
-    [cleaned]
-  );
-
-  for (const row of r.rows || []) {
-    const p = normalizeString(row?.partner_name);
-    if (!p) continue;
-    const g = normalizeString(row?.guide_name);
-    map.set(p, g ? g : null);
-  }
-
-  return map;
-}
-
-// ✅ 초기이관모드로 고정된 행인지 조회
-async function buildGuideMigrationLockMap(ids: number[]): Promise<Map<number, boolean>> {
-  const map = new Map<number, boolean>();
-  const cleaned = Array.from(
-    new Set(
-      (ids || [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0)
-        .map((id) => Math.floor(id))
-    )
-  );
-
-  if (!cleaned.length) return map;
-
-  const r = await query(
-    `
-    SELECT id, data
-    FROM unified
-    WHERE id = ANY($1::int[])
-    `,
-    [cleaned]
-  );
-
-  for (const row of r.rows || []) {
-    const id = Number(row?.id);
-    if (!Number.isFinite(id) || id <= 0) continue;
-    map.set(id, isGuideMigrationLocked(row?.data));
-  }
-
-  return map;
-}
-
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
 
@@ -161,16 +111,20 @@ export async function POST(req: Request) {
     );
   }
 
-  // 정규화 (patch / data 둘 다 허용)
   const updates = updatesRaw.map((u: any) => {
     const id = Number(u?.id);
     const patchRaw = u?.patch ?? u?.data;
 
-    // ✅ "상태"는 파생 표시 컬럼이므로 bulk 저장 대상에서 제외(무시)
     const patch = isPlainObject(patchRaw)
       ? (() => {
           const copy: Record<string, any> = { ...(patchRaw as any) };
+
+          // 상태는 파생 표시 컬럼이므로 저장하지 않음
           delete copy["상태"];
+
+          // ✅ 초기이관 전용: 안내분류 고정 플래그를 무조건 저장
+          copy[UNIFIED_GUIDE_MIGRATION_LOCK_KEY] = true;
+
           return copy;
         })()
       : patchRaw;
@@ -185,6 +139,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
     if (!u.patch || typeof u.patch !== "object" || Array.isArray(u.patch)) {
       return NextResponse.json(
         { error: "INVALID_PATCH", message: "patch/data object is required" },
@@ -194,10 +149,9 @@ export async function POST(req: Request) {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ 기기번호가 bulk로 들어오는 경우(붙여넣기/대량수정) 자동 매칭
-  // - patch 안에 "기기번호" 키가 포함된 update만 대상
-  // - 기기번호가 비면(빈문자열/null) 파생값도 null로 정리
-  // - 매칭 성공 시: 기종/구매/렌탈/에러횟수/제품(=제품명) merge
+  // ✅ 기기번호 자동매핑은 기존 bulk-patch와 동일하게 유지
+  // - 초기이관이어도 기기번호가 들어오면 기종/구매렌탈/에러횟수/제품은 자동 반영
+  // - 안내분류만 거래처분류 자동매핑에서 제외
   // ---------------------------------------------------------------------------
   const deviceNosLowerSet = new Set<string>();
   const deviceTargetIndexes: number[] = [];
@@ -224,7 +178,6 @@ export async function POST(req: Request) {
     const deviceNo = normalizeString(rawDevice);
     const deviceLower = normalizeLower(rawDevice);
 
-    // 기기번호를 지우는 경우: 파생값도 null로
     if (!deviceNo) {
       p["기종"] = null;
       p["구매/렌탈"] = null;
@@ -241,7 +194,6 @@ export async function POST(req: Request) {
       p["에러횟수"] = info.에러횟수;
       p["제품"] = info.제품명;
     } else {
-      // 매칭 실패 시: 잔상 방지(빈값 표시)
       p["기종"] = null;
       p["구매/렌탈"] = null;
       p["에러횟수"] = null;
@@ -250,59 +202,11 @@ export async function POST(req: Request) {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ 거래처분류가 bulk로 들어오는 경우 자동 매칭(거래처 → 안내분류)
-  // - patch 안에 "거래처분류" 키가 포함된 update만 대상
-  // - 매핑이 없거나 거래처분류가 비면 안내분류는 null
-  // - 거래처분류가 포함된 경우 안내분류는 항상 매핑 기준으로 overwrite
+  // ✅ 중요:
+  // 이 초기이관 전용 API에서는 거래처분류 → 안내분류 자동매핑을 절대 실행하지 않는다.
+  // 따라서 patch 안에 들어온 안내분류 값은 엑셀 원시값 그대로 저장된다.
   // ---------------------------------------------------------------------------
-  const partnerNamesSet = new Set<string>();
-  const partnerTargetIndexes: number[] = [];
 
-  for (let i = 0; i < updates.length; i++) {
-    const p = updates[i]?.patch;
-    if (!isPlainObject(p)) continue;
-    if (!Object.prototype.hasOwnProperty.call(p, "거래처분류")) continue;
-
-    partnerTargetIndexes.push(i);
-
-    const raw = (p as any)["거래처분류"];
-    const partner = normalizeString(raw);
-    if (partner) partnerNamesSet.add(partner);
-  }
-
-  const partnerGuideMap = await buildPartnerGuideMap(Array.from(partnerNamesSet));
-  const guideMigrationLockMap = await buildGuideMigrationLockMap(
-    partnerTargetIndexes.map((idx) => updates[idx]?.id)
-  );
-
-  for (const idx of partnerTargetIndexes) {
-    const u = updates[idx];
-    const p = u.patch as Record<string, any>;
-
-    // ✅ 초기이관으로 안내분류가 고정된 행은
-    // 이후 OFF 상태에서 거래처분류가 수정되어도 안내분류 자동매핑으로 덮어쓰지 않음
-    const lockedByPatch = isGuideMigrationLocked(p);
-    const lockedByExistingRow = guideMigrationLockMap.get(Number(u.id)) === true;
-
-    if (lockedByPatch || lockedByExistingRow) {
-      continue;
-    }
-
-    const rawPartner = p["거래처분류"];
-    const partner = normalizeString(rawPartner);
-
-    if (!partner) {
-      p["안내분류"] = null;
-      continue;
-    }
-
-    const guide = partnerGuideMap.get(partner) ?? null;
-    p["안내분류"] = guide;
-  }  
-
-  // ✅ jsonb merge(원자적):
-  // - u.data가 NULL인 행에서도 merge가 정상 동작하도록 COALESCE 적용(중요)
-  // - patch에 null이 들어오면 해당 key를 null로 저장 (기존 PATCH와 동일)
   const sql = `
     WITH v AS (
       SELECT

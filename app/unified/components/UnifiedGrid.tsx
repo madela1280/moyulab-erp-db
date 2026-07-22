@@ -1968,14 +1968,14 @@ async function bulkPatchAndReconcile(
 
     const guideMigrationMode = options?.guideMigrationMode === true;
 
-    const res = await fetch(`/api/unified/bulk-patch`, {
+    const endpoint = guideMigrationMode
+      ? "/api/unified/migration-bulk-patch"
+      : "/api/unified/bulk-patch";
+
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        guideMigrationMode
-          ? { updates, guideMigrationMode: true }
-          : { updates }
-      ),
+      body: JSON.stringify({ updates }),
     });
 
     if (!res.ok) {
@@ -1998,7 +1998,7 @@ async function bulkPatchAndReconcile(
 
       alert(
         `붙여넣기 저장 실패 (${res.status}).\n` +
-          `개발자도구 Network에서 /api/unified/bulk-patch 응답 확인 필요`
+          `개발자도구 Network에서 ${endpoint} 응답 확인 필요`
       );
 
       return;
