@@ -28,6 +28,7 @@ import { exportUnifiedCsv } from "@/unified/export/serviceUnifiedExport";
 import UnifiedSearchPanel from "@/unified/search/UnifiedSearchPanel";
 import { useUnifiedSearch } from "@/unified/search/useUnifiedSearch";
 import { buildUnifiedSearchHighlight } from "@/unified/search/buildUnifiedSearchHighlight";
+import { useUnifiedMigrationMode } from "@/unified/migration-mode/useUnifiedMigrationMode";
 
 function normalizeName(v: any) {
   return String(v ?? "").trim();
@@ -68,6 +69,9 @@ export default function UnifiedMainView() {
   const gridRef = useRef<UnifiedGridHandle | null>(null);
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
+
+  // ✅ 초기이관모드: ON일 때 붙여넣은 안내분류 원시값을 행 단위로 고정
+  const migrationMode = useUnifiedMigrationMode();
 
   // ✅ (추가) 필터/정렬
   const [filterMode, setFilterMode] = useState(false);
@@ -602,6 +606,8 @@ export default function UnifiedMainView() {
         searchActive={unifiedSearch.open}
         onOpenColor={openColor}
         onDownload={handleDownload}
+        migrationModeEnabled={migrationMode.enabled}
+        onToggleMigrationMode={migrationMode.toggle}
       />
 
       <div
@@ -610,9 +616,10 @@ export default function UnifiedMainView() {
         onMouseMoveCapture={onGridMouseMoveCapture}
         onMouseUpCapture={onGridMouseUpCapture}
       >
-       <UnifiedGrid
+      <UnifiedGrid
           ref={gridRef}
           isColumnEditMode={isColumnEditMode}
+          migrationModeEnabled={migrationMode.enabled}
           columnOrder={columnOrder}
           onColumnOrderChange={setColumnOrder}
           colWidthUnitByKey={colWidthUnitByKey}

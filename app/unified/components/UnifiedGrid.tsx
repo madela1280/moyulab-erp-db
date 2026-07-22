@@ -67,6 +67,7 @@ import { applyUnifiedSort, type UnifiedSortState } from "@/unified/filter/useUni
 import { buildUnifiedColorBulkPatch } from "@/unified/color/applyUnifiedColor";
 import type { UnifiedSoftColor } from "@/unified/color/ColorPopover";
 import type { ColorApplyMode } from "@/unified/color/ColorModeToggle";
+import { withGuideMigrationLock } from "@/unified/migration-mode/guideMigrationLock";
 
 export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
@@ -143,6 +144,9 @@ function hasMeaningfulUnifiedRowData(rowData: Record<string, any> | null | undef
 
 type UnifiedGridProps = {
   isColumnEditMode?: boolean;
+
+  // ✅ 초기이관모드: ON일 때 붙여넣은 안내분류 원시값을 행 단위로 고정
+  migrationModeEnabled?: boolean;
 
   // ✅ (P0) 열이동 저장을 위해, 컬럼 상태를 외부에서 주입/저장 가능하게 확장
   columnOrder?: string[];
@@ -293,6 +297,7 @@ function requestApplyRemoteSync() {
 
 // 열이동/열폭: "표시용 UI 상태" (DB/동기화와 무관)
 const isColumnEditMode = !!props.isColumnEditMode;
+const migrationModeEnabled = !!props.migrationModeEnabled;
 
 async function applyRemoteSyncOnce() {
   // ✅ 쓰기 작업이 진행 중이면, 원격 적용(fetch)이 먼저 돌아 옛 값으로 덮일 수 있으므로 보류
@@ -2654,7 +2659,7 @@ useEffect(() => {
 
       window.addEventListener("paste", onPasteCapture, true); // capture
       return () => window.removeEventListener("paste", onPasteCapture, true);
-    }, [selectedCellRange, selectedRowRange, rows, viewColumns]);
+    }, [selectedCellRange, selectedRowRange, rows, viewColumns, migrationModeEnabled]);
          
     /* --------------------- 행 삽입 (선택 범위 위치에 N행, 완전 빈행) --------------------- */
 
@@ -3131,7 +3136,16 @@ useEffect(() => {
           if (colIndex >= viewColumns.length) break;
 
           const key = viewColumns[colIndex];
-          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) continue;
+
+          // ✅ 초기이관모드 ON일 때만 안내분류 원시값 붙여넣기 허용
+          // - 평소 OFF에서는 기존처럼 안내분류는 자동매핑 전용으로 유지
+          if (
+            key === "상태" ||
+            key === "총연장횟수" ||
+            (!migrationModeEnabled && key === "안내분류") ||
+            isExtensionKey(key)
+          )
+            continue;
 
           const raw = String(srcRow[colOffset] ?? "");
           const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
@@ -3141,7 +3155,12 @@ useEffect(() => {
         }
 
         if (Object.keys(patch).length) {
-          updates.push({ id: row.id, patch });
+          const nextPatch =
+            migrationModeEnabled && Object.prototype.hasOwnProperty.call(patch, "안내분류")
+              ? withGuideMigrationLock(patch)
+              : patch;
+
+          updates.push({ id: row.id, patch: nextPatch });
         }
       }
 

@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { computeZeroExtensionDaysFromDates } from "@/views/unified/extensions/extensionCompute";
+import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
 
 function getId(req: Request) {
   const url = new URL(req.url);
@@ -153,11 +154,16 @@ export async function PATCH(req: Request) {
   const id = getId(req);
   const body = await req.json();
 
-  // 존재 확인(404 유지)
-  const exists = await query(`SELECT 1 FROM unified WHERE id=$1`, [id]);
+  // 존재 확인(404 유지) + 초기이관 고정 여부 판정용 기존 data 조회
+  const exists = await query(`SELECT data FROM unified WHERE id=$1`, [id]);
   if (!exists.rows?.length) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
+
+  const existingData =
+    exists.rows[0]?.data && typeof exists.rows[0].data === "object"
+      ? (exists.rows[0].data as Record<string, any>)
+      : {};
 
   // ✅ body가 객체가 아니면 거부
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -174,13 +180,19 @@ export async function PATCH(req: Request) {
 
   // ✅ 거래처분류가 "이번 PATCH에서 변경되었을 때" 안내분류 자동 세팅
   // - 매핑이 없으면 안내분류는 비움(null)
+  // - 단, 초기이관모드로 안내분류가 고정된 행은 자동매핑으로 안내분류를 덮어쓰지 않음
   if (Object.prototype.hasOwnProperty.call(body, "거래처분류")) {
-    const partnerName = normalizeString(patch["거래처분류"]);
-    if (!partnerName) {
-      patch["안내분류"] = null;
-    } else {
-      const guide = await findGuideByPartnerName(partnerName);
-      patch["안내분류"] = guide ? guide : null;
+    const lockedByExistingRow = isGuideMigrationLocked(existingData);
+    const lockedByPatch = isGuideMigrationLocked(patch);
+
+    if (!lockedByExistingRow && !lockedByPatch) {
+      const partnerName = normalizeString(patch["거래처분류"]);
+      if (!partnerName) {
+        patch["안내분류"] = null;
+      } else {
+        const guide = await findGuideByPartnerName(partnerName);
+        patch["안내분류"] = guide ? guide : null;
+      }
     }
   }
 

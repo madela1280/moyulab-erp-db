@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
 
 /**
  * POST /api/unified/bulk-patch
@@ -112,6 +113,38 @@ async function buildPartnerGuideMap(partners: string[]): Promise<Map<string, str
     if (!p) continue;
     const g = normalizeString(row?.guide_name);
     map.set(p, g ? g : null);
+  }
+
+  return map;
+}
+
+// ✅ 초기이관모드로 고정된 행인지 조회
+async function buildGuideMigrationLockMap(ids: number[]): Promise<Map<number, boolean>> {
+  const map = new Map<number, boolean>();
+  const cleaned = Array.from(
+    new Set(
+      (ids || [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+        .map((id) => Math.floor(id))
+    )
+  );
+
+  if (!cleaned.length) return map;
+
+  const r = await query(
+    `
+    SELECT id, data
+    FROM unified
+    WHERE id = ANY($1::int[])
+    `,
+    [cleaned]
+  );
+
+  for (const row of r.rows || []) {
+    const id = Number(row?.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    map.set(id, isGuideMigrationLocked(row?.data));
   }
 
   return map;
@@ -238,10 +271,20 @@ export async function POST(req: Request) {
   }
 
   const partnerGuideMap = await buildPartnerGuideMap(Array.from(partnerNamesSet));
+  const guideMigrationLockMap = await buildGuideMigrationLockMap(
+    partnerTargetIndexes.map((idx) => updates[idx]?.id)
+  );
 
   for (const idx of partnerTargetIndexes) {
     const u = updates[idx];
     const p = u.patch as Record<string, any>;
+
+    // ✅ 초기이관모드로 안내분류가 고정된 행은 자동매핑으로 안내분류를 덮어쓰지 않음
+    const lockedByPatch = isGuideMigrationLocked(p);
+    const lockedByExistingRow = guideMigrationLockMap.get(Number(u.id)) === true;
+    if (lockedByPatch || lockedByExistingRow) {
+      continue;
+    }
 
     const rawPartner = p["거래처분류"];
     const partner = normalizeString(rawPartner);

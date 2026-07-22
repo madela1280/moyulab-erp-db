@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
 
 function toInt(v: string | null): number | null {
   if (v == null) return null;
@@ -298,12 +299,15 @@ export async function POST(req: Request) {
   delete data["상태"];
 
   if (Object.prototype.hasOwnProperty.call(data, "거래처분류")) {
-    const partner = normalizeString(data["거래처분류"]);
-    if (!partner) {
-      data["안내분류"] = null;
-    } else {
-      const guide = await findGuideByPartnerName(partner);
-      data["안내분류"] = guide ? guide : null;
+    // ✅ 초기이관모드로 안내분류가 고정된 데이터는 자동매핑으로 안내분류를 덮어쓰지 않음
+    if (!isGuideMigrationLocked(data)) {
+      const partner = normalizeString(data["거래처분류"]);
+      if (!partner) {
+        data["안내분류"] = null;
+      } else {
+        const guide = await findGuideByPartnerName(partner);
+        data["안내분류"] = guide ? guide : null;
+      }
     }
   }
 
