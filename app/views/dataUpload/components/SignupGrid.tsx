@@ -389,7 +389,7 @@ export default function SignupGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
-    // ✅ 그리드 활성화 상태 관리(전역 키/붙여넣기 이벤트 처리용)
+  // ✅ 그리드 활성화 상태 관리(전역 키/붙여넣기 이벤트 처리용)
   useEffect(() => {
     function setActiveByEventTarget(t: EventTarget | null) {
       const root = rootRef.current;
@@ -401,12 +401,19 @@ export default function SignupGrid({
     }
 
     function onDownCapture(e: MouseEvent) {
+      // 클릭 기준으로는 inside/outside를 정확히 반영
       setActiveByEventTarget(e.target);
     }
 
     function onFocusInCapture(e: FocusEvent) {
-      // input/select 등 포커스가 이동해도 gridActive 유지
-      setActiveByEventTarget(e.target);
+      // ✅ 거래처분류 팝오버가 portal로 뜨는 경우 focus target이 root 밖으로 잡혀도
+      // gridActive를 false로 내리지 않음(삭제/Delete 안정화)
+      const root = rootRef.current;
+      if (!root) return;
+
+      const node = e.target as Node | null;
+      const inside = !!node && root.contains(node);
+      if (inside) gridActiveRef.current = true;
     }
 
     window.addEventListener("mousedown", onDownCapture, true);
@@ -962,6 +969,19 @@ export default function SignupGrid({
     // 셀 클릭 시 row 선택 해제
     clearRowSelection();
 
+    const el = e.currentTarget as HTMLElement;
+
+    // ✅ pointerdown에서는 클릭 기본동작을 막지 않되,
+    // pointer capture는 즉시 확보해서 거래처분류(popover/select) 컬럼에서도
+    // 드래그 선택 move 이벤트가 끊기지 않게 한다.
+    try {
+      el.setPointerCapture(e.pointerId);
+      cellCaptureElRef.current = el;
+      cellCapturePointerIdRef.current = e.pointerId;
+    } catch {
+      // ignore
+    }
+
     // ✅ pointerdown에서는 "클릭 기본동작"을 막지 않는다.
     //    (select 열림/날짜 달력 트리거 등 유지)
     //    드래그로 판단되는 순간(조금 움직였을 때)만 drag 모드로 전환한다.
@@ -971,7 +991,7 @@ export default function SignupGrid({
       startY: e.clientY,
       r,
       c,
-      el: e.currentTarget as HTMLElement,
+      el,
     };
 
     // 일단 선택만 즉시 반영(엑셀처럼 클릭하면 해당 셀 선택)
@@ -1020,7 +1040,7 @@ export default function SignupGrid({
     selectFromAnchor(p);
   } 
 
-     function handleCellPointerUp(e: React.PointerEvent) {
+  function handleCellPointerUp(e: React.PointerEvent) {
     // pending 정리
     pendingCellDragRef.current = null;
 
@@ -1028,8 +1048,15 @@ export default function SignupGrid({
     draggingRef.current = false;
     setDragLock(false);
 
+    // ✅ capture를 건 주체(ref) 기준으로 release (셀 경계/포털 개입 시 안정화)
+    const capEl = cellCaptureElRef.current;
+    const capPid = cellCapturePointerIdRef.current;
     try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      if (capEl && capPid != null) {
+        capEl.releasePointerCapture(capPid);
+      } else {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      }
     } catch {
       // ignore
     } finally {
@@ -1133,10 +1160,28 @@ export default function SignupGrid({
       const key = (e.key || "").toLowerCase();
       const isMod = e.ctrlKey || e.metaKey;
 
-     // Delete / Backspace
+      // Delete / Backspace
       if (key === "delete" || key === "backspace") {
         let rr = rowRangeRef.current;
         let cr = rangeRef.current;
+
+        // ✅ active/range가 비어있어도, 현재 이벤트 target이 셀 내부면 해당 셀을 선택으로 승격
+        if (!rr && !cr && !activeRef.current) {
+          const t = e.target as HTMLElement | null;
+          const cellEl = t?.closest?.("[data-sg-cell='1']") as HTMLElement | null;
+          if (cellEl) {
+            const tr = Number(cellEl.dataset.r);
+            const tc = Number(cellEl.dataset.c);
+            if (Number.isFinite(tr) && Number.isFinite(tc)) {
+              const p = { r: tr, c: tc };
+              activeRef.current = p;
+              anchorRef.current = p;
+              setActive(p);
+              setAnchor(p);
+              setRangeSync(normalizeRange(p, p));
+            }
+          }
+        }
 
         // ✅ 선택범위가 없더라도 active 셀이 있으면 1셀 선택으로 간주해서 삭제
         if (!rr && !cr && activeRef.current) {
