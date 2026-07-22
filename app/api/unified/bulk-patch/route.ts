@@ -2,7 +2,10 @@
 
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
+import {
+  UNIFIED_GUIDE_MIGRATION_LOCK_KEY,
+  isGuideMigrationLocked,
+} from "@/unified/migration-mode/guideMigrationLock";
 
 /**
  * POST /api/unified/bulk-patch
@@ -161,6 +164,9 @@ export async function POST(req: Request) {
     );
   }
 
+  // ✅ 초기이관모드 ON 상태에서 온 bulk-patch인지 서버에서도 확정적으로 인식
+  const guideMigrationMode = body?.guideMigrationMode === true;
+
   // 정규화 (patch / data 둘 다 허용)
   const updates = updatesRaw.map((u: any) => {
     const id = Number(u?.id);
@@ -171,12 +177,23 @@ export async function POST(req: Request) {
       ? (() => {
           const copy: Record<string, any> = { ...(patchRaw as any) };
           delete copy["상태"];
+
+          // ✅ 초기이관모드 ON + 안내분류가 붙여넣기 payload에 포함된 경우:
+          // 서버에서 직접 고정 플래그를 강제로 심는다.
+          // 클라이언트 쪽 누락/타이밍 문제와 무관하게 DB에 반드시 고정 표시가 남게 함.
+          if (
+            guideMigrationMode &&
+            Object.prototype.hasOwnProperty.call(copy, "안내분류")
+          ) {
+            copy[UNIFIED_GUIDE_MIGRATION_LOCK_KEY] = true;
+          }
+
           return copy;
         })()
       : patchRaw;
 
     return { id, patch };
-  });
+  }); 
 
   for (const u of updates) {
     if (!Number.isFinite(u.id) || u.id <= 0) {
@@ -275,14 +292,18 @@ export async function POST(req: Request) {
     partnerTargetIndexes.map((idx) => updates[idx]?.id)
   );
 
-  for (const idx of partnerTargetIndexes) {
+ for (const idx of partnerTargetIndexes) {
     const u = updates[idx];
     const p = u.patch as Record<string, any>;
 
     // ✅ 초기이관모드로 안내분류가 고정된 행은 자동매핑으로 안내분류를 덮어쓰지 않음
+    // ✅ 이번 요청이 초기이관모드 ON이고 안내분류 원시값이 포함된 경우도 무조건 자동매핑 제외
     const lockedByPatch = isGuideMigrationLocked(p);
     const lockedByExistingRow = guideMigrationLockMap.get(Number(u.id)) === true;
-    if (lockedByPatch || lockedByExistingRow) {
+    const lockedByThisMigrationPaste =
+      guideMigrationMode && Object.prototype.hasOwnProperty.call(p, "안내분류");
+
+    if (lockedByPatch || lockedByExistingRow || lockedByThisMigrationPaste) {
       continue;
     }
 
@@ -296,7 +317,7 @@ export async function POST(req: Request) {
 
     const guide = partnerGuideMap.get(partner) ?? null;
     p["안내분류"] = guide;
-  }
+  } 
 
   // ✅ jsonb merge(원자적):
   // - u.data가 NULL인 행에서도 merge가 정상 동작하도록 COALESCE 적용(중요)

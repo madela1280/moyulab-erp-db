@@ -1817,10 +1817,13 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
   });
 
   const res = await fetch(`/api/unified/bulk-patch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates }),
-  });
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        updates,
+        guideMigrationMode: migrationModeEnabled,
+      }),
+    });
 
   // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
   if (!res.ok) {
