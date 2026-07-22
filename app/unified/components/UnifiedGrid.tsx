@@ -1820,17 +1820,11 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     });
   });
 
-    const guideMigrationMode = options?.guideMigrationMode === true;
-
-    const res = await fetch(`/api/unified/bulk-patch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        guideMigrationMode
-          ? { updates, guideMigrationMode: true }
-          : { updates }
-      ),
-    });
+  const res = await fetch(`/api/unified/bulk-patch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  }); 
 
   // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
   if (!res.ok) {
@@ -3111,11 +3105,11 @@ useEffect(() => {
     }
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
-    async function pasteTextToSelectedRange(text: string) {
+       async function pasteTextToSelectedRange(text: string) {
       const isMigrationPaste = migrationModeEnabledRef.current;
 
       let baseRowIndex: number;
-      let baseColIndex: number;   
+      let baseColIndex: number;
 
       if (selectedCellRange) {
         baseRowIndex = selectedCellRange.startRow;
@@ -3171,8 +3165,9 @@ useEffect(() => {
             key === "총연장횟수" ||
             (!isMigrationPaste && key === "안내분류") ||
             isExtensionKey(key)
-          )
+          ) {
             continue;
+          }
 
           const raw = String(srcRow[colOffset] ?? "");
           const v = PASTE_REPLACE_CELL_NEWLINES_WITH_SPACE ? raw.replace(/\n+/g, " ") : raw;
@@ -3181,7 +3176,7 @@ useEffect(() => {
           patch[key] = v === "" ? null : v;
         }
 
-       if (Object.keys(patch).length) {
+        if (Object.keys(patch).length) {
           // ✅ 초기이관모드 ON에서 붙여넣은 행은 안내분류 고정 행으로 확정
           // - 엑셀 원시 안내분류를 그대로 저장
           // - 서버 자동매핑이 이 요청에서 안내분류를 덮어쓰지 못하게 함
@@ -3189,7 +3184,8 @@ useEffect(() => {
           const nextPatch = isMigrationPaste ? withGuideMigrationLock(patch) : patch;
 
           updates.push({ id: row.id, patch: nextPatch });
-        }     
+        }
+      }
 
       if (!updates.length) {
         setRowContextMenu(null);
@@ -3209,7 +3205,7 @@ useEffect(() => {
       );
 
       await bulkPatchAndReconcile(updates, { guideMigrationMode: isMigrationPaste });
-      setRowContextMenu(null);     
+      setRowContextMenu(null);
     }
 
     async function handlePasteToSelectedRowsFromClipboard() {
