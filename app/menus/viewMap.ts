@@ -47,8 +47,8 @@ export const VIEW_MAP: Record<string, any> = {
   "문자>만기3일전": makeSmsWrapper("만기3일전"),
   "문자>만기지남": makeSmsWrapper("만기지남"),
 
-  // BBB
-  "BBB>BBB": dynamic(() => import("@/views/packaging/PackagingView")),
+   // 백업복원
+  "백업복원>백업복원": dynamic(() => import("@/views/packaging/PackagingView")), 
 
   // 집계
   "집계>설정": dynamic(() => import("@/views/aggregate/AggregateSettingView")),

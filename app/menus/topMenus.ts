@@ -8,10 +8,9 @@ export const TOP_MENUS = [
   "회수완료",
   "오류검사",
   "문자",
-  "BBB",
+  "백업복원",
   "집계",
 ] as const;
 
 export type TopMenu = (typeof TOP_MENUS)[number];
-
 
