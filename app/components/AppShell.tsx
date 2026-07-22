@@ -229,12 +229,16 @@ export default function AppShell() {
                       return;
                     }
 
+                    // ✅ 접근 가능한 메뉴를 클릭하면 이전 권한없음 상태는 반드시 해제
                     setNoAccessMenu(null);
 
-                    // ✅ (최소 변경) 같은 대카테고리를 다시 클릭했을 때 sub를 1번으로 리셋하지 않음
-                    // -> 불필요한 기본 소카테고리(예: 심포니) 재로딩 방지
+                    // ✅ 다른 대카테고리로 이동하면 첫 소카테고리로 진입
                     if (top !== m) {
                       setTop(m);
+                      setSub(SUB_MENUS[m][0]);
+                    } else if (!sub) {
+                      // ✅ 같은 대카테고리인데 이전 권한없음 처리로 sub가 null인 경우 복구
+                      // 예: 사용자관리 클릭 → 권한없음 상태 → 관리자 확인 후 다시 사용자관리 클릭
                       setSub(SUB_MENUS[m][0]);
                     }
 
@@ -249,7 +253,7 @@ export default function AppShell() {
                   }
                 >
                   {m}
-                </button> 
+                </button>
               ))}
 
               {top && showSub && canRead(top) && (
