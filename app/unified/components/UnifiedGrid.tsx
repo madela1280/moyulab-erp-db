@@ -1960,25 +1960,33 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
 // ✅ bulk-patch는 “로컬 즉시 반영” 후에도, 서버가 연쇄 업데이트(기기번호/거래처 등)를 할 수 있음.
 //    그리고 write 중 원격 apply가 끼면 값이 되돌아가는 체감이 생길 수 있음.
 //    → 서버 응답(rows)을 다시 merge해서 DB truth로 맞춘다.
- async function bulkPatchAndReconcile(
+async function bulkPatchAndReconcile(
   updates: { id: number; patch: Record<string, any> }[],
   options?: { guideMigrationMode?: boolean }
 ) {
   if (!updates.length) return;
 
   beginWrite();
+
   try {
     // bulk 작업은 중간에 원격 apply가 끼지 않게 suppress도 같이
     suppressReloadFor(2500);
 
+    const guideMigrationMode = options?.guideMigrationMode === true;
+
     const res = await fetch(`/api/unified/bulk-patch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ updates }),
+      body: JSON.stringify(
+        guideMigrationMode
+          ? { updates, guideMigrationMode: true }
+          : { updates }
+      ),
     });
 
-          if (!res.ok) {
+    if (!res.ok) {
       let msg = "";
+
       try {
         msg = await res.text();
       } catch {
@@ -1998,8 +2006,9 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
         `붙여넣기 저장 실패 (${res.status}).\n` +
           `개발자도구 Network에서 /api/unified/bulk-patch 응답 확인 필요`
       );
+
       return;
-    } 
+    }
 
     const j = await res.json().catch(() => null);
     const serverRows = Array.isArray(j?.rows) ? (j.rows as UnifiedRow[]) : null;
@@ -2007,12 +2016,16 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
     // ✅ 서버 truth를 rows에 재주입(연쇄 업데이트/정규화 반영 + 사라짐 방지)
     if (serverRows && serverRows.length) {
       const map = new Map<number, UnifiedRow>();
-      for (const r of serverRows) map.set(Number(r.id), r);
+
+      for (const r of serverRows) {
+        map.set(Number(r.id), r);
+      }
 
       setRows((prev) =>
         prev.map((row) => {
           const s = map.get(row.id);
           if (!s) return row;
+
           return {
             ...row,
             sort_key: s.sort_key ?? row.sort_key,
