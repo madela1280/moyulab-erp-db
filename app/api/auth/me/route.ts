@@ -42,7 +42,20 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ ok: true, user: r.rows[0] });
+    const dbUser = r.rows[0];
+
+    // ✅ role/name/phone 정규화:
+    // DB 값에 공백/대소문자 차이가 있어도 프론트에서는 항상 안정적으로 판정
+    const normalizedRole = String(dbUser.role || "user").trim().toLowerCase();
+
+    const user = {
+      username: String(dbUser.username || "").trim(),
+      role: normalizedRole === "admin" ? "admin" : "user",
+      name: String(dbUser.name || ""),
+      phone: String(dbUser.phone || ""),
+    };
+
+    return NextResponse.json({ ok: true, user }); 
   } catch (e) {
     console.error("❌ auth/me error:", e);
     return NextResponse.json(

@@ -66,9 +66,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const role = u.role || "user";
-    const name = u.name || "";
-    const phone = u.phone || "";
+    // ✅ role/name/phone 정규화:
+    // DB role 값이 "Admin", "admin "처럼 들어가도 항상 안정적으로 admin/user 판정
+    const rawRole = String(u.role || "user").trim().toLowerCase();
+    const role = rawRole === "admin" ? "admin" : "user";
+    const name = String(u.name || "");
+    const phone = String(u.phone || "");
 
     const token = createToken({
       username: u.username,
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
       name,
       role,
       phone,
-    });
+    }); 
 
     res.cookies.set("token", token, {
       httpOnly: true,
