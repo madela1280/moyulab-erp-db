@@ -110,8 +110,7 @@ export default function PermissionSettingView() {
   }
 
   /* ---------------- 권한 저장 (개별 메뉴 즉시 반영) ---------------- */
-
-  async function togglePerm(
+ async function togglePerm(
     menuKey: string,
     field: 'can_read' | 'can_write',
     value: boolean
@@ -120,7 +119,20 @@ export default function PermissionSettingView() {
     setSaving(true);
     try {
       const current = permMap[menuKey] || { can_read: false, can_write: false };
-      const newPerm = { ...current, [field]: value };
+
+      // ✅ 권한 논리 정리:
+      // - 쓰기 권한이 있으면 읽기 권한은 반드시 있어야 함
+      // - 읽기 권한을 끄면 쓰기 권한도 자동으로 꺼짐
+      let newPerm = { ...current, [field]: value };
+
+      if (field === 'can_write' && value) {
+        newPerm = { ...newPerm, can_read: true };
+      }
+
+      if (field === 'can_read' && !value) {
+        newPerm = { ...newPerm, can_write: false };
+      }
+
       const body = {
         username: selectedUser,
         menu_key: menuKey,

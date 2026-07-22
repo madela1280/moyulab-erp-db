@@ -44,8 +44,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     const username = String(body.username || "").trim();
     const menu_key = String(body.menu_key || "").trim();
-    const can_read = !!body.can_read;
-    const can_write = !!body.can_write;
+
+    let can_read = !!body.can_read;
+    let can_write = !!body.can_write;
+
+    // ✅ 서버에서도 권한 논리 강제:
+    // - 쓰기 권한이 있으면 읽기 권한은 반드시 true
+    // - 읽기 권한이 false면 쓰기 권한도 false
+    if (can_write) {
+      can_read = true;
+    }
+
+    if (!can_read) {
+      can_write = false;
+    }
 
     if (!username || !menu_key) {
       return NextResponse.json(
