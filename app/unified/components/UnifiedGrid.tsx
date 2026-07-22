@@ -299,6 +299,10 @@ function requestApplyRemoteSync() {
 const isColumnEditMode = !!props.isColumnEditMode;
 const migrationModeEnabled = !!props.migrationModeEnabled;
 
+// ✅ 붙여넣기 이벤트는 타이밍상 stale closure가 생길 수 있으므로 ref로 최신 ON/OFF 값을 확정 사용
+const migrationModeEnabledRef = useRef(false);
+migrationModeEnabledRef.current = migrationModeEnabled;
+
 async function applyRemoteSyncOnce() {
   // ✅ 쓰기 작업이 진행 중이면, 원격 적용(fetch)이 먼저 돌아 옛 값으로 덮일 수 있으므로 보류
   if (writeInFlightRef.current > 0) {
@@ -1816,13 +1820,16 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     });
   });
 
-  const res = await fetch(`/api/unified/bulk-patch`, {
+    const guideMigrationMode = options?.guideMigrationMode === true;
+
+    const res = await fetch(`/api/unified/bulk-patch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        updates,
-        guideMigrationMode: migrationModeEnabled,
-      }),
+      body: JSON.stringify(
+        guideMigrationMode
+          ? { updates, guideMigrationMode: true }
+          : { updates }
+      ),
     });
 
   // ✅ API 성공 전 emit 금지 + 실패면 reload로 복구
@@ -1953,7 +1960,10 @@ async function verifyCellSavedOrRevert(args: { id: number; key: string; expected
 // ✅ bulk-patch는 “로컬 즉시 반영” 후에도, 서버가 연쇄 업데이트(기기번호/거래처 등)를 할 수 있음.
 //    그리고 write 중 원격 apply가 끼면 값이 되돌아가는 체감이 생길 수 있음.
 //    → 서버 응답(rows)을 다시 merge해서 DB truth로 맞춘다.
-async function bulkPatchAndReconcile(updates: { id: number; patch: Record<string, any> }[]) {
+ async function bulkPatchAndReconcile(
+  updates: { id: number; patch: Record<string, any> }[],
+  options?: { guideMigrationMode?: boolean }
+) {
   if (!updates.length) return;
 
   beginWrite();
@@ -3088,10 +3098,11 @@ useEffect(() => {
     }
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
-
     async function pasteTextToSelectedRange(text: string) {
+      const isMigrationPaste = migrationModeEnabledRef.current;
+
       let baseRowIndex: number;
-      let baseColIndex: number;
+      let baseColIndex: number;   
 
       if (selectedCellRange) {
         baseRowIndex = selectedCellRange.startRow;
@@ -3145,7 +3156,7 @@ useEffect(() => {
           if (
             key === "상태" ||
             key === "총연장횟수" ||
-            (!migrationModeEnabled && key === "안내분류") ||
+            (!isMigrationPaste && key === "안내분류") ||
             isExtensionKey(key)
           )
             continue;
@@ -3159,13 +3170,13 @@ useEffect(() => {
 
        if (Object.keys(patch).length) {
           // ✅ 초기이관모드 ON에서 붙여넣은 행은 안내분류 고정 행으로 확정
-          // - 안내분류 컬럼이 포함된 경우: 엑셀 원시값 그대로 저장
-          // - 이후 OFF 상태에서 거래처분류가 바뀌어도 서버 자동매핑이 안내분류를 덮어쓰지 않게 함
-          const nextPatch = migrationModeEnabled ? withGuideMigrationLock(patch) : patch;
+          // - 엑셀 원시 안내분류를 그대로 저장
+          // - 서버 자동매핑이 이 요청에서 안내분류를 덮어쓰지 못하게 함
+          // - 이후 OFF 상태에서도 이 행은 자동매핑 제외
+          const nextPatch = isMigrationPaste ? withGuideMigrationLock(patch) : patch;
 
           updates.push({ id: row.id, patch: nextPatch });
-        }
-      }
+        }     
 
       if (!updates.length) {
         setRowContextMenu(null);
@@ -3184,8 +3195,8 @@ useEffect(() => {
         })
       );
 
-      await bulkPatchAndReconcile(updates);
-      setRowContextMenu(null);  
+      await bulkPatchAndReconcile(updates, { guideMigrationMode: isMigrationPaste });
+      setRowContextMenu(null);     
     }
 
     async function handlePasteToSelectedRowsFromClipboard() {

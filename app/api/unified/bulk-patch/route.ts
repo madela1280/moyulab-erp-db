@@ -164,7 +164,7 @@ export async function POST(req: Request) {
     );
   }
 
- // ✅ 초기이관모드 ON 상태에서 온 bulk-patch인지 서버에서도 확정적으로 인식
+  // ✅ 초기이관모드 ON 상태에서 온 bulk-patch인지 서버에서도 확정적으로 인식
   const guideMigrationMode = body?.guideMigrationMode === true;
 
   // 정규화 (patch / data 둘 다 허용)
@@ -178,10 +178,8 @@ export async function POST(req: Request) {
           const copy: Record<string, any> = { ...(patchRaw as any) };
           delete copy["상태"];
 
-          // ✅ 초기이관모드 ON 요청이면 해당 행을 안내분류 고정 행으로 확정
-          // - 안내분류 원시값이 있으면 그대로 저장
-          // - 거래처분류 자동매핑이 이 요청에서 안내분류를 덮어쓰지 못하게 함
-          // - 이후 OFF 상태에서도 이 플래그 때문에 자동매핑 제외됨
+          // ✅ 초기이관모드 ON 요청이면 서버에서 무조건 고정 플래그를 저장
+          // 프론트 누락/타이밍과 관계없이 이 요청의 행은 안내분류 자동매핑 제외 대상이 됨
           if (guideMigrationMode) {
             copy[UNIFIED_GUIDE_MIGRATION_LOCK_KEY] = true;
           }
@@ -191,7 +189,7 @@ export async function POST(req: Request) {
       : patchRaw;
 
     return { id, patch };
-  }); 
+  });
 
   for (const u of updates) {
     if (!Number.isFinite(u.id) || u.id <= 0) {
@@ -290,7 +288,7 @@ export async function POST(req: Request) {
     partnerTargetIndexes.map((idx) => updates[idx]?.id)
   );
 
- for (const idx of partnerTargetIndexes) {
+   for (const idx of partnerTargetIndexes) {
     const u = updates[idx];
     const p = u.patch as Record<string, any>;
 
