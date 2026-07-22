@@ -3157,11 +3157,11 @@ useEffect(() => {
           patch[key] = v === "" ? null : v;
         }
 
-        if (Object.keys(patch).length) {
-          const nextPatch =
-            migrationModeEnabled && Object.prototype.hasOwnProperty.call(patch, "안내분류")
-              ? withGuideMigrationLock(patch)
-              : patch;
+       if (Object.keys(patch).length) {
+          // ✅ 초기이관모드 ON에서 붙여넣은 행은 안내분류 고정 행으로 확정
+          // - 안내분류 컬럼이 포함된 경우: 엑셀 원시값 그대로 저장
+          // - 이후 OFF 상태에서 거래처분류가 바뀌어도 서버 자동매핑이 안내분류를 덮어쓰지 않게 함
+          const nextPatch = migrationModeEnabled ? withGuideMigrationLock(patch) : patch;
 
           updates.push({ id: row.id, patch: nextPatch });
         }
