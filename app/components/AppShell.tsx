@@ -144,10 +144,28 @@ export default function AppShell() {
     return !!p && !!p.can_write;
   };
 
-  // 권한 정보가 준비된 후, 기본 메뉴 접근 불가면 자물쇠로 처리
+   // 권한 정보가 준비된 후, 기본 메뉴 접근 불가면 자물쇠로 처리
   useEffect(() => {
     if (authLoading) return;
-    if (!isAdmin && !permsLoading) {
+
+    // ✅ 관리자(admin)는 항상 전체 허용.
+    // 인증 로딩 중 클릭 등으로 noAccessMenu가 남아도 관리자 확인 후 즉시 해제한다.
+    if (isAdmin) {
+      setNoAccessMenu(null);
+
+      if (!top) {
+        setTop(DEFAULT_TOP);
+      }
+
+      if (!sub) {
+        const safeTop = top ?? DEFAULT_TOP;
+        setSub(SUB_MENUS[safeTop][0]);
+      }
+
+      return;
+    }
+
+    if (!permsLoading) {
       if (!canRead(DEFAULT_TOP)) {
         setNoAccessMenu(DEFAULT_TOP);
         setTop(DEFAULT_TOP);
@@ -155,7 +173,7 @@ export default function AppShell() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, permsLoading, me, perms]);
+  }, [authLoading, permsLoading, me, perms, isAdmin, top, sub]); 
 
   /* ---------------- 서브메뉴 타이머 ---------------- */
 
@@ -195,9 +213,13 @@ export default function AppShell() {
           <nav className="flex-grow flex text-[0.99rem] font-[660] text-gray-700 ml-40">
             <div className="flex items-center gap-12 relative">
               {visibleTopMenus.map((m) => (
-                <button
+              <button
                   key={m}
-                    onClick={(e) => {
+                  onClick={(e) => {
+                    // ✅ 인증/권한 로딩 중에는 canRead가 false로 계산될 수 있으므로
+                    // 임시로 "권한없음" 상태를 만들지 않는다.
+                    if (loading) return;
+
                     if (!canRead(m)) {
                       setNoAccessMenu(m);
                       setTop(m);
@@ -227,7 +249,7 @@ export default function AppShell() {
                   }
                 >
                   {m}
-                </button>
+                </button> 
               ))}
 
               {top && showSub && canRead(top) && (
