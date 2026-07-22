@@ -960,7 +960,7 @@ export default function SignupGrid({
     return r;
   }
 
- function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
+  function handleCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     if (e.button !== 0) return;
     if (!showToolbar) return;
 
@@ -971,20 +971,9 @@ export default function SignupGrid({
 
     const el = e.currentTarget as HTMLElement;
 
-    // ✅ pointerdown에서는 클릭 기본동작을 막지 않되,
-    // pointer capture는 즉시 확보해서 거래처분류(popover/select) 컬럼에서도
-    // 드래그 선택 move 이벤트가 끊기지 않게 한다.
-    try {
-      el.setPointerCapture(e.pointerId);
-      cellCaptureElRef.current = el;
-      cellCapturePointerIdRef.current = e.pointerId;
-    } catch {
-      // ignore
-    }
-
-    // ✅ pointerdown에서는 "클릭 기본동작"을 막지 않는다.
-    //    (select 열림/날짜 달력 트리거 등 유지)
-    //    드래그로 판단되는 순간(조금 움직였을 때)만 drag 모드로 전환한다.
+    // ✅ pointerdown에서는 클릭 기본동작을 막지 않는다.
+    //    (거래처분류 팝오버/날짜 달력 등 기존 동작 유지)
+    //    드래그로 판정된 순간(pointermove 임계치 초과)에만 capture를 건다.
     pendingCellDragRef.current = {
       pointerId: e.pointerId,
       startX: e.clientX,
@@ -1040,7 +1029,7 @@ export default function SignupGrid({
     selectFromAnchor(p);
   } 
 
-  function handleCellPointerUp(e: React.PointerEvent) {
+    function handleCellPointerUp(e: React.PointerEvent) {
     // pending 정리
     pendingCellDragRef.current = null;
 
@@ -1064,7 +1053,7 @@ export default function SignupGrid({
       cellCapturePointerIdRef.current = null;
     }
 
-    // ✅ 단순 클릭이면 포커스, 드래그였다면 포커스 주지 않음(우클릭/복사/붙여넣기용 selection 유지)
+    // ✅ 단순 클릭이면 기존처럼 에디터 포커스(팝오버/달력 포함)
     if (!didDragRef.current) {
       const el = e.currentTarget as HTMLElement;
       const rr = Number(el.dataset.r);
@@ -1072,7 +1061,12 @@ export default function SignupGrid({
       if (Number.isFinite(rr) && Number.isFinite(cc)) {
         focusCellEditor(rr, cc);
       }
+      return;
     }
+
+    // ✅ 드래그 선택 종료 후에는 키 입력 타겟을 그리드로 고정해
+    // Delete 1회로 바로 지워지게 안정화
+    focusGridForPaste();
   }  
  
    function handleCellContextMenu(e: React.MouseEvent, r: number, c: number) {
