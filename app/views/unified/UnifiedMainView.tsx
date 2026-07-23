@@ -599,7 +599,7 @@ export default function UnifiedMainView() {
         }}
         isColumnEditMode={isColumnEditMode}
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
-        onAddTemplate={() => setAddTemplateOpen(true)}
+        onAddTemplate={() => setIsAddTemplateOpen(true)}
         filterMode={filterMode}
         onToggleFilterMode={toggleFilterMode}
         onOpenSearch={openSearch}
