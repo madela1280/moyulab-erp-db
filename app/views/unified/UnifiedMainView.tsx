@@ -599,15 +599,13 @@ export default function UnifiedMainView() {
         }}
         isColumnEditMode={isColumnEditMode}
         onToggleColumnEditMode={() => setIsColumnEditMode((v) => !v)}
-        onAddTemplate={() => setIsAddTemplateOpen(true)}
+        onAddTemplate={() => setAddTemplateOpen(true)}
         filterMode={filterMode}
-        onToggleFilterMode={handleToggleFilterMode}
-        onOpenSearch={openSearchPanel}
-        searchActive={unifiedSearch.open}
+        onToggleFilterMode={toggleFilterMode}
+        onOpenSearch={openSearch}
+        searchActive={search.open}
         onOpenColor={openColor}
         onDownload={handleDownload}
-        migrationModeEnabled={migrationMode.enabled}
-        onToggleMigrationMode={migrationMode.toggle}
       />
 
       <div
