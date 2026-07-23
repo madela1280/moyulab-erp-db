@@ -1348,8 +1348,8 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
           const allowPaging = !filterMode && !(sortState?.key ?? null);
           if (!allowPaging) return;
 
-                    // ✅ 회수1만 먼저 적용: 경계 연속 호출/점핑/멈칫 완화
-          if (scope === "recovery1") {
+          // ✅ 회수1/회수2 공통 적용: 경계 연속 호출/점핑/멈칫 완화
+          if (scope === "recovery1" || scope === "recovery2") {
             const now = Date.now();
 
             const prevTop = lastScrollTopRef.current;
@@ -1398,9 +1398,8 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
             return;
           }
 
-          // 회수2(기존 동작 유지)
           if (el.scrollTop <= threshold) void loadPrevPage();
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) void loadNextPage();
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) void loadNextPage(); 
         }}
       >
         <table
