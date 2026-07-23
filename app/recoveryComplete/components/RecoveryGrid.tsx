@@ -272,7 +272,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
   const viewColumns = columnOrder;
 
   // --- filter/sort display rows ---
-  const computedDisplayRows = useMemo(() => {
+ const computedDisplayRows = useMemo(() => {
   let out = rows;
 
   const selectedByKey = filterState?.selectedByKey ?? {};
@@ -284,10 +284,9 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
         if (!set || set.size === 0) continue;
 
         const cellValue = String(row.data?.[k] ?? "");
-        const isRecovery1DateFilterKey =
-          scope === "recovery1" && RECOVERY_DATE_FILTER_KEYS.has(k);
+        const isRecoveryDateFilterKey = RECOVERY_DATE_FILTER_KEYS.has(k);
 
-        if (isRecovery1DateFilterKey) {
+        if (isRecoveryDateFilterKey) {
           let matched = false;
           for (const token of set) {
             if (matchDateTokenValue(cellValue, String(token ?? ""))) {
@@ -319,7 +318,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
   }
 
   return out;
-}, [rows, filterMode, filterState, sortState, scope]);
+}, [rows, filterMode, filterState, sortState]);
 
   // 필터 모드에서 목록 고정(편집으로 결과 튀는 것 방지)
   const [filterFrozenIds, setFilterFrozenIds] = useState<number[] | null>(null);
@@ -655,10 +654,9 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
  const filterValues = useMemo(() => {
   if (!filterColumnKey) return [];
 
-  const isRecovery1DateFilterKey =
-    scope === "recovery1" && RECOVERY_DATE_FILTER_KEYS.has(filterColumnKey);
+  const isRecoveryDateFilterKey = RECOVERY_DATE_FILTER_KEYS.has(filterColumnKey);
 
-  if (isRecovery1DateFilterKey) {
+  if (isRecoveryDateFilterKey) {
     const tokenSet = new Set<string>();
     let hasEmpty = false;
 
@@ -684,7 +682,7 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
   const set = new Set<string>();
   for (const r of rows) set.add(String(r.data?.[filterColumnKey] ?? ""));
   return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
-}, [rows, filterColumnKey, scope]);
+}, [rows, filterColumnKey]);
 
   const filterSelectedSet = useMemo(() => {
     if (!filterColumnKey) return new Set<string>();
