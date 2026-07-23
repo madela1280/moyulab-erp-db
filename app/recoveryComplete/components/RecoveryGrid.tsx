@@ -67,10 +67,11 @@ const OVERSCAN = 12;
 // ✅ 드래그 민감도(엑셀처럼 “클릭 후 드래그”일 때만 범위 확장)
 const CELL_DRAG_THRESHOLD_PX = 10;
 
-// ✅ 회수1 스크롤 경계 점핑 완화용(최소 튜닝)
-const EDGE_TRIGGER_PX = 48;
-const EDGE_RELEASE_PX = 140;
-const EDGE_LOAD_COOLDOWN_MS = 180;
+// ✅ 회수1 스크롤 경계 점핑/멈칫 완화용(추가 튜닝)
+const EDGE_TRIGGER_PX = 36;
+const EDGE_RELEASE_PX = 96;
+const EDGE_LOAD_COOLDOWN_MS = 140;
+const EDGE_REARM_MS = 220;
 
 function clampUnit(v: any) {
   const n = Number(v);
@@ -945,10 +946,11 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
   // --- paging ---
   const isPagingRef = useRef(false);
 
-  // ✅ 회수1 경계 연속 트리거 방지(점핑 완화)
+  // ✅ 회수1 경계 연속 트리거 방지(점핑/멈칫 완화)
   const canTriggerPrevRef = useRef(true);
   const canTriggerNextRef = useRef(true);
   const lastEdgeLoadAtRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
 
   function getCursorFromFirstRow() {
     const first = rowsRef.current[0];
@@ -1346,31 +1348,50 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
           const allowPaging = !filterMode && !(sortState?.key ?? null);
           if (!allowPaging) return;
 
-          // ✅ 회수1만 먼저 적용: 경계 연속 호출/점핑 완화
+                    // ✅ 회수1만 먼저 적용: 경계 연속 호출/점핑/멈칫 완화
           if (scope === "recovery1") {
             const now = Date.now();
-            const nearTop = el.scrollTop <= EDGE_TRIGGER_PX;
-            const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - EDGE_TRIGGER_PX;
 
-            // 경계에서 충분히 벗어나야 다음 트리거 허용
-            if (el.scrollTop > EDGE_RELEASE_PX) canTriggerPrevRef.current = true;
-            if (el.scrollTop + el.clientHeight < el.scrollHeight - EDGE_RELEASE_PX) {
+            const prevTop = lastScrollTopRef.current;
+            const curTop = el.scrollTop;
+            const delta = curTop - prevTop;
+            lastScrollTopRef.current = curTop;
+
+            const scrollingUp = delta < 0;
+            const scrollingDown = delta > 0;
+
+            const nearTop = curTop <= EDGE_TRIGGER_PX;
+            const nearBottom = curTop + el.clientHeight >= el.scrollHeight - EDGE_TRIGGER_PX;
+
+            // 경계에서 충분히 벗어나면 재무장
+            if (curTop > EDGE_RELEASE_PX) canTriggerPrevRef.current = true;
+            if (curTop + el.clientHeight < el.scrollHeight - EDGE_RELEASE_PX) {
               canTriggerNextRef.current = true;
             }
 
             const cooled = now - lastEdgeLoadAtRef.current >= EDGE_LOAD_COOLDOWN_MS;
 
-            if (nearTop && canTriggerPrevRef.current && cooled) {
+            if (nearTop && scrollingUp && canTriggerPrevRef.current && cooled) {
               canTriggerPrevRef.current = false;
               lastEdgeLoadAtRef.current = now;
               void loadPrevPage();
+
+              // 경계에 오래 머물 때 멈칫 방지용 재무장(짧게)
+              window.setTimeout(() => {
+                canTriggerPrevRef.current = true;
+              }, EDGE_REARM_MS);
               return;
             }
 
-            if (nearBottom && canTriggerNextRef.current && cooled) {
+            if (nearBottom && scrollingDown && canTriggerNextRef.current && cooled) {
               canTriggerNextRef.current = false;
               lastEdgeLoadAtRef.current = now;
               void loadNextPage();
+
+              // 경계에 오래 머물 때 멈칫 방지용 재무장(짧게)
+              window.setTimeout(() => {
+                canTriggerNextRef.current = true;
+              }, EDGE_REARM_MS);
               return;
             }
 
