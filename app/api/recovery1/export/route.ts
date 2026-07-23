@@ -12,6 +12,55 @@ function toText(v: any) {
   return v == null ? "" : String(v);
 }
 
+const RECOVERY_DATE_FILTER_KEYS = new Set(["시작일", "종료일", "반납완료일", "신청일"]);
+
+function parseYmdParts(value: string): { y: number; m: number; d: number } | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+
+  const m = s.match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+
+  return { y, m: mo, d };
+}
+
+function parseDateFilterToken(token: string): { y: number; m: number | null } | null {
+  const s = String(token ?? "").trim();
+  if (!s) return null;
+
+  let m = s.match(/^(\d{4})년$/);
+  if (m) return { y: Number(m[1]), m: null };
+
+  m = s.match(/^(\d{4})년\s*(\d{1,2})월$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    if (mo < 1 || mo > 12) return null;
+    return { y, m: mo };
+  }
+
+  return null;
+}
+
+function matchDateTokenValue(cellValue: string, token: string) {
+  const parsedToken = parseDateFilterToken(token);
+  if (!parsedToken) return String(cellValue ?? "") === String(token ?? "");
+
+  const parsedDate = parseYmdParts(cellValue);
+  if (!parsedDate) return false;
+
+  if (parsedDate.y !== parsedToken.y) return false;
+  if (parsedToken.m != null && parsedDate.m !== parsedToken.m) return false;
+  return true;
+}
+
 type ExportFilter = {
   filterState?: {
     selectedByKey?: Record<string, string[]>;
@@ -27,7 +76,14 @@ function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: Expo
   let out = rows.filter((r) => {
     for (const [key, arr] of Object.entries(selectedByKey)) {
       if (!arr || arr.length === 0) continue;
+
       const v = toText(r.data?.[key]);
+      if (RECOVERY_DATE_FILTER_KEYS.has(key)) {
+        const matched = arr.some((token) => matchDateTokenValue(v, String(token ?? "")));
+        if (!matched) return false;
+        continue;
+      }
+
       if (!arr.includes(v)) return false;
     }
 

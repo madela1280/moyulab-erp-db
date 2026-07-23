@@ -73,6 +73,74 @@ function clampUnit(v: any) {
   return Math.max(1, Math.min(200, Math.floor(n)));
 }
 
+const RECOVERY_DATE_FILTER_KEYS = new Set(["시작일", "종료일", "반납완료일", "신청일"]);
+
+function parseYmdParts(value: string): { y: number; m: number; d: number } | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+
+  const m = s.match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+
+  return { y, m: mo, d };
+}
+
+function parseDateFilterToken(token: string): { y: number; m: number | null } | null {
+  const s = String(token ?? "").trim();
+  if (!s) return null;
+
+  let m = s.match(/^(\d{4})년$/);
+  if (m) return { y: Number(m[1]), m: null };
+
+  m = s.match(/^(\d{4})년\s*(\d{1,2})월$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    if (mo < 1 || mo > 12) return null;
+    return { y, m: mo };
+  }
+
+  return null;
+}
+
+function matchDateTokenValue(cellValue: string, token: string) {
+  const parsedToken = parseDateFilterToken(token);
+  if (!parsedToken) return String(cellValue ?? "") === String(token ?? "");
+
+  const parsedDate = parseYmdParts(cellValue);
+  if (!parsedDate) return false;
+
+  if (parsedDate.y !== parsedToken.y) return false;
+  if (parsedToken.m != null && parsedDate.m !== parsedToken.m) return false;
+  return true;
+}
+
+function sortDateFilterTokens(a: string, b: string) {
+  if (a === "" && b !== "") return -1;
+  if (a !== "" && b === "") return 1;
+
+  const pa = parseDateFilterToken(a);
+  const pb = parseDateFilterToken(b);
+
+  if (!pa || !pb) return String(a).localeCompare(String(b), "ko-KR");
+
+  if (pa.y !== pb.y) return pa.y - pb.y;
+
+  const ra = pa.m == null ? 0 : 1;
+  const rb = pb.m == null ? 0 : 1;
+  if (ra !== rb) return ra - rb;
+
+  if (pa.m == null && pb.m == null) return 0;
+  return (pa.m ?? 0) - (pb.m ?? 0);
+}
+
 function shallowEqualRecord(
   a: Record<string, any> | undefined,
   b: Record<string, any> | undefined
@@ -198,37 +266,53 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
 
   // --- filter/sort display rows ---
   const computedDisplayRows = useMemo(() => {
-    let out = rows;
+  let out = rows;
 
-    const selectedByKey = filterState?.selectedByKey ?? {};
-    const entries = Object.entries(selectedByKey);
+  const selectedByKey = filterState?.selectedByKey ?? {};
+  const entries = Object.entries(selectedByKey);
 
-    if (filterMode && entries.length) {
-      out = out.filter((row) => {
-        for (const [k, set] of entries) {
-          if (!set || set.size === 0) continue;
-          const v = String(row.data?.[k] ?? "");
-          if (!set.has(v)) return false;
+  if (filterMode && entries.length) {
+    out = out.filter((row) => {
+      for (const [k, set] of entries) {
+        if (!set || set.size === 0) continue;
+
+        const cellValue = String(row.data?.[k] ?? "");
+        const isRecovery1DateFilterKey =
+          scope === "recovery1" && RECOVERY_DATE_FILTER_KEYS.has(k);
+
+        if (isRecovery1DateFilterKey) {
+          let matched = false;
+          for (const token of set) {
+            if (matchDateTokenValue(cellValue, String(token ?? ""))) {
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) return false;
+          continue;
         }
-        return true;
-      });
-    }
 
-    const sortKey = sortState?.key ?? null;
-    if (filterMode && sortKey) {
-      const dir = sortState?.dir === "desc" ? "desc" : "asc";
-      const copy = [...out];
-      copy.sort((a, b) => {
-        const av = String(a.data?.[sortKey] ?? "").trim();
-        const bv = String(b.data?.[sortKey] ?? "").trim();
-        const cmp = av.localeCompare(bv, "ko-KR");
-        return dir === "asc" ? cmp : -cmp;
-      });
-      out = copy;
-    }
+        if (!set.has(cellValue)) return false;
+      }
+      return true;
+    });
+  }
 
-    return out;
-  }, [rows, filterMode, filterState, sortState]);
+  const sortKey = sortState?.key ?? null;
+  if (filterMode && sortKey) {
+    const dir = sortState?.dir === "desc" ? "desc" : "asc";
+    const copy = [...out];
+    copy.sort((a, b) => {
+      const av = String(a.data?.[sortKey] ?? "").trim();
+      const bv = String(b.data?.[sortKey] ?? "").trim();
+      const cmp = av.localeCompare(bv, "ko-KR");
+      return dir === "asc" ? cmp : -cmp;
+    });
+    out = copy;
+  }
+
+  return out;
+}, [rows, filterMode, filterState, sortState, scope]);
 
   // 필터 모드에서 목록 고정(편집으로 결과 튀는 것 방지)
   const [filterFrozenIds, setFilterFrozenIds] = useState<number[] | null>(null);
@@ -561,12 +645,39 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
 
   const filterActive = filterState ? isFilterActive(filterState) : false;
 
-  const filterValues = useMemo(() => {
-    if (!filterColumnKey) return [];
-    const set = new Set<string>();
-    for (const r of rows) set.add(String(r.data?.[filterColumnKey] ?? ""));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
-  }, [rows, filterColumnKey]);
+ const filterValues = useMemo(() => {
+  if (!filterColumnKey) return [];
+
+  const isRecovery1DateFilterKey =
+    scope === "recovery1" && RECOVERY_DATE_FILTER_KEYS.has(filterColumnKey);
+
+  if (isRecovery1DateFilterKey) {
+    const tokenSet = new Set<string>();
+    let hasEmpty = false;
+
+    for (const r of rows) {
+      const raw = String(r.data?.[filterColumnKey] ?? "");
+      if (!raw.trim()) {
+        hasEmpty = true;
+        continue;
+      }
+
+      const parsed = parseYmdParts(raw);
+      if (!parsed) continue;
+
+      tokenSet.add(`${parsed.y}년`);
+      tokenSet.add(`${parsed.y}년 ${parsed.m}월`);
+    }
+
+    if (hasEmpty) tokenSet.add("");
+
+    return Array.from(tokenSet).sort(sortDateFilterTokens);
+  }
+
+  const set = new Set<string>();
+  for (const r of rows) set.add(String(r.data?.[filterColumnKey] ?? ""));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, "ko-KR"));
+}, [rows, filterColumnKey, scope]);
 
   const filterSelectedSet = useMemo(() => {
     if (!filterColumnKey) return new Set<string>();
