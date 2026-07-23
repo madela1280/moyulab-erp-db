@@ -1,7 +1,5 @@
 "use client";
 
-import UnifiedMigrationModeButton from "@/unified/components/UnifiedMigrationModeButton";
-
 type Props = {
   onAdd10: () => void;
   isColumnEditMode: boolean;
@@ -21,10 +19,7 @@ type Props = {
 
   onDownload?: () => void;
 
-  // ✅ 초기이관모드: 안내분류 원시값 고정용 토글
-  migrationModeEnabled?: boolean;
-  onToggleMigrationMode?: () => void;
-};
+  };
 
 function Icon({ name }: { name: string }) {
   const cls = "w-4 h-4 text-slate-500";
@@ -147,15 +142,13 @@ export default function GridHeader({
   onOpenSearch,
   onOpenColor,
   onDownload,
-
-  migrationModeEnabled,
-  onToggleMigrationMode,
+ 
 }: Props) {
   return (
     <div className="w-full flex items-center gap-2 px-2 py-2 bg-white border-b">
       <span className="text-slate-700 font-semibold text-sm">통합관리</span>
 
-      <div className="flex items-center gap-2">
+           <div className="flex items-center gap-2">
         <ToolButton icon="filter" onClick={onToggleFilterMode} active={!!filterMode}>
           필터
         </ToolButton>
@@ -180,13 +173,6 @@ export default function GridHeader({
         >
           <ToolButton icon="palette">칼라</ToolButton>
         </div>
-
-        <UnifiedMigrationModeButton
-          enabled={!!migrationModeEnabled}
-          onToggle={() => {
-            onToggleMigrationMode?.();
-          }}
-        />
       </div>
 
       <div className="ml-auto flex items-center gap-2">
