@@ -73,7 +73,14 @@ function clampUnit(v: any) {
   return Math.max(1, Math.min(200, Math.floor(n)));
 }
 
-const RECOVERY_DATE_FILTER_KEYS = new Set(["시작일", "종료일", "반납완료일", "신청일"]);
+const RECOVERY_DATE_FILTER_KEYS = new Set([
+  "택배발송일",
+  "시작일",
+  "종료일",
+  "반납요청일",
+  "반납완료일",
+  "신청일",
+]);
 
 function parseYmdParts(value: string): { y: number; m: number; d: number } | null {
   const s = String(value ?? "").trim();
