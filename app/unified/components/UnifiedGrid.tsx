@@ -40,7 +40,7 @@ import {
   syncPatch,
   syncEmitUnifiedUpdate,
 } from "@/global-sync/sync-engine";
-import { acquireLock, releaseLock, type LockInfo } from "@/global-lock/lock-engine";
+import { acquireLock, releaseLock, getLockStatus, type LockInfo } from "@/global-lock/lock-engine";
 
 // ✅ 컬럼 정의는 외부 파일로 이동(저장/로딩 모듈에서도 공유하기 위함)
 import {
@@ -2377,6 +2377,68 @@ async function bulkPatchAndReconcile(
   };
 }
 
+    async function acquireBulkLocksOrAlert(rowsToLock: UnifiedRow[], actionLabel: string) {
+      const uniqueRows: UnifiedRow[] = [];
+      const seen = new Set<number>();
+
+      for (const row of rowsToLock) {
+        const id = Number(row?.id);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        uniqueRows.push(row);
+      }
+
+      if (!uniqueRows.length) return [] as number[];
+
+      const acquiredIds: number[] = [];
+
+      for (const row of uniqueRows) {
+        const rowId = Number(row.id);
+
+        const result = await acquireLock("unified", rowId).catch(() => null);
+
+        if (result?.ok) {
+          acquiredIds.push(rowId);
+          continue;
+        }
+
+        for (const id of acquiredIds) {
+          try {
+            await releaseLock("unified", id);
+          } catch {
+            // ignore
+          }
+        }
+
+        if (result?.reason === "locked_by_other" && (result as any).lock) {
+          const lock = (result as any).lock as LockInfo;
+          alert(
+            `${actionLabel}을(를) 할 수 없습니다.\n` +
+              `${lock.locked_by_name}님이 포함된 행을 편집 중입니다.`
+          );
+        } else if (result?.reason === "unauthorized") {
+          alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
+        } else {
+          alert(`${actionLabel}을(를) 할 수 없습니다. 잠시 후 다시 시도해 주세요.`);
+        }
+
+        return null;
+      }
+
+      return acquiredIds;
+    }
+
+    async function releaseBulkLocks(lockIds: number[]) {
+      for (const id of lockIds) {
+        try {
+          await releaseLock("unified", id);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     /* --------------------- 행 컨텍스트 메뉴 --------------------- */
 
     function handleRowHeaderContextMenu(
@@ -2900,82 +2962,91 @@ useEffect(() => {
 }
 
     /* --------------------- 행 삭제 --------------------- */
-      
-   async function handleDeleteSelectedRows() {
+      async function handleDeleteSelectedRows() {
   const { slice } = getSelectedRowRangeInfo();
   if (!slice.length) {
     setRowContextMenu(null);
     return;
   }
 
+  const lockIds = await acquireBulkLocksOrAlert(slice, "행 삭제");
+  if (!lockIds) {
+    setRowContextMenu(null);
+    return;
+  }
+
   const ids = slice.map((r) => r.id);
 
-  // 1) 서버 삭제 먼저 + 성공 여부 확인(실패하면 로컬삭제 금지)
   try {
-    const res = await fetch(`/api/unified/bulk-delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
-    });
+    // 1) 서버 삭제 먼저 + 성공 여부 확인(실패하면 로컬삭제 금지)
+    try {
+      const res = await fetch(`/api/unified/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
 
-    if (!res.ok) {
-      // 실패면 화면/정합성 복구를 위해 강제 reload
+      if (!res.ok) {
+        // 실패면 화면/정합성 복구를 위해 강제 reload
+        await reload();
+        setRowContextMenu(null);
+        setSelectedRowRange(null);
+        return;
+      }
+    } catch (e) {
+      // 네트워크/일시 오류도 동일 처리
       await reload();
       setRowContextMenu(null);
       setSelectedRowRange(null);
       return;
     }
-  } catch (e) {
-    // 네트워크/일시 오류도 동일 처리
-    await reload();
+
+    // 2) 여기부터는 "서버 삭제 성공"이 확정된 경우만 로컬 반영
+    suspendScrollLoadBriefly();
+
+    const idSet = new Set(ids);
+
+    setRows((prev) => {
+      let removedFromTop = 0;
+      while (removedFromTop < prev.length && idSet.has(prev[removedFromTop].id)) {
+        removedFromTop++;
+      }
+      if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
+
+      return prev.filter((r) => !idSet.has(r.id));
+    });
+
+    setTotalCount((t) => Math.max(0, t - ids.length));
+
+    suppressReloadFor(2500);
+
+    lastLocalUnifiedEmitAtRef.current = Date.now();
+    syncEmitUnifiedUpdate();
+
+    // ✅ 드물게 이벤트 누락되는 케이스 완화(삭제에만 1회 추가 emit)
+    setTimeout(() => {
+      try {
+        syncEmitUnifiedUpdate();
+      } catch {
+        // ignore
+      }
+    }, 250);
+
     setRowContextMenu(null);
     setSelectedRowRange(null);
-    return;
+  } finally {
+    await releaseBulkLocks(lockIds);
   }
-
-  // 2) 여기부터는 "서버 삭제 성공"이 확정된 경우만 로컬 반영
-  suspendScrollLoadBriefly();
-
-  const idSet = new Set(ids);
-
-  setRows((prev) => {
-    let removedFromTop = 0;
-    while (removedFromTop < prev.length && idSet.has(prev[removedFromTop].id)) {
-      removedFromTop++;
-    }
-    if (removedFromTop > 0) setBaseIndex((b) => b + removedFromTop);
-
-    return prev.filter((r) => !idSet.has(r.id));
-  });
-
-  setTotalCount((t) => Math.max(0, t - ids.length));
-
-  suppressReloadFor(2500);
-
-  lastLocalUnifiedEmitAtRef.current = Date.now();
-  syncEmitUnifiedUpdate();
-
-  // ✅ 드물게 이벤트 누락되는 케이스 완화(삭제에만 1회 추가 emit)
-  setTimeout(() => {
-    try {
-      syncEmitUnifiedUpdate();
-    } catch {
-      // ignore
-    }
-  }, 250);
-
-  setRowContextMenu(null);
-  setSelectedRowRange(null);
-}
-    
-    /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
+}   
+       
+     /* --------------------- 내용 지우기 (셀/행 단위 PATCH) --------------------- */
 
     async function handleClearSelectedRows() {
       // 1) 셀 범위가 있으면 셀만 지우기
       if (selectedCellRange) {
         const { startRow, endRow, startCol, endCol } = selectedCellRange;
 
-                const updates: { id: number; patch: Record<string, any> }[] = [];
+        const updates: { id: number; patch: Record<string, any> }[] = [];
 
         // displayRows 기준 선택
         const selected = displayRows.slice(startRow, endRow + 1);
@@ -2986,7 +3057,14 @@ useEffect(() => {
           for (let cIndex = startCol; cIndex <= endCol; cIndex++) {
             const colKey = viewColumns[cIndex];
             if (!colKey) continue;
-            if (colKey === "상태" || colKey === "총연장횟수" || colKey === "안내분류" || isExtensionKey(colKey)) continue;
+            if (
+              colKey === "상태" ||
+              colKey === "총연장횟수" ||
+              colKey === "안내분류" ||
+              isExtensionKey(colKey)
+            ) {
+              continue;
+            }
 
             // ✅ 삭제는 null로 저장(단건 syncPatch와 의미 통일)
             patch[colKey] = null;
@@ -3002,6 +3080,81 @@ useEffect(() => {
           return;
         }
 
+        // ✅ 내용 지우기 대상 행에 다른 사용자 락이 있으면 중단
+        const lockRows = selected.filter((row) => updates.some((u) => u.id === row.id));
+        const lockIds = await acquireBulkLocksOrAlert(lockRows, "내용 지우기");
+        if (!lockIds) {
+          setRowContextMenu(null);
+          return;
+        }
+
+        try {
+          // ✅ 로컬 즉시 반영
+          const patchById = new Map<number, Record<string, any>>();
+          for (const u of updates) patchById.set(u.id, u.patch);
+
+          setRows((prev) =>
+            prev.map((r) => {
+              const p = patchById.get(r.id);
+              if (!p) return r;
+              return { ...r, data: { ...(r.data ?? {}), ...p } };
+            })
+          );
+
+          suspendScrollLoadBriefly();
+
+          await bulkPatchAndReconcile(updates);
+          setRowContextMenu(null);
+          return;
+        } finally {
+          await releaseBulkLocks(lockIds);
+        }
+      }
+
+      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
+      const { slice } = getSelectedRowRangeInfo();
+      if (!slice.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      const updates: { id: number; patch: Record<string, any> }[] = [];
+
+      for (const row of slice) {
+        const patch: Record<string, any> = {};
+
+        viewColumns.forEach((key) => {
+          if (
+            key === "상태" ||
+            key === "총연장횟수" ||
+            key === "안내분류" ||
+            isExtensionKey(key)
+          ) {
+            return;
+          }
+
+          patch[key] = null; // ✅ 행 전체 삭제도 null로 통일
+        });
+
+        if (Object.keys(patch).length) {
+          updates.push({ id: row.id, patch });
+        }
+      }
+
+      if (!updates.length) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      // ✅ 내용 지우기 대상 행에 다른 사용자 락이 있으면 중단
+      const lockRows = slice.filter((row) => updates.some((u) => u.id === row.id));
+      const lockIds = await acquireBulkLocksOrAlert(lockRows, "내용 지우기");
+      if (!lockIds) {
+        setRowContextMenu(null);
+        return;
+      }
+
+      try {
         // ✅ 로컬 즉시 반영
         const patchById = new Map<number, Record<string, any>>();
         for (const u of updates) patchById.set(u.id, u.patch);
@@ -3018,51 +3171,9 @@ useEffect(() => {
 
         await bulkPatchAndReconcile(updates);
         setRowContextMenu(null);
-        return;
+      } finally {
+        await releaseBulkLocks(lockIds);
       }
-
-      // 2) 셀 범위가 없으면 기존처럼 행 전체 지우기
-      const { slice } = getSelectedRowRangeInfo();
-      if (!slice.length) {
-        setRowContextMenu(null);
-        return;
-      }
-
-          const updates: { id: number; patch: Record<string, any> }[] = [];
-
-      for (const row of slice) {
-        const patch: Record<string, any> = {};
-        viewColumns.forEach((key) => {
-          if (key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)) return;
-          patch[key] = null; // ✅ 행 전체 삭제도 null로 통일
-        });
-
-        if (Object.keys(patch).length) {
-          updates.push({ id: row.id, patch });
-        }
-      }
-
-      if (!updates.length) {
-        setRowContextMenu(null);
-        return;
-      }
-
-      // ✅ 로컬 즉시 반영
-      const patchById = new Map<number, Record<string, any>>();
-      for (const u of updates) patchById.set(u.id, u.patch);
-
-      setRows((prev) =>
-        prev.map((r) => {
-          const p = patchById.get(r.id);
-          if (!p) return r;
-          return { ...r, data: { ...(r.data ?? {}), ...p } };
-        })
-      );
-
-      suspendScrollLoadBriefly();
-
-      await bulkPatchAndReconcile(updates);
-      setRowContextMenu(null);  
     }
 
     /* --------------------- 복사 (셀/행 단위, 클립보드) --------------------- */
@@ -3134,7 +3245,8 @@ useEffect(() => {
     }
 
     /* --------------------- 붙여넣기 (셀/행 단위) --------------------- */
-       async function pasteTextToSelectedRange(text: string) {
+
+    async function pasteTextToSelectedRange(text: string) {
       const isMigrationPaste = migrationModeEnabledRef.current;
 
       let baseRowIndex: number;
@@ -3221,20 +3333,32 @@ useEffect(() => {
         return;
       }
 
-      // ✅ 로컬 즉시 반영(선택된 id만 patch merge)
-      const patchById = new Map<number, Record<string, any>>();
-      for (const u of updates) patchById.set(u.id, u.patch);
+      // ✅ 붙여넣기 대상 행에 다른 사용자 락이 있으면 중단
+      const lockRows = targetRows.filter((row) => updates.some((u) => u.id === row.id));
+      const lockIds = await acquireBulkLocksOrAlert(lockRows, "붙여넣기");
+      if (!lockIds) {
+        setRowContextMenu(null);
+        return;
+      }
 
-      setRows((prev) =>
-        prev.map((r) => {
-          const p = patchById.get(r.id);
-          if (!p) return r;
-          return { ...r, data: { ...(r.data ?? {}), ...p } };
-        })
-      );
+      try {
+        // ✅ 로컬 즉시 반영(선택된 id만 patch merge)
+        const patchById = new Map<number, Record<string, any>>();
+        for (const u of updates) patchById.set(u.id, u.patch);
 
-      await bulkPatchAndReconcile(updates, { guideMigrationMode: isMigrationPaste });
-      setRowContextMenu(null);
+        setRows((prev) =>
+          prev.map((r) => {
+            const p = patchById.get(r.id);
+            if (!p) return r;
+            return { ...r, data: { ...(r.data ?? {}), ...p } };
+          })
+        );
+
+        await bulkPatchAndReconcile(updates, { guideMigrationMode: isMigrationPaste });
+        setRowContextMenu(null);
+      } finally {
+        await releaseBulkLocks(lockIds);
+      }
     }
 
     async function handlePasteToSelectedRowsFromClipboard() {
@@ -3246,6 +3370,7 @@ useEffect(() => {
         setRowContextMenu(null);
         return;
       }
+
       if (!text) {
         setRowContextMenu(null);
         return;
