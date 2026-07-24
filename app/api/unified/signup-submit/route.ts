@@ -15,6 +15,126 @@ function isPlainObject(v: any) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
+function normalizeString(v: any) {
+  return String(v ?? "").trim();
+}
+
+const SUBMIT_EXTENSION_KEYS = [
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
+  "6차연장",
+  "7차연장",
+  "8차연장",
+  "9차연장",
+  "10차연장",
+  "11차연장",
+  "12차연장",
+  "13차연장",
+  "14차연장",
+  "15차연장",
+] as const;
+
+function getSubmitExtensionDaysFromCellText(raw: any): number {
+  const s = String(raw ?? "").trim();
+  if (!s) return 0;
+
+  const first = s.split("/")[0]?.trim() ?? "";
+  const n = Number(first);
+  if (!Number.isFinite(n)) return 0;
+
+  const i = Math.floor(n);
+  return i > 0 ? i : 0;
+}
+
+function sumSubmitExtensionDaysFromRow(data: Record<string, any>): number {
+  const zeroRaw = data?.["0차연장"];
+  const zero = Number(String(zeroRaw ?? "").trim());
+  let total = Number.isFinite(zero) && zero > 0 ? Math.floor(zero) : 0;
+
+  for (const key of SUBMIT_EXTENSION_KEYS) {
+    total += getSubmitExtensionDaysFromCellText(data?.[key]);
+  }
+
+  return Math.max(0, Math.floor(total));
+}
+
+function parseSubmitYMD(raw: any): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  if (/^1900[-./]01[-./]00(\b|$)/.test(s)) return null;
+
+  if (/^\d{8}$/.test(s)) {
+    const y = Number(s.slice(0, 4));
+    const m = Number(s.slice(4, 6));
+    const d = Number(s.slice(6, 8));
+    return safeSubmitDate(y, m, d);
+  }
+
+  const m1 = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+  if (m1) {
+    const y = Number(m1[1]);
+    const m = Number(m1[2]);
+    const d = Number(m1[3]);
+    return safeSubmitDate(y, m, d);
+  }
+
+  if (s.includes("T")) {
+    return parseSubmitYMD(s.split("T")[0]);
+  }
+
+  return null;
+}
+
+function safeSubmitDate(y: number, m: number, d: number): Date | null {
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function toSubmitYMD(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function computeSubmitEndDateFromStartAndDays(startDateRaw: any, totalDaysRaw: any): string | null {
+  const start = parseSubmitYMD(startDateRaw);
+  if (!start) return null;
+
+  const days = Number(String(totalDaysRaw ?? "").trim());
+  if (!Number.isFinite(days)) return null;
+
+  const d = Math.floor(days);
+  if (d <= 0) return null;
+
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+  return toSubmitYMD(end);
+}
+
+function buildSubmitAutoEndDatePatch(data: Record<string, any>): Record<string, any> {
+  const existingEndDate = normalizeString(data?.["종료일"]);
+
+  // ✅ 엑셀/업로드에서 종료일까지 같이 들어온 경우는 그대로 유지
+  if (existingEndDate) return {};
+
+  const totalDays = sumSubmitExtensionDaysFromRow(data);
+  const nextEndDate = computeSubmitEndDateFromStartAndDays(data?.["시작일"], totalDays);
+
+  // ✅ 시작일만 있고 0차/연장일수가 없으면 종료일 자동 생성하지 않음
+  if (!nextEndDate) return {};
+
+  return { 종료일: nextEndDate };
+}
+
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user?.username) {
@@ -115,11 +235,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "NO_TARGET_ROW" }, { status: 500 });
   }
 
+  // ✅ 종료일 자동 계산:
+  // - 종료일이 같이 들어온 경우는 그대로 유지
+  // - 종료일이 없고 시작일 + 0차/1~15차 연장일수가 있으면 자동 계산해서 저장
+  // - 시작일만 있는 경우 종료일을 시작일과 동일하게 자동 생성하지 않음
+  const autoEndDatePatch = buildSubmitAutoEndDatePatch(data);
+  const patchData = { ...data, ...autoEndDatePatch };
+
   // 4) 대상 행에 merge 저장(JSONB)
   const upd = await query(
     `UPDATE unified SET data = data || $1::jsonb WHERE id = $2 RETURNING id`,
-    [JSON.stringify(data), targetId]
-  );
+    [JSON.stringify(patchData), targetId]
+  ); 
 
   return NextResponse.json({ ok: true, id: upd.rows[0]?.id ?? targetId });
 }

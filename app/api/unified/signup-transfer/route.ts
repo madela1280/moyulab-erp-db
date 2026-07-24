@@ -48,6 +48,118 @@ function pickData(row: any, selectedKeys: string[]): Record<string, string> {
 
 const REQUIRED_KEYS = ["수취인명", "연락처1", "계약자주소", "기기번호", "거래처분류", "택배발송일", "시작일"] as const;
 
+const TRANSFER_EXTENSION_KEYS = [
+  "1차연장",
+  "2차연장",
+  "3차연장",
+  "4차연장",
+  "5차연장",
+  "6차연장",
+  "7차연장",
+  "8차연장",
+  "9차연장",
+  "10차연장",
+  "11차연장",
+  "12차연장",
+  "13차연장",
+  "14차연장",
+  "15차연장",
+] as const;
+
+function getTransferExtensionDaysFromCellText(raw: any): number {
+  const s = String(raw ?? "").trim();
+  if (!s) return 0;
+
+  const first = s.split("/")[0]?.trim() ?? "";
+  const n = Number(first);
+  if (!Number.isFinite(n)) return 0;
+
+  const i = Math.floor(n);
+  return i > 0 ? i : 0;
+}
+
+function sumTransferExtensionDaysFromRow(data: Record<string, any>): number {
+  const zeroRaw = data?.["0차연장"];
+  const zero = Number(String(zeroRaw ?? "").trim());
+  let total = Number.isFinite(zero) && zero > 0 ? Math.floor(zero) : 0;
+
+  for (const key of TRANSFER_EXTENSION_KEYS) {
+    total += getTransferExtensionDaysFromCellText(data?.[key]);
+  }
+
+  return Math.max(0, Math.floor(total));
+}
+
+function parseTransferYMD(raw: any): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  if (/^\d{8}$/.test(s)) {
+    const y = Number(s.slice(0, 4));
+    const m = Number(s.slice(4, 6));
+    const d = Number(s.slice(6, 8));
+    return safeTransferDate(y, m, d);
+  }
+
+  const m1 = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+  if (m1) {
+    const y = Number(m1[1]);
+    const m = Number(m1[2]);
+    const d = Number(m1[3]);
+    return safeTransferDate(y, m, d);
+  }
+
+  if (s.includes("T")) {
+    return parseTransferYMD(s.split("T")[0]);
+  }
+
+  return null;
+}
+
+function safeTransferDate(y: number, m: number, d: number): Date | null {
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function toTransferYMD(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function computeTransferEndDateFromStartAndDays(startDateRaw: any, totalDaysRaw: any): string | null {
+  const start = parseTransferYMD(startDateRaw);
+  if (!start) return null;
+
+  const days = Number(String(totalDaysRaw ?? "").trim());
+  if (!Number.isFinite(days)) return null;
+
+  const d = Math.floor(days);
+  if (d <= 0) return null;
+
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+  return toTransferYMD(end);
+}
+
+function buildTransferAutoEndDatePatch(data: Record<string, any>): Record<string, any> {
+  const existingEndDate = normalizeString(data?.["종료일"]);
+
+  // ✅ 엑셀에서 종료일까지 같이 붙여넣은 경우는 그대로 유지
+  if (existingEndDate) return {};
+
+  const totalDays = sumTransferExtensionDaysFromRow(data);
+  const nextEndDate = computeTransferEndDateFromStartAndDays(data?.["시작일"], totalDays);
+
+  if (!nextEndDate) return {};
+  return { 종료일: nextEndDate };
+}
+
 function validateRequired(data: Record<string, string>): string[] {
   const missing: string[] = [];
   for (const k of REQUIRED_KEYS) {
@@ -482,7 +594,12 @@ export async function POST(req: Request) {
         derived["제품"] = null;
       }
 
-      const patchData = { ...c.data, ...derived };
+      // ✅ 종료일 자동 계산:
+      // - 종료일이 업로드 데이터에 있으면 그대로 유지
+      // - 종료일이 없고 시작일 + 0차/1~15차 연장일수가 있으면 자동 계산해서 저장
+      const autoEndDatePatch = buildTransferAutoEndDatePatch(c.data);
+
+      const patchData = { ...c.data, ...autoEndDatePatch, ...derived };
 
       // merge 저장(JSONB)
       const upd = await client.query(`UPDATE unified SET data = data || $1::jsonb WHERE id = $2 RETURNING id`, [

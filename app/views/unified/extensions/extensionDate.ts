@@ -3,7 +3,8 @@
 /**
  * ✅ 시작일 + 총 연장일수(0차+1차+...n차) => 종료일(YYYY-MM-DD)
  * - 시작일 파싱 실패면 null
- * - totalDays가 0/빈값이면 종료일 = 시작일
+ * - totalDays가 0/빈값이면 종료일을 자동 생성하지 않음
+ *   → 시작일만 수기 입력했을 때 종료일에 같은 날짜가 자동 표시되는 문제 방지
  */
 export function computeEndDateFromStartAndTotalDays(
   startDateRaw: string,
@@ -13,10 +14,10 @@ export function computeEndDateFromStartAndTotalDays(
   if (!start) return null;
 
   const days = Number(String(totalDaysRaw ?? "").trim());
-  if (!Number.isFinite(days)) return toYMD(start);
+  if (!Number.isFinite(days)) return null;
 
   const d = Math.floor(days);
-  if (d <= 0) return toYMD(start);
+  if (d <= 0) return null;
 
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
   return toYMD(end);
