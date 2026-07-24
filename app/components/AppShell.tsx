@@ -200,6 +200,19 @@ export default function AppShell() {
   const currentCanRead = top ? canRead(top) : false;
   const currentCanWrite = top ? canWrite(top) : false;
 
+   const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+    } catch (e) {
+      console.error("logout error:", e);
+    } finally {
+      window.location.href = "/login";
+    }
+  };
+
   return (
     // 화면 전체를 쓰되, 내부에서만 스크롤 나도록
     <div className="w-full h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -255,6 +268,19 @@ export default function AppShell() {
                   {m}
                 </button>
               ))}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSub(false);
+                  stopTimer();
+                  void handleLogout();
+                }}
+                className="ml-12 px-3 py-1 rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-200 hover:text-black text-[0.92rem] font-[660]"
+                title="로그아웃"
+              >
+                로그아웃
+              </button>
 
               {top && showSub && canRead(top) && (
                 <div
