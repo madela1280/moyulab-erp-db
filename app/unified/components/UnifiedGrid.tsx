@@ -40,7 +40,7 @@ import {
   syncPatch,
   syncEmitUnifiedUpdate,
 } from "@/global-sync/sync-engine";
-import { acquireLock, releaseLock } from "@/global-lock/lock-engine";
+import { acquireLock, releaseLock, type LockInfo } from "@/global-lock/lock-engine";
 
 // ✅ 컬럼 정의는 외부 파일로 이동(저장/로딩 모듈에서도 공유하기 위함)
 import {
@@ -180,6 +180,33 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     // ✅ myRowLocks(state)는 반영 타이밍이 늦을 수 있어 blur 시점에 false로 읽히는 경우가 있음
     //    → ref를 “즉시 source of truth”로 사용해서 입력 사라짐 방지
     const myRowLocksRef = useRef<Record<number, boolean>>({});
+
+    // ✅ 다른 사용자가 락을 잡은 행은 계속 입력 차단
+    // - 기존 문제: locked_by_other alert가 한 번 뜬 뒤 같은 행 다른 셀은 계속 입력 가능했음
+    // - 해결: 락 실패 rowId를 blocked 상태로 저장하고, 해당 행 input을 readOnly 처리
+    const blockedRowLocksRef = useRef<Record<number, LockInfo>>({});
+    const [blockedRowLocks, setBlockedRowLocks] = useState<Record<number, LockInfo>>({});
+
+    function isLockExpired(lock: LockInfo | null | undefined) {
+      if (!lock?.expires_at) return false;
+      const t = new Date(lock.expires_at).getTime();
+      if (!Number.isFinite(t)) return false;
+      return t <= Date.now();
+    }
+
+    function setBlockedRowLock(rowId: number, lock: LockInfo) {
+      blockedRowLocksRef.current[rowId] = lock;
+      setBlockedRowLocks((prev) => ({ ...prev, [rowId]: lock }));
+    }
+
+    function clearBlockedRowLock(rowId: number) {
+      delete blockedRowLocksRef.current[rowId];
+      setBlockedRowLocks((prev) => {
+        const copy = { ...prev };
+        delete copy[rowId];
+        return copy;
+      });
+    }
 
  // ✅ 상태 컬럼은 DB 저장값이 아니라 "오늘 기준 파생 표시"로 처리
 // - 자정에 자동으로 다시 계산되어 만기 D-5→D-4 같은 변화가 반영됨
@@ -2050,7 +2077,7 @@ async function bulkPatchAndReconcile(
       setActiveEditCell({ rowId, key });
       setActiveEditValue(initialValue ?? "");
 
-            const p = acquireLock("unified", rowId);
+      const p = acquireLock("unified", rowId);
       lockPendingRef.current[rowId] = p;
 
       const result = await p;
@@ -2072,6 +2099,7 @@ async function bulkPatchAndReconcile(
       }
 
       if (result.ok) {
+        clearBlockedRowLock(rowId);
         myRowLocksRef.current[rowId] = true; // ✅ 즉시 기록
         setMyRowLocks((prev) => ({ ...prev, [rowId]: true }));
         return;
@@ -2083,7 +2111,8 @@ async function bulkPatchAndReconcile(
       setActiveEditValue("");
 
       if (result.reason === "locked_by_other" && (result as any).lock) {
-        const lock = (result as any).lock;
+        const lock = (result as any).lock as LockInfo;
+        setBlockedRowLock(rowId, lock);
         alert(`${lock.locked_by_name}님이 이 행을 편집 중입니다.`);
       } else if (result.reason === "unauthorized") {
         alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
@@ -2093,7 +2122,7 @@ async function bulkPatchAndReconcile(
 
       e.target.blur();
       scheduleReload(120);
-    }
+    } 
 
     /* --------------------- 행 헤더 선택 드래그 --------------------- */
 
@@ -3528,6 +3557,9 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
         }
       : undefined;
 
+  const blockedLock = blockedRowLocks[row.id] ?? null;
+  const rowBlockedByOther = !!blockedLock && !isLockExpired(blockedLock);
+
   return (
     <td
       key={key}
@@ -3556,10 +3588,20 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             ? ({ color: textColor } as React.CSSProperties)
             : undefined
         }
-        readOnly={key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key)}
+        readOnly={
+          rowBlockedByOther ||
+          key === "상태" ||
+          key === "총연장횟수" ||
+          key === "안내분류" ||
+          isExtensionKey(key)
+        }
        {...(() => {
   const isReadOnly =
-    key === "상태" || key === "총연장횟수" || key === "안내분류" || isExtensionKey(key);
+    rowBlockedByOther ||
+    key === "상태" ||
+    key === "총연장횟수" ||
+    key === "안내분류" ||
+    isExtensionKey(key);
 
   if (isReadOnly) {
     const roValue =
