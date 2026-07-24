@@ -13,4 +13,3 @@ export const TOP_MENUS = [
 ] as const;
 
 export type TopMenu = (typeof TOP_MENUS)[number];
-

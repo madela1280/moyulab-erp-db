@@ -47,8 +47,10 @@ export const VIEW_MAP: Record<string, any> = {
   "문자>만기3일전": makeSmsWrapper("만기3일전"),
   "문자>만기지남": makeSmsWrapper("만기지남"),
 
-   // 백업복원
-  "백업복원>백업복원": dynamic(() => import("@/views/packaging/PackagingView")), 
+  // 백업복원
+  "백업복원>정기백업": dynamic(() => import("@/views/backupRestore/RegularBackupView")),
+  "백업복원>변경이력복원": dynamic(() => import("@/views/backupRestore/HistoryRestoreView")),
+  "백업복원>엑셀백업": dynamic(() => import("@/views/backupRestore/ExcelBackupView")),
 
   // 집계
   "집계>설정": dynamic(() => import("@/views/aggregate/AggregateSettingView")),
