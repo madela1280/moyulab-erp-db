@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "check:browser-storage": "node scripts/forbid-browser-storage.mjs",
+    "regular-backup": "node scripts/regular-backup.mjs",
     "prebuild": "npm run check:browser-storage"
   },
   "dependencies": {
