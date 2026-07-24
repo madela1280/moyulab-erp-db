@@ -6,6 +6,7 @@ import {
   deleteRegularBackup,
   fetchRegularBackups,
   getRegularBackupDownloadUrl,
+  restoreRegularBackup,
   type RegularBackupItem,
 } from "./serviceRegularBackup";
 
@@ -14,6 +15,7 @@ export function useRegularBackup() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -67,6 +69,28 @@ export function useRegularBackup() {
     [reload]
   );
 
+  const restoreBackup = useCallback(
+    async (params: {
+      id: number;
+      confirmText: string;
+      businessHourConfirm: string;
+    }) => {
+      setRestoringId(params.id);
+      setError(null);
+
+      try {
+        await restoreRegularBackup(params);
+      } catch (e: any) {
+        console.error("regular backup restore error:", e);
+        setError(e?.message || "backup_restore_failed");
+        throw e;
+      } finally {
+        setRestoringId(null);
+      }
+    },
+    []
+  );
+
   const downloadBackup = useCallback((id: number) => {
     window.location.href = getRegularBackupDownloadUrl(id);
   }, []);
@@ -80,10 +104,12 @@ export function useRegularBackup() {
     loading,
     creating,
     deletingId,
+    restoringId,
     error,
     reload,
     createBackup,
     removeBackup,
+    restoreBackup,
     downloadBackup,
   };
 }

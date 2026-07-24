@@ -30,6 +30,15 @@ type RegularBackupDeleteResponse = {
   error?: string;
 };
 
+type RegularBackupRestoreResponse = {
+  ok: boolean;
+  restoredBackupId?: number;
+  error?: string;
+  detail?: string;
+  requiredConfirmText?: string;
+  requiredBusinessHourConfirm?: string;
+};
+
 const BASE_URL = "/api/backup-restore/regular-backups";
 
 async function readJsonSafe<T>(res: Response): Promise<T> {
@@ -77,6 +86,34 @@ export async function deleteRegularBackup(id: number): Promise<void> {
 
   if (!res.ok || !data.ok) {
     throw new Error(data.error || "backup_delete_failed");
+  }
+}
+
+export async function restoreRegularBackup(params: {
+  id: number;
+  confirmText: string;
+  businessHourConfirm: string;
+}): Promise<void> {
+  const res = await fetch(
+    `${BASE_URL}/${encodeURIComponent(String(params.id))}/restore`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        confirmText: params.confirmText,
+        businessHourConfirm: params.businessHourConfirm,
+      }),
+    }
+  );
+
+  const data = await readJsonSafe<RegularBackupRestoreResponse>(res);
+
+  if (!res.ok || !data.ok) {
+    const detail = data.detail ? `: ${data.detail}` : "";
+    throw new Error((data.error || "backup_restore_failed") + detail);
   }
 }
 
