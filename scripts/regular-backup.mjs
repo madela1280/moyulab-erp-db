@@ -10,6 +10,7 @@ const { Pool } = pg;
 const DATABASE_URL = process.env.DATABASE_URL;
 const BACKUP_DIR =
   process.env.REGULAR_BACKUP_DIR || "/home/ubuntu/erp-backups/regular";
+const RETENTION_DAYS = 30;
 
 if (!DATABASE_URL) {
   console.error("[regular-backup] missing DATABASE_URL");
@@ -35,6 +36,12 @@ function makeBackupFileName() {
   return `erp_postgres_full_${sanitizeFilePart(stamp)}.dump`;
 }
 
+function isSafeBackupPath(filePath) {
+  const backupRoot = path.resolve(BACKUP_DIR);
+  const targetPath = path.resolve(filePath);
+  return targetPath.startsWith(backupRoot + path.sep);
+}
+
 async function query(text, params) {
   const client = await pool.connect();
   try {
@@ -51,6 +58,73 @@ async function ensureBackupDir() {
 async function getFileSizeBytes(filePath) {
   const st = await fs.stat(filePath);
   return st.size;
+}
+
+async function deleteFileIfExists(filePath) {
+  try {
+    await fs.unlink(filePath);
+  } catch (e) {
+    if (e?.code === "ENOENT") return;
+    throw e;
+  }
+}
+
+async function cleanupOldBackups() {
+  const oldBackups = await query(
+    `
+    SELECT id, file_name, file_path
+    FROM regular_backups
+    WHERE backup_kind = 'regular'
+      AND backup_scope = 'postgres_full'
+      AND created_at < NOW() - ($1::text || ' days')::interval
+      AND status IN ('success', 'failed')
+    ORDER BY created_at ASC, id ASC
+    `,
+    [String(RETENTION_DAYS)]
+  );
+
+  if (oldBackups.rows.length === 0) {
+    console.log(`[regular-backup] cleanup none older than ${RETENTION_DAYS} days`);
+    return;
+  }
+
+  console.log(
+    `[regular-backup] cleanup start count=${oldBackups.rows.length} retentionDays=${RETENTION_DAYS}`
+  );
+
+  for (const row of oldBackups.rows) {
+    const id = Number(row.id);
+    const fileName = String(row.file_name || "");
+    const filePath = String(row.file_path || "");
+
+    try {
+      if (filePath && isSafeBackupPath(filePath)) {
+        await deleteFileIfExists(filePath);
+      } else if (filePath) {
+        console.error(
+          `[regular-backup] cleanup skipped unsafe path id=${id} path=${filePath}`
+        );
+        continue;
+      }
+
+      await query(
+        `
+        DELETE FROM regular_backups
+        WHERE id = $1
+        `,
+        [id]
+      );
+
+      console.log(`[regular-backup] cleanup deleted id=${id} file=${fileName}`);
+    } catch (e) {
+      console.error(
+        `[regular-backup] cleanup failed id=${id} file=${fileName}:`,
+        e?.message || e
+      );
+    }
+  }
+
+  console.log("[regular-backup] cleanup done");
 }
 
 async function main() {
@@ -130,6 +204,8 @@ async function main() {
     console.log(
       `[regular-backup] success id=${backupId} size=${fileSizeBytes}`
     );
+
+    await cleanupOldBackups();
   } catch (e) {
     const message = e?.stderr || e?.message || "backup_failed";
     console.error("[regular-backup] failed:", message);
