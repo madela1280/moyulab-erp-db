@@ -54,6 +54,17 @@ async function getFileSizeBytes(filePath: string) {
   return st.size;
 }
 
+async function ensureRegularBackupAuditColumns() {
+  await query(
+    `
+    ALTER TABLE regular_backups
+      ADD COLUMN IF NOT EXISTS restore_reason TEXT,
+      ADD COLUMN IF NOT EXISTS restore_target_backup_id BIGINT,
+      ADD COLUMN IF NOT EXISTS restore_target_file_name TEXT
+    `
+  );
+}
+
 /**
  * GET /api/backup-restore/regular-backups
  * 정기백업 목록 조회
@@ -67,6 +78,8 @@ export async function GET() {
         { status: 403 }
       );
     }
+
+ await ensureRegularBackupAuditColumns();
 
       const r = await query(
       `
@@ -137,6 +150,8 @@ export async function POST() {
         { status: 500 }
       );
     }
+
+   await ensureRegularBackupAuditColumns();
 
     await ensureBackupDir();
 
