@@ -80,6 +80,12 @@ function isStaleRunningBackup(row: any) {
     return false;
   }
 
+  const kind = String(row?.backup_kind || "");
+
+  if (kind === "pre_restore") {
+    return true;
+  }
+
   const startedAt = new Date(row?.started_at || row?.created_at || "");
   if (Number.isNaN(startedAt.getTime())) {
     return true;
