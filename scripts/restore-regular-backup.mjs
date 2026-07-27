@@ -332,11 +332,111 @@ async function restoreTargetDatabase(targetBackup) {
   );
 }
 
-async function main() {
-  let targetBackup = null;
+async function reinsertSafetyBackupAfterRestore(safetyBackup) {
+  if (!safetyBackup) return;
+
+  const restoredPool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: false,
+  });
 
   try {
-   console.log(
+    await query(
+      restoredPool,
+      `
+      ALTER TABLE regular_backups
+        ADD COLUMN IF NOT EXISTS restore_reason TEXT,
+        ADD COLUMN IF NOT EXISTS restore_target_backup_id BIGINT,
+        ADD COLUMN IF NOT EXISTS restore_target_file_name TEXT
+      `,
+      []
+    );
+
+    const fileSizeBytes = await getFileSizeBytes(safetyBackup.filePath).catch(
+      () => 0
+    );
+
+    await query(
+      restoredPool,
+      `
+      INSERT INTO regular_backups (
+        backup_kind,
+        backup_scope,
+        file_name,
+        file_path,
+        file_size_bytes,
+        status,
+        error_message,
+        created_by_username,
+        created_by_name,
+        restore_reason,
+        restore_target_backup_id,
+        restore_target_file_name,
+        started_at,
+        finished_at,
+        created_at
+      )
+      VALUES (
+        'pre_restore',
+        'postgres_full',
+        $1,
+        $2,
+        $3,
+        'success',
+        NULL,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        NOW(),
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (file_name)
+      DO UPDATE SET
+        backup_kind = 'pre_restore',
+        backup_scope = 'postgres_full',
+        file_path = EXCLUDED.file_path,
+        file_size_bytes = EXCLUDED.file_size_bytes,
+        status = 'success',
+        error_message = NULL,
+        created_by_username = EXCLUDED.created_by_username,
+        created_by_name = EXCLUDED.created_by_name,
+        restore_reason = EXCLUDED.restore_reason,
+        restore_target_backup_id = EXCLUDED.restore_target_backup_id,
+        restore_target_file_name = EXCLUDED.restore_target_file_name,
+        finished_at = NOW()
+      `,
+      [
+        safetyBackup.fileName,
+        safetyBackup.filePath,
+        fileSizeBytes,
+        RESTORE_REQUESTED_BY_USERNAME,
+        RESTORE_REQUESTED_BY_NAME,
+        RESTORE_REASON,
+        Number.isFinite(RESTORE_TARGET_BACKUP_ID) &&
+        RESTORE_TARGET_BACKUP_ID > 0
+          ? RESTORE_TARGET_BACKUP_ID
+          : null,
+        RESTORE_TARGET_BACKUP_FILE_NAME,
+      ]
+    );
+
+    console.log(
+      `[restore-regular-backup] safety backup reinserted file=${safetyBackup.fileName}`
+    );
+  } finally {
+    await restoredPool.end().catch(() => {});
+  }
+}
+
+async function main() {
+  let targetBackup = null;
+  let safetyBackup = null;
+
+  try {
+    console.log(
       `[restore-regular-backup] requested backupId=${BACKUP_ID} by=${RESTORE_REQUESTED_BY_USERNAME} reason=${RESTORE_REASON || "-"} targetFile=${RESTORE_TARGET_BACKUP_FILE_NAME || "-"}`
     );
 
@@ -344,13 +444,14 @@ async function main() {
 
     targetBackup = await getTargetBackup();
 
-    await createSafetyBackup();
+    safetyBackup = await createSafetyBackup();
 
     await closeAppPoolBeforeRestore();
 
     await terminateTargetDatabaseConnections();
     await recreateTargetDatabase();
     await restoreTargetDatabase(targetBackup);
+    await reinsertSafetyBackupAfterRestore(safetyBackup);
 
     console.log("[restore-regular-backup] done");
   } catch (e) {

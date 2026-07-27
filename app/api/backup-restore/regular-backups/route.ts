@@ -54,6 +54,41 @@ async function getFileSizeBytes(filePath: string) {
   return st.size;
 }
 
+function isSafeBackupPath(filePath: string) {
+  const backupRoot = path.resolve(BACKUP_DIR);
+  const targetPath = path.resolve(filePath);
+  return targetPath.startsWith(backupRoot + path.sep);
+}
+
+async function backupFileExists(row: any) {
+  const filePath = String(row?.file_path || "");
+
+  if (!filePath || !isSafeBackupPath(filePath)) {
+    return false;
+  }
+
+  try {
+    const st = await fs.stat(filePath);
+    return st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isStaleRunningBackup(row: any) {
+  if (String(row?.status || "") !== "running") {
+    return false;
+  }
+
+  const startedAt = new Date(row?.started_at || row?.created_at || "");
+  if (Number.isNaN(startedAt.getTime())) {
+    return true;
+  }
+
+  const twoHoursMs = 1000 * 60 * 60 * 2;
+  return Date.now() - startedAt.getTime() > twoHoursMs;
+}
+
 async function ensureRegularBackupAuditColumns() {
   await query(
     `
@@ -88,6 +123,7 @@ export async function GET() {
         backup_kind,
         backup_scope,
         file_name,
+        file_path,
         file_size_bytes,
         status,
         error_message,
@@ -105,8 +141,23 @@ export async function GET() {
       `
     );
 
+    const visibleBackups = [];
+
+    for (const row of r.rows) {
+      if (isStaleRunningBackup(row)) {
+        continue;
+      }
+
+      const exists = await backupFileExists(row);
+      if (!exists) {
+        continue;
+      }
+
+      visibleBackups.push(row);
+    }
+
     const latestPreRestore =
-      r.rows.find(
+      visibleBackups.find(
         (row: any) =>
           String(row.backup_kind || "") === "pre_restore" &&
           String(row.status || "") === "success"
@@ -114,9 +165,9 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      backups: r.rows,
+      backups: visibleBackups,
       latestPreRestore,
-    }); 
+    });
   } catch (e) {
     console.error("GET /api/backup-restore/regular-backups error:", e);
     return NextResponse.json(

@@ -183,6 +183,7 @@ export default function RegularBackupView() {
       window.location.reload();
     } catch {
       alert("전체 복원에 실패했습니다. 관리자 비밀번호 또는 서버 로그를 확인해야 합니다.");
+      void reload();
     }
   };
 
@@ -251,21 +252,20 @@ export default function RegularBackupView() {
       window.location.reload();
     } catch {
       alert("복원취소에 실패했습니다. 관리자 비밀번호 또는 서버 로그를 확인해야 합니다.");
-    }
+      void reload();
+    } 
   };
 
   return (
     <div className="w-full h-full bg-white border rounded-md p-6 flex flex-col min-h-0">
       <div className="flex items-start justify-between gap-4">
-        <div>
+       <div>
           <div className="text-lg font-bold text-slate-800">정기백업</div>
           <div className="mt-2 text-sm text-slate-500">
             ERP 전체 재해복구용 PostgreSQL 백업을 관리하는 화면입니다.
           </div>
-          <div className="mt-1 text-xs text-rose-500">
-            전체 복원은 선택한 백업 날짜 상태로 ERP 전체 DB를 되돌리는 위험 작업입니다.
-          </div>
-        </div>
+        </div>       
+
 
         <div className="flex items-center gap-2">
           <button
