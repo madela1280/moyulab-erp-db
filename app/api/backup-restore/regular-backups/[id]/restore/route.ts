@@ -227,6 +227,8 @@ export async function POST(
           RESTORE_REQUESTED_BY_USERNAME: me.username,
           RESTORE_REQUESTED_BY_NAME: me.name || "",
           RESTORE_REASON: restoreReason,
+          RESTORE_TARGET_BACKUP_ID: String(id),
+          RESTORE_TARGET_BACKUP_FILE_NAME: fileName,
         },
         timeout: 1000 * 60 * 60,
         maxBuffer: 1024 * 1024 * 10,

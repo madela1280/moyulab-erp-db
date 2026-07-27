@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS regular_backups (
   created_by_username TEXT,
   created_by_name TEXT,
 
+  restore_reason TEXT,
+  restore_target_backup_id BIGINT,
+  restore_target_file_name TEXT,
+
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   finished_at TIMESTAMPTZ,
 

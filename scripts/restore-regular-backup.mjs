@@ -19,6 +19,12 @@ const RESTORE_REQUESTED_BY_NAME =
 const RESTORE_REASON =
   process.env.RESTORE_REASON || "";
 
+const RESTORE_TARGET_BACKUP_ID = Number(
+  process.env.RESTORE_TARGET_BACKUP_ID || "0"
+);
+const RESTORE_TARGET_BACKUP_FILE_NAME =
+  process.env.RESTORE_TARGET_BACKUP_FILE_NAME || "";
+
 if (!DATABASE_URL) {
   console.error("[restore-regular-backup] missing DATABASE_URL");
   process.exit(1);
@@ -95,6 +101,19 @@ async function query(pool, text, params) {
   }
 }
 
+async function ensureRestoreAuditColumns() {
+  await query(
+    appPool,
+    `
+    ALTER TABLE regular_backups
+      ADD COLUMN IF NOT EXISTS restore_reason TEXT,
+      ADD COLUMN IF NOT EXISTS restore_target_backup_id BIGINT,
+      ADD COLUMN IF NOT EXISTS restore_target_file_name TEXT
+    `,
+    []
+  );
+}
+
 async function ensureBackupDir() {
   await fs.mkdir(BACKUP_DIR, { recursive: true });
 }
@@ -153,7 +172,7 @@ async function createSafetyBackup() {
   const inserted = await query(
     appPool,
     `
-    INSERT INTO regular_backups (
+      INSERT INTO regular_backups (
       backup_kind,
       backup_scope,
       file_name,
@@ -161,6 +180,9 @@ async function createSafetyBackup() {
       status,
       created_by_username,
       created_by_name,
+      restore_reason,
+      restore_target_backup_id,
+      restore_target_file_name,
       started_at
     )
     VALUES (
@@ -171,11 +193,24 @@ async function createSafetyBackup() {
       'running',
       $3,
       $4,
+      $5,
+      $6,
+      $7,
       NOW()
     )
     RETURNING id
     `,
-    [fileName, filePath, RESTORE_REQUESTED_BY_USERNAME, RESTORE_REQUESTED_BY_NAME]
+    [
+      fileName,
+      filePath,
+      RESTORE_REQUESTED_BY_USERNAME,
+      RESTORE_REQUESTED_BY_NAME,
+      RESTORE_REASON,
+      Number.isFinite(RESTORE_TARGET_BACKUP_ID) && RESTORE_TARGET_BACKUP_ID > 0
+        ? RESTORE_TARGET_BACKUP_ID
+        : null,
+      RESTORE_TARGET_BACKUP_FILE_NAME,
+    ] 
   );
 
   const backupId = Number(inserted.rows[0].id);
@@ -302,8 +337,10 @@ async function main() {
 
   try {
    console.log(
-      `[restore-regular-backup] requested backupId=${BACKUP_ID} by=${RESTORE_REQUESTED_BY_USERNAME} reason=${RESTORE_REASON || "-"}`
+      `[restore-regular-backup] requested backupId=${BACKUP_ID} by=${RESTORE_REQUESTED_BY_USERNAME} reason=${RESTORE_REASON || "-"} targetFile=${RESTORE_TARGET_BACKUP_FILE_NAME || "-"}`
     );
+
+    await ensureRestoreAuditColumns();
 
     targetBackup = await getTargetBackup();
 
