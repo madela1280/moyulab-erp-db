@@ -121,6 +121,14 @@ export async function restoreRegularBackup(params: {
   }
 }
 
+  const data = await readJsonSafe<RegularBackupRestoreResponse>(res);
+
+  if (!res.ok || !data.ok) {
+    const detail = data.detail ? `: ${data.detail}` : "";
+    throw new Error((data.error || "backup_restore_failed") + detail);
+  }
+}
+
 export function getRegularBackupDownloadUrl(id: number): string {
   return `${BASE_URL}/${encodeURIComponent(String(id))}/download`;
 }

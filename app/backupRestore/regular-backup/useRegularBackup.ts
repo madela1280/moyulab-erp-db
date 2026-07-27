@@ -69,11 +69,13 @@ export function useRegularBackup() {
     [reload]
   );
 
-  const restoreBackup = useCallback(
+    const restoreBackup = useCallback(
     async (params: {
       id: number;
-      confirmText: string;
-      businessHourConfirm: string;
+      confirmText?: string;
+      businessHourConfirm?: string;
+      adminPassword?: string;
+      restoreReason?: string;
     }) => {
       setRestoringId(params.id);
       setError(null);
