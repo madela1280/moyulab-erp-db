@@ -267,7 +267,12 @@ export default function RegularBackupView() {
             type="button"
             onClick={() => void handleRestoreCancel()}
             disabled={!latestPreRestore || creating || !!restoringId}
-            className="px-3 py-2 rounded-md border border-amber-300 bg-white text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+            title={
+              latestPreRestore
+                ? "가장 최근 복원 직전 상태로 되돌립니다."
+                : "복원 실행 전 자동 생성된 안전백업이 아직 없습니다."
+            }
+            className="px-3 py-2 rounded-md border border-amber-300 bg-white text-sm text-amber-700 hover:bg-amber-50 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
           >
             복원취소
           </button>
