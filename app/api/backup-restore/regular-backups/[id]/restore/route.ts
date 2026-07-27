@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import path from "path";
+import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { query } from "@/lib/db";
@@ -43,13 +44,68 @@ function isBusinessHourKst() {
   return hour >= 7 && hour < 20;
 }
 
+const sha256 = (s: string) =>
+  crypto.createHash("sha256").update(s).digest("hex");
+
+async function verifyAdminPassword(username: string, password: string) {
+  const inputPassword = String(password || "");
+
+  if (!username || !inputPassword) {
+    return false;
+  }
+
+  const r = await query(
+    `
+    SELECT username, role, password, salt, password_hash
+    FROM users
+    WHERE username = $1
+    LIMIT 1
+    `,
+    [username]
+  );
+
+  if (r.rows.length === 0) {
+    return false;
+  }
+
+  const user = r.rows[0];
+  const role = String(user.role || "").trim().toLowerCase();
+
+  if (role !== "admin") {
+    return false;
+  }
+
+  const savedPassword = String(user.password || "");
+  const salt = String(user.salt || "");
+  const passwordHash = String(user.password_hash || "");
+
+  if (salt && passwordHash) {
+    const inputHash = sha256(`${salt}|${inputPassword}`);
+    if (inputHash === passwordHash) {
+      return true;
+    }
+  }
+
+  if (savedPassword && savedPassword === inputPassword) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * POST /api/backup-restore/regular-backups/[id]/restore
  *
- * body:
+ * 기존 body:
  * {
  *   confirmText: "RESTORE:<file_name>",
  *   businessHourConfirm?: "업무시간 복원 동의"
+ * }
+ *
+ * 신규 body:
+ * {
+ *   adminPassword: "관리자 비밀번호",
+ *   restoreReason?: "복원 사유"
  * }
  */
 export async function POST(
@@ -76,8 +132,12 @@ export async function POST(
     }
 
     const body = (await req.json().catch(() => ({}))) as any;
-    const confirmText = String(body?.confirmText || "").trim();
+    const confirmText = String(body?.confirmText || "").trim(); 
     const businessHourConfirm = String(body?.businessHourConfirm || "").trim();
+    const adminPassword = String(body?.adminPassword || "");
+    const restoreReason = String(body?.restoreReason || "").trim();
+
+    const useAdminPasswordConfirm = adminPassword.length > 0;
 
     const r = await query(
       `
@@ -109,26 +169,37 @@ export async function POST(
 
     const requiredConfirmText = `RESTORE:${fileName}`;
 
-    if (confirmText !== requiredConfirmText) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "confirm_text_mismatch",
-          requiredConfirmText,
-        },
-        { status: 400 }
-      );
-    }
+    if (useAdminPasswordConfirm) {
+      const passwordOk = await verifyAdminPassword(me.username, adminPassword);
 
-    if (isBusinessHourKst() && businessHourConfirm !== "업무시간 복원 동의") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "business_hour_confirm_required",
-          requiredBusinessHourConfirm: "업무시간 복원 동의",
-        },
-        { status: 400 }
-      );
+      if (!passwordOk) {
+        return NextResponse.json(
+          { ok: false, error: "invalid_admin_password" },
+          { status: 403 }
+        );
+      }
+    } else {
+      if (confirmText !== requiredConfirmText) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "confirm_text_mismatch",
+            requiredConfirmText,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (isBusinessHourKst() && businessHourConfirm !== "업무시간 복원 동의") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "business_hour_confirm_required",
+            requiredBusinessHourConfirm: "업무시간 복원 동의",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const databaseUrl = process.env.DATABASE_URL;
@@ -155,6 +226,7 @@ export async function POST(
           DATABASE_URL: databaseUrl,
           RESTORE_REQUESTED_BY_USERNAME: me.username,
           RESTORE_REQUESTED_BY_NAME: me.name || "",
+          RESTORE_REASON: restoreReason,
         },
         timeout: 1000 * 60 * 60,
         maxBuffer: 1024 * 1024 * 10,

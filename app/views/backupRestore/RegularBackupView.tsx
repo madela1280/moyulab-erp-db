@@ -102,7 +102,7 @@ export default function RegularBackupView() {
     }
   };
 
-  const handleRestore = async (id: number, fileName: string) => {
+    const handleRestore = async (id: number, fileName: string) => {
     if (restoringId || creating || deletingId) return;
 
     const firstOk = window.confirm(
@@ -113,41 +113,35 @@ export default function RegularBackupView() {
         "",
         "복원 전 현재 상태는 자동으로 한 번 더 안전백업됩니다.",
         "복원이 시작되면 ERP 전체 데이터가 선택한 백업 날짜 상태로 되돌아갑니다.",
-        "이 작업은 매우 위험하므로 관리자만 실행해야 합니다.",
+        "이 작업은 매우 위험하므로 관리자 비밀번호 확인 후 실행됩니다.",
       ].join("\n")
     );
 
     if (!firstOk) return;
 
-    const requiredConfirmText = `RESTORE:${fileName}`;
-    const confirmText = window.prompt(
+    const adminPassword = window.prompt(
       [
-        "복원을 계속하려면 아래 문구를 정확히 입력하세요.",
+        "복원을 계속하려면 관리자 비밀번호를 입력하세요.",
         "",
-        requiredConfirmText,
+        "관리자 비밀번호는 서버에서 다시 검증됩니다.",
       ].join("\n"),
       ""
     );
 
-    if (confirmText !== requiredConfirmText) {
-      alert("확인 문구가 일치하지 않아 복원을 취소합니다.");
+    if (!adminPassword) {
+      alert("관리자 비밀번호가 입력되지 않아 복원을 취소합니다.");
       return;
     }
 
-    const businessHourConfirm = window.prompt(
-      [
-        "업무시간 중 복원은 다른 사용자 작업에 영향을 줄 수 있습니다.",
-        "복원을 계속하려면 아래 문구를 정확히 입력하세요.",
-        "",
-        "업무시간 복원 동의",
-      ].join("\n"),
-      ""
-    );
-
-    if (businessHourConfirm !== "업무시간 복원 동의") {
-      alert("업무시간 복원 동의 문구가 일치하지 않아 복원을 취소합니다.");
-      return;
-    }
+    const restoreReason =
+      window.prompt(
+        [
+          "복원 사유를 입력하세요.",
+          "",
+          "예: 테스트 복원, 데이터 오류 확인, 장애 복구 등",
+        ].join("\n"),
+        ""
+      ) || "";
 
     const finalOk = window.confirm(
       [
@@ -163,8 +157,8 @@ export default function RegularBackupView() {
     try {
       await restoreBackup({
         id,
-        confirmText,
-        businessHourConfirm,
+        adminPassword,
+        restoreReason,
       });
 
       alert(
@@ -173,7 +167,7 @@ export default function RegularBackupView() {
 
       window.location.reload();
     } catch {
-      alert("전체 복원에 실패했습니다. 서버 로그를 확인해야 합니다.");
+      alert("전체 복원에 실패했습니다. 관리자 비밀번호 또는 서버 로그를 확인해야 합니다.");
     }
   };
 

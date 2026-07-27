@@ -91,8 +91,10 @@ export async function deleteRegularBackup(id: number): Promise<void> {
 
 export async function restoreRegularBackup(params: {
   id: number;
-  confirmText: string;
-  businessHourConfirm: string;
+  confirmText?: string;
+  businessHourConfirm?: string;
+  adminPassword?: string;
+  restoreReason?: string;
 }): Promise<void> {
   const res = await fetch(
     `${BASE_URL}/${encodeURIComponent(String(params.id))}/restore`,
@@ -103,8 +105,10 @@ export async function restoreRegularBackup(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        confirmText: params.confirmText,
-        businessHourConfirm: params.businessHourConfirm,
+        confirmText: params.confirmText || "",
+        businessHourConfirm: params.businessHourConfirm || "",
+        adminPassword: params.adminPassword || "",
+        restoreReason: params.restoreReason || "",
       }),
     }
   );

@@ -16,6 +16,9 @@ const RESTORE_REQUESTED_BY_USERNAME =
 const RESTORE_REQUESTED_BY_NAME =
   process.env.RESTORE_REQUESTED_BY_NAME || "복원";
 
+const RESTORE_REASON =
+  process.env.RESTORE_REASON || "";
+
 if (!DATABASE_URL) {
   console.error("[restore-regular-backup] missing DATABASE_URL");
   process.exit(1);
@@ -298,8 +301,8 @@ async function main() {
   let targetBackup = null;
 
   try {
-    console.log(
-      `[restore-regular-backup] requested backupId=${BACKUP_ID} by=${RESTORE_REQUESTED_BY_USERNAME}`
+   console.log(
+      `[restore-regular-backup] requested backupId=${BACKUP_ID} by=${RESTORE_REQUESTED_BY_USERNAME} reason=${RESTORE_REASON || "-"}`
     );
 
     targetBackup = await getTargetBackup();
