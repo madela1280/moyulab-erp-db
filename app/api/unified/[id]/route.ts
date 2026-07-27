@@ -4,6 +4,11 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { computeZeroExtensionDaysFromDates } from "@/views/unified/extensions/extensionCompute";
 import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
+import {
+  buildUnifiedCellChangeItems,
+  getChangeHistoryActor,
+  recordUnifiedChangeHistory,
+} from "@/unified/change-history/serverChangeHistory";
 
 function getId(req: Request) {
   const url = new URL(req.url);
@@ -218,7 +223,7 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // 1) 우선 jsonb merge로 저장(동시 PATCH 덮어쓰기 방지)
+   // 1) 우선 jsonb merge로 저장(동시 PATCH 덮어쓰기 방지)
   let saved = await mergeUnifiedJsonbById(String(id), patch);
   if (!saved) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
@@ -262,7 +267,54 @@ export async function PATCH(req: Request) {
     }
   }
 
-  return NextResponse.json(saved);
+  // 3) ✅ 변경이력 기록
+  // - 기존 저장 흐름은 그대로 유지
+  // - 이력 기록 실패가 통합관리 저장 실패로 번지지 않도록 catch 처리
+  // - 실제 변경된 컬럼만 item으로 저장
+  try {
+    const finalData =
+      saved?.data && typeof saved.data === "object" && !Array.isArray(saved.data)
+        ? (saved.data as Record<string, any>)
+        : {};
+
+    const historyColumnKeys = Array.from(
+      new Set(
+        Object.keys(patch || {})
+          .map((key) => String(key ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    const beforeZero = normalizeString(existingData?.["0차연장"]);
+    const afterZero = normalizeString(finalData?.["0차연장"]);
+    if (beforeZero !== afterZero && !historyColumnKeys.includes("0차연장")) {
+      historyColumnKeys.push("0차연장");
+    }
+
+    const items = buildUnifiedCellChangeItems({
+      unifiedId: Number(id),
+      beforeData: existingData,
+      afterData: finalData,
+      columnKeys: historyColumnKeys,
+      actionType: "cell_update",
+    });
+
+    if (items.length) {
+      const actor = await getChangeHistoryActor();
+
+      await recordUnifiedChangeHistory({
+        action_type: "cell_update",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `통합관리 단건 수정 row ${id}`,
+        items,
+      });
+    }
+  } catch (err) {
+    console.warn("unified change history record failed (ignored):", err);
+  }
+
+  return NextResponse.json(saved); 
 }
 
 export async function DELETE(req: Request) {
