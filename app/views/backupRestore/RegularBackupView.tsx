@@ -55,6 +55,20 @@ function statusClassName(status: string) {
   return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
+function backupKindLabel(kind: string) {
+  if (kind === "pre_restore") return "복원전 안전백업";
+  if (kind === "regular") return "정기백업";
+  return kind || "-";
+}
+
+function backupKindClassName(kind: string) {
+  if (kind === "pre_restore") {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+
+  return "bg-slate-50 text-slate-600 border-slate-200";
+}
+
 export default function RegularBackupView() {
   const {
     backups,
@@ -349,7 +363,29 @@ export default function RegularBackupView() {
                   </td>
 
                   <td className="px-3 py-2 text-slate-700">
-                    <div className="font-medium">{b.file_name}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{b.file_name}</div>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${backupKindClassName(
+                          b.backup_kind
+                        )}`}
+                      >
+                        {backupKindLabel(b.backup_kind)}
+                      </span>
+                    </div>
+
+                    {(b as any).restore_reason && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        복원사유: {(b as any).restore_reason}
+                      </div>
+                    )}
+
+                    {(b as any).restore_target_file_name && (
+                      <div className="mt-1 text-xs text-slate-400">
+                        대상백업: {(b as any).restore_target_file_name}
+                      </div>
+                    )}
+
                     {b.error_message && (
                       <div className="mt-1 text-xs text-rose-600">
                         {b.error_message}

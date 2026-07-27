@@ -8,6 +8,9 @@ export type RegularBackupItem = {
   error_message: string | null;
   created_by_username: string | null;
   created_by_name: string | null;
+  restore_reason: string | null;
+  restore_target_backup_id: number | null;
+  restore_target_file_name: string | null;
   started_at: string;
   finished_at: string | null;
   created_at: string;

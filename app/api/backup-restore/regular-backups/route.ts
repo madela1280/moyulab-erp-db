@@ -80,6 +80,9 @@ export async function GET() {
         error_message,
         created_by_username,
         created_by_name,
+        restore_reason,
+        restore_target_backup_id,
+        restore_target_file_name,
         started_at,
         finished_at,
         created_at
@@ -208,6 +211,9 @@ export async function POST() {
         error_message,
         created_by_username,
         created_by_name,
+        restore_reason,
+        restore_target_backup_id,
+        restore_target_file_name,
         started_at,
         finished_at,
         created_at
