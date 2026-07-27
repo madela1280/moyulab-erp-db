@@ -143,7 +143,7 @@ function buildItemStatus(params: {
 
 export async function GET(
   req: Request,
-  context: { params: { operationId: string } }
+  context: { params: Promise<{ operationId: string }> }
 ) {
   const user = await getSessionUser();
 
@@ -151,7 +151,8 @@ export async function GET(
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const operationId = normalizeString(context.params.operationId);
+  const params = await context.params;
+  const operationId = normalizeString(params.operationId);
 
   if (!operationId) {
     return NextResponse.json(
