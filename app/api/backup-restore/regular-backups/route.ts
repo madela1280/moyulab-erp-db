@@ -68,7 +68,7 @@ export async function GET() {
       );
     }
 
-    const r = await query(
+      const r = await query(
       `
       SELECT
         id,
@@ -89,7 +89,18 @@ export async function GET() {
       `
     );
 
-    return NextResponse.json({ ok: true, backups: r.rows });
+    const latestPreRestore =
+      r.rows.find(
+        (row: any) =>
+          String(row.backup_kind || "") === "pre_restore" &&
+          String(row.status || "") === "success"
+      ) || null;
+
+    return NextResponse.json({
+      ok: true,
+      backups: r.rows,
+      latestPreRestore,
+    }); 
   } catch (e) {
     console.error("GET /api/backup-restore/regular-backups error:", e);
     return NextResponse.json(

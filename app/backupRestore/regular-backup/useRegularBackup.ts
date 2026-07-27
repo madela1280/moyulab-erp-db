@@ -12,6 +12,8 @@ import {
 
 export function useRegularBackup() {
   const [backups, setBackups] = useState<RegularBackupItem[]>([]);
+  const [latestPreRestore, setLatestPreRestore] =
+    useState<RegularBackupItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -23,12 +25,14 @@ export function useRegularBackup() {
     setError(null);
 
     try {
-      const list = await fetchRegularBackups();
-      setBackups(list);
+      const result = await fetchRegularBackups();
+      setBackups(result.backups);
+      setLatestPreRestore(result.latestPreRestore);
     } catch (e: any) {
       console.error("regular backup reload error:", e);
       setError(e?.message || "backup_list_failed");
       setBackups([]);
+      setLatestPreRestore(null);
     } finally {
       setLoading(false);
     }
@@ -103,6 +107,7 @@ export function useRegularBackup() {
 
   return {
     backups,
+    latestPreRestore,
     loading,
     creating,
     deletingId,

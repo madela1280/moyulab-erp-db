@@ -16,7 +16,13 @@ export type RegularBackupItem = {
 type RegularBackupListResponse = {
   ok: boolean;
   backups?: RegularBackupItem[];
+  latestPreRestore?: RegularBackupItem | null;
   error?: string;
+};
+
+export type RegularBackupFetchResult = {
+  backups: RegularBackupItem[];
+  latestPreRestore: RegularBackupItem | null;
 };
 
 type RegularBackupCreateResponse = {
@@ -46,7 +52,7 @@ async function readJsonSafe<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-export async function fetchRegularBackups(): Promise<RegularBackupItem[]> {
+export async function fetchRegularBackups(): Promise<RegularBackupFetchResult> {
   const res = await fetch(BASE_URL, {
     method: "GET",
     cache: "no-store",
@@ -58,7 +64,10 @@ export async function fetchRegularBackups(): Promise<RegularBackupItem[]> {
     throw new Error(data.error || "backup_list_failed");
   }
 
-  return data.backups || [];
+  return {
+    backups: data.backups || [],
+    latestPreRestore: data.latestPreRestore || null,
+  };
 }
 
 export async function createRegularBackup(): Promise<RegularBackupItem> {

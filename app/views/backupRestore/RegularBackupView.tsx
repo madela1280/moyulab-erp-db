@@ -58,6 +58,7 @@ function statusClassName(status: string) {
 export default function RegularBackupView() {
   const {
     backups,
+    latestPreRestore,
     loading,
     creating,
     deletingId,
@@ -171,6 +172,74 @@ export default function RegularBackupView() {
     }
   };
 
+  const handleRestoreCancel = async () => {
+    if (restoringId || creating || deletingId || !latestPreRestore) return;
+
+    const firstOk = window.confirm(
+      [
+        "가장 최근 복원 직전 상태로 되돌릴까요?",
+        "",
+        latestPreRestore.file_name,
+        "",
+        "이 기능은 마지막 복원 실행 직전에 자동 생성된 안전백업으로 ERP 전체 DB를 되돌립니다.",
+        "복원취소도 전체 DB 복원이므로 관리자 비밀번호 확인 후 실행됩니다.",
+      ].join("\n")
+    );
+
+    if (!firstOk) return;
+
+    const adminPassword = window.prompt(
+      [
+        "복원취소를 계속하려면 관리자 비밀번호를 입력하세요.",
+        "",
+        "관리자 비밀번호는 서버에서 다시 검증됩니다.",
+      ].join("\n"),
+      ""
+    );
+
+    if (!adminPassword) {
+      alert("관리자 비밀번호가 입력되지 않아 복원취소를 취소합니다.");
+      return;
+    }
+
+    const restoreReason =
+      window.prompt(
+        [
+          "복원취소 사유를 입력하세요.",
+          "",
+          "예: 복원 결과 확인 후 직전 상태로 되돌림",
+        ].join("\n"),
+        "복원취소"
+      ) || "복원취소";
+
+    const finalOk = window.confirm(
+      [
+        "마지막 확인입니다.",
+        "",
+        "복원 직전 상태로 지금 되돌릴까요?",
+        "진행 중에는 ERP 사용을 중단해야 합니다.",
+      ].join("\n")
+    );
+
+    if (!finalOk) return;
+
+    try {
+      await restoreBackup({
+        id: latestPreRestore.id,
+        adminPassword,
+        restoreReason,
+      });
+
+      alert(
+        "복원취소가 완료되었습니다.\n화면을 새로고침하고 ERP 상태를 확인하세요."
+      );
+
+      window.location.reload();
+    } catch {
+      alert("복원취소에 실패했습니다. 관리자 비밀번호 또는 서버 로그를 확인해야 합니다.");
+    }
+  };
+
   return (
     <div className="w-full h-full bg-white border rounded-md p-6 flex flex-col min-h-0">
       <div className="flex items-start justify-between gap-4">
@@ -192,6 +261,15 @@ export default function RegularBackupView() {
             className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             새로고침
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleRestoreCancel()}
+            disabled={!latestPreRestore || creating || !!restoringId}
+            className="px-3 py-2 rounded-md border border-amber-300 bg-white text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+          >
+            복원취소
           </button>
 
           <button
