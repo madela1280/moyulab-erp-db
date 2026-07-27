@@ -3,6 +3,11 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
+import {
+  buildUnifiedCellChangeItems,
+  getChangeHistoryActor,
+  recordUnifiedChangeHistory,
+} from "@/unified/change-history/serverChangeHistory";
 
 /**
  * POST /api/unified/bulk-patch
@@ -300,6 +305,40 @@ export async function POST(req: Request) {
     p["안내분류"] = guide;
   }  
 
+   // ✅ 변경이력 기록용: 저장 전 현재 row data 조회
+  // - 기존 저장 흐름은 유지
+  // - 실제 UPDATE 성공 row만 저장 후 이력으로 남김
+  const targetIds = Array.from(
+    new Set(
+      updates
+        .map((u) => Number(u.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+        .map((id) => Math.floor(id))
+    )
+  );
+
+  const beforeRowsResult = await query(
+    `
+    SELECT id, data
+    FROM unified
+    WHERE id = ANY($1::int[])
+    `,
+    [targetIds]
+  );
+
+  const beforeDataMap = new Map<number, Record<string, any>>();
+  for (const row of beforeRowsResult.rows || []) {
+    const rowId = Number(row?.id);
+    if (!Number.isFinite(rowId) || rowId <= 0) continue;
+
+    const data =
+      row?.data && typeof row.data === "object" && !Array.isArray(row.data)
+        ? (row.data as Record<string, any>)
+        : {};
+
+    beforeDataMap.set(rowId, data);
+  }
+
   // ✅ jsonb merge(원자적):
   // - u.data가 NULL인 행에서도 merge가 정상 동작하도록 COALESCE 적용(중요)
   // - patch에 null이 들어오면 해당 key를 null로 저장 (기존 PATCH와 동일)
@@ -319,9 +358,75 @@ export async function POST(req: Request) {
 
   const r = await query(sql, [JSON.stringify(updates)]);
 
+  // ✅ 변경이력 기록
+  // - bulk-patch 전체를 operation 1개로 묶음
+  // - 각 row/column 변경은 item으로 저장
+  // - 이력 기록 실패가 통합관리 저장 실패로 번지지 않도록 catch 처리
+  try {
+    const updateMap = new Map<number, Record<string, any>>();
+
+    for (const u of updates) {
+      const rowId = Number(u.id);
+      if (!Number.isFinite(rowId) || rowId <= 0) continue;
+
+      const patch =
+        u.patch && typeof u.patch === "object" && !Array.isArray(u.patch)
+          ? (u.patch as Record<string, any>)
+          : {};
+
+      updateMap.set(rowId, patch);
+    }
+
+    const allItems = [];
+
+    for (const row of r.rows || []) {
+      const rowId = Number(row?.id);
+      if (!Number.isFinite(rowId) || rowId <= 0) continue;
+
+      const beforeData = beforeDataMap.get(rowId) ?? {};
+      const afterData =
+        row?.data && typeof row.data === "object" && !Array.isArray(row.data)
+          ? (row.data as Record<string, any>)
+          : {};
+
+      const patch = updateMap.get(rowId) ?? {};
+      const columnKeys = Array.from(
+        new Set(
+          Object.keys(patch)
+            .map((key) => String(key ?? "").trim())
+            .filter(Boolean)
+        )
+      );
+
+      const items = buildUnifiedCellChangeItems({
+        unifiedId: rowId,
+        beforeData,
+        afterData,
+        columnKeys,
+        actionType: "bulk_patch",
+      });
+
+      allItems.push(...items);
+    }
+
+    if (allItems.length) {
+      const actor = await getChangeHistoryActor();
+
+      await recordUnifiedChangeHistory({
+        action_type: "bulk_patch",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `통합관리 대량 수정 ${allItems.length}건`,
+        items: allItems,
+      });
+    }
+  } catch (err) {
+    console.warn("unified bulk change history record failed (ignored):", err);
+  }
+
   return NextResponse.json({
     ok: true,
     updatedCount: r.rows.length,
     rows: r.rows,
-  });
+  }); 
 }
