@@ -6,6 +6,7 @@ import { computeZeroExtensionDaysFromDates } from "@/views/unified/extensions/ex
 import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
 import {
   buildUnifiedCellChangeItems,
+  buildUnifiedDeleteChangeItems,
   getChangeHistoryActor,
   recordUnifiedChangeHistory,
 } from "@/unified/change-history/serverChangeHistory";
@@ -322,18 +323,83 @@ export async function DELETE(req: Request) {
 
   // ✅ unified 삭제 시 unified_order도 함께 정리(카운트/페이징/유령 데이터 방지)
   // - 기존 응답 형태({ ok:true })는 유지
-  await query(
+  // - 변경이력 기록을 위해 삭제된 unified row의 id/data를 RETURNING
+  const r = await query(
     `
     WITH del_order AS (
       DELETE FROM unified_order
       WHERE unified_id = $1
       RETURNING unified_id
+    ),
+    del_unified AS (
+      DELETE FROM unified
+      WHERE id = $1
+      RETURNING id, data
     )
-    DELETE FROM unified
-    WHERE id = $1
+    SELECT
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', id,
+              'data', data
+            )
+          )
+          FROM del_unified
+        ),
+        '[]'::json
+      ) AS deleted_rows
     `,
     [id]
   );
+
+  // ✅ 변경이력 기록
+  // - 삭제 전 row data를 before_row_data로 저장
+  // - 이력 기록 실패가 삭제 성공 응답에 영향 주지 않도록 catch 처리
+  try {
+    const rawRows = r.rows?.[0]?.deleted_rows;
+
+    let deletedRows: Array<{ id: number; data: any }> = [];
+
+    if (Array.isArray(rawRows)) {
+      deletedRows = rawRows
+        .map((x: any) => ({
+          id: Number(x?.id),
+          data: x?.data,
+        }))
+        .filter((x: any) => Number.isFinite(x.id) && x.id > 0);
+    } else if (typeof rawRows === "string") {
+      try {
+        const arr = JSON.parse(rawRows);
+        if (Array.isArray(arr)) {
+          deletedRows = arr
+            .map((x: any) => ({
+              id: Number(x?.id),
+              data: x?.data,
+            }))
+            .filter((x: any) => Number.isFinite(x.id) && x.id > 0);
+        }
+      } catch {
+        deletedRows = [];
+      }
+    }
+
+    const items = buildUnifiedDeleteChangeItems(deletedRows);
+
+    if (items.length) {
+      const actor = await getChangeHistoryActor();
+
+      await recordUnifiedChangeHistory({
+        action_type: "bulk_delete",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `통합관리 단건 삭제 row ${id}`,
+        items,
+      });
+    }
+  } catch (err) {
+    console.warn("unified delete change history record failed (ignored):", err);
+  }
 
   // 삭제 성공
   return NextResponse.json({ ok: true });

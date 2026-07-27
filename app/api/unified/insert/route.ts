@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import {
+  buildUnifiedInsertChangeItems,
+  getChangeHistoryActor,
+  recordUnifiedChangeHistory,
+} from "@/unified/change-history/serverChangeHistory";
 
 /**
  * POST /api/unified/insert
@@ -146,13 +151,46 @@ export async function POST(req: Request) {
       (SELECT json_agg(json_build_object('id', unified_id, 'sort_key', sort_key) ORDER BY sort_key ASC) FROM ins_order) AS inserted_rows
   `;
 
-  const r = await query(sql, [count, beforeId, afterId]);
+    const r = await query(sql, [count, beforeId, afterId]);
   const row = r.rows[0] ?? {};
+
+  const insertedCount = Number(row.inserted_count ?? 0);
+  const insertedIds = row.inserted_ids ?? [];
+  const insertedRows = row.inserted_rows ?? [];
+
+  // ✅ 변경이력 기록
+  // - 삽입된 row id/data를 after_row_data로 저장
+  // - 현재 insert는 빈 data('{}') 생성이므로 data가 없으면 {}로 기록
+  // - 이력 기록 실패가 행 삽입 성공 응답에 영향 주지 않도록 catch 처리
+  try {
+    const rowsForHistory = Array.isArray(insertedRows)
+      ? insertedRows.map((x: any) => ({
+          id: Number(x?.id),
+          data: x?.data ?? {},
+        }))
+      : [];
+
+    const items = buildUnifiedInsertChangeItems(rowsForHistory);
+
+    if (items.length) {
+      const actor = await getChangeHistoryActor();
+
+      await recordUnifiedChangeHistory({
+        action_type: "insert",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `통합관리 행 삽입 ${items.length}행`,
+        items,
+      });
+    }
+  } catch (err) {
+    console.warn("unified insert change history record failed (ignored):", err);
+  }
 
   return NextResponse.json({
     ok: true,
-    insertedCount: Number(row.inserted_count ?? 0),
-    insertedIds: row.inserted_ids ?? [],
-    insertedRows: row.inserted_rows ?? [],
+    insertedCount,
+    insertedIds,
+    insertedRows,
   });
 }
