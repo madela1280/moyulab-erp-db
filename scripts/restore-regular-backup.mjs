@@ -163,6 +163,59 @@ async function getTargetBackup() {
   };
 }
 
+async function getPreservedBackupRows() {
+  const r = await query(
+    appPool,
+    `
+    SELECT
+      backup_kind,
+      backup_scope,
+      file_name,
+      file_path,
+      file_size_bytes,
+      status,
+      error_message,
+      created_by_username,
+      created_by_name,
+      restore_reason,
+      restore_target_backup_id,
+      restore_target_file_name,
+      started_at,
+      finished_at,
+      created_at
+    FROM regular_backups
+    WHERE status IN ('success', 'failed')
+    ORDER BY created_at ASC, file_name ASC
+    `,
+    []
+  );
+
+  const rows = [];
+
+  for (const row of r.rows) {
+    const filePath = String(row.file_path || "");
+
+    if (!filePath || !isSafeBackupPath(filePath)) {
+      continue;
+    }
+
+    try {
+      const st = await fs.stat(filePath);
+      if (!st.isFile()) continue;
+    } catch {
+      continue;
+    }
+
+    rows.push(row);
+  }
+
+  console.log(
+    `[restore-regular-backup] preserve backup metadata count=${rows.length}`
+  );
+
+  return rows;
+}
+
 async function createSafetyBackup() {
   await ensureBackupDir();
 
@@ -332,8 +385,8 @@ async function restoreTargetDatabase(targetBackup) {
   );
 }
 
-async function reinsertSafetyBackupAfterRestore(safetyBackup) {
-  if (!safetyBackup) return;
+async function reinsertBackupMetadataAfterRestore(preservedRows) {
+  if (!Array.isArray(preservedRows) || preservedRows.length === 0) return;
 
   const restoredPool = new Pool({
     connectionString: DATABASE_URL,
@@ -352,79 +405,83 @@ async function reinsertSafetyBackupAfterRestore(safetyBackup) {
       []
     );
 
-    const fileSizeBytes = await getFileSizeBytes(safetyBackup.filePath).catch(
-      () => 0
-    );
-
-    await query(
-      restoredPool,
-      `
-      INSERT INTO regular_backups (
-        backup_kind,
-        backup_scope,
-        file_name,
-        file_path,
-        file_size_bytes,
-        status,
-        error_message,
-        created_by_username,
-        created_by_name,
-        restore_reason,
-        restore_target_backup_id,
-        restore_target_file_name,
-        started_at,
-        finished_at,
-        created_at
-      )
-      VALUES (
-        'pre_restore',
-        'postgres_full',
-        $1,
-        $2,
-        $3,
-        'success',
-        NULL,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8,
-        NOW(),
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT (file_name)
-      DO UPDATE SET
-        backup_kind = 'pre_restore',
-        backup_scope = 'postgres_full',
-        file_path = EXCLUDED.file_path,
-        file_size_bytes = EXCLUDED.file_size_bytes,
-        status = 'success',
-        error_message = NULL,
-        created_by_username = EXCLUDED.created_by_username,
-        created_by_name = EXCLUDED.created_by_name,
-        restore_reason = EXCLUDED.restore_reason,
-        restore_target_backup_id = EXCLUDED.restore_target_backup_id,
-        restore_target_file_name = EXCLUDED.restore_target_file_name,
-        finished_at = NOW()
-      `,
-      [
-        safetyBackup.fileName,
-        safetyBackup.filePath,
-        fileSizeBytes,
-        RESTORE_REQUESTED_BY_USERNAME,
-        RESTORE_REQUESTED_BY_NAME,
-        RESTORE_REASON,
-        Number.isFinite(RESTORE_TARGET_BACKUP_ID) &&
-        RESTORE_TARGET_BACKUP_ID > 0
-          ? RESTORE_TARGET_BACKUP_ID
-          : null,
-        RESTORE_TARGET_BACKUP_FILE_NAME,
-      ]
-    );
+    for (const row of preservedRows) {
+      await query(
+        restoredPool,
+        `
+        INSERT INTO regular_backups (
+          backup_kind,
+          backup_scope,
+          file_name,
+          file_path,
+          file_size_bytes,
+          status,
+          error_message,
+          created_by_username,
+          created_by_name,
+          restore_reason,
+          restore_target_backup_id,
+          restore_target_file_name,
+          started_at,
+          finished_at,
+          created_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14,
+          $15
+        )
+        ON CONFLICT (file_name)
+        DO UPDATE SET
+          backup_kind = EXCLUDED.backup_kind,
+          backup_scope = EXCLUDED.backup_scope,
+          file_path = EXCLUDED.file_path,
+          file_size_bytes = EXCLUDED.file_size_bytes,
+          status = EXCLUDED.status,
+          error_message = EXCLUDED.error_message,
+          created_by_username = EXCLUDED.created_by_username,
+          created_by_name = EXCLUDED.created_by_name,
+          restore_reason = EXCLUDED.restore_reason,
+          restore_target_backup_id = EXCLUDED.restore_target_backup_id,
+          restore_target_file_name = EXCLUDED.restore_target_file_name,
+          started_at = EXCLUDED.started_at,
+          finished_at = EXCLUDED.finished_at,
+          created_at = EXCLUDED.created_at
+        `,
+        [
+          row.backup_kind,
+          row.backup_scope,
+          row.file_name,
+          row.file_path,
+          row.file_size_bytes,
+          row.status,
+          row.error_message,
+          row.created_by_username,
+          row.created_by_name,
+          row.restore_reason,
+          row.restore_target_backup_id,
+          row.restore_target_file_name,
+          row.started_at,
+          row.finished_at,
+          row.created_at,
+        ]
+      );
+    }
 
     console.log(
-      `[restore-regular-backup] safety backup reinserted file=${safetyBackup.fileName}`
+      `[restore-regular-backup] backup metadata reinserted count=${preservedRows.length}`
     );
   } finally {
     await restoredPool.end().catch(() => {});
@@ -433,7 +490,7 @@ async function reinsertSafetyBackupAfterRestore(safetyBackup) {
 
 async function main() {
   let targetBackup = null;
-  let safetyBackup = null;
+  let preservedBackupRows = [];
 
   try {
     console.log(
@@ -444,14 +501,16 @@ async function main() {
 
     targetBackup = await getTargetBackup();
 
-    safetyBackup = await createSafetyBackup();
+    await createSafetyBackup();
+
+    preservedBackupRows = await getPreservedBackupRows();
 
     await closeAppPoolBeforeRestore();
 
     await terminateTargetDatabaseConnections();
     await recreateTargetDatabase();
     await restoreTargetDatabase(targetBackup);
-    await reinsertSafetyBackupAfterRestore(safetyBackup);
+    await reinsertBackupMetadataAfterRestore(preservedBackupRows);
 
     console.log("[restore-regular-backup] done");
   } catch (e) {
