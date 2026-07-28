@@ -3,7 +3,7 @@
 "use client";
 
 import { useMemo } from "react";
-import * as unifiedColumnsModule from "@/unified/columns/unifiedColumns";
+import { useUnifiedColumnConfig } from "@/unified/column-config/useUnifiedColumnConfig";
 import { type HistoryOperationDetailResponse } from "./serviceHistoryRestore";
 import { useHistoryCurrentEdit } from "./useHistoryCurrentEdit";
 
@@ -13,107 +13,18 @@ type HistoryCurrentGridProps = {
   onSaved?: () => void | Promise<void>;
 };
 
-type UnifiedColumnLike = {
-  key?: any;
-  id?: any;
-  accessorKey?: any;
-  name?: any;
-  label?: any;
-  title?: any;
-  width?: any;
-  defaultWidth?: any;
-  size?: any;
-};
+function getColumnWidthPx(
+  columnKey: string,
+  colWidthUnitByKey: Record<string, number>
+) {
+  const BASE = 140;
+  const MIN = 40;
+  const MAX = columnKey === "계약자주소" ? 525 : 420;
 
-function cleanColumnText(v: any) {
-  return String(v ?? "").trim();
-}
+  const unit = colWidthUnitByKey[columnKey] ?? 20;
+  const px = Math.round((BASE * unit) / 20);
 
-function isColumnObject(v: any): v is UnifiedColumnLike {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
-
-function getUnifiedColumnKey(column: any) {
-  if (typeof column === "string") return cleanColumnText(column);
-
-  if (!isColumnObject(column)) return "";
-
-  const candidates = [
-    column.key,
-    column.id,
-    column.accessorKey,
-    column.name,
-    column.label,
-    column.title,
-  ];
-
-  for (const candidate of candidates) {
-    const text = cleanColumnText(candidate);
-    if (text) return text;
-  }
-
-  return "";
-}
-
-function getUnifiedColumnWidthFromDef(column: any) {
-  if (!isColumnObject(column)) return null;
-
-  const candidates = [
-    column.width,
-    column.defaultWidth,
-    column.size,
-  ];
-
-  for (const candidate of candidates) {
-    const n = Number(candidate);
-    if (Number.isFinite(n) && n > 0) return Math.floor(n);
-  }
-
-  return null;
-}
-
-function getUnifiedColumnSourceArray() {
-  const values = Object.values(unifiedColumnsModule as Record<string, any>);
-  const arrays = values.filter((value) => Array.isArray(value));
-
-  if (!arrays.length) return [];
-
-  const scored = arrays
-    .map((arr) => {
-      const keys = arr.map(getUnifiedColumnKey).filter(Boolean);
-      const score =
-        keys.length +
-        (keys.includes("거래처분류") ? 1000 : 0) +
-        (keys.includes("반납완료일") ? 1000 : 0) +
-        (keys.includes("특이사항2") ? 1000 : 0) +
-        (keys.includes("15차연장") ? 1000 : 0);
-
-      return { arr, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  return scored[0]?.arr ?? [];
-}
-
-const UNIFIED_COLUMN_DEFS = getUnifiedColumnSourceArray();
-
-const UNIFIED_COLUMN_KEYS = UNIFIED_COLUMN_DEFS
-  .map(getUnifiedColumnKey)
-  .filter(Boolean);
-
-const UNIFIED_COLUMN_WIDTH_MAP: Record<string, number> = {};
-
-for (const column of UNIFIED_COLUMN_DEFS) {
-  const key = getUnifiedColumnKey(column);
-  const width = getUnifiedColumnWidthFromDef(column);
-
-  if (key && width) {
-    UNIFIED_COLUMN_WIDTH_MAP[key] = width;
-  }
-}
-
-function getColumnWidth(columnKey: string) {
-  return UNIFIED_COLUMN_WIDTH_MAP[columnKey] ?? 120;
+  return Math.max(MIN, Math.min(MAX, px));
 }
 
 function normalizeString(v: any) {
@@ -135,41 +46,10 @@ function shortValue(value: any) {
   }
 }
 
-function buildColumns(detail: HistoryOperationDetailResponse | null) {
-  const keySet = new Set<string>();
-
-  for (const key of UNIFIED_COLUMN_KEYS) {
-    keySet.add(key);
-  }
-
-  for (const item of detail?.items || []) {
-    const columnKey = normalizeString(item.column_key);
-    if (columnKey) keySet.add(columnKey);
-
-    const currentRowData = item.current_row_data || {};
-    for (const key of Object.keys(currentRowData)) {
-      const cleanKey = normalizeString(key);
-      if (cleanKey) keySet.add(cleanKey);
-    }
-
-    const afterRowData = item.after_row_data || {};
-    for (const key of Object.keys(afterRowData)) {
-      const cleanKey = normalizeString(key);
-      if (cleanKey) keySet.add(cleanKey);
-    }
-  }
-
-  const allKeys = Array.from(keySet);
-
-  const preferred = UNIFIED_COLUMN_KEYS.filter((key) =>
-    allKeys.includes(key)
-  );
-
-  const extra = allKeys
-    .filter((key) => !UNIFIED_COLUMN_KEYS.includes(key))
-    .sort((a, b) => a.localeCompare(b, "ko"));
-
-  return [...preferred, ...extra];
+function buildColumns(columnOrder: string[]) {
+  return (columnOrder || [])
+    .map((key) => normalizeString(key))
+    .filter(Boolean);
 }
 
 export default function HistoryCurrentGrid({
@@ -177,7 +57,9 @@ export default function HistoryCurrentGrid({
   loading = false,
   onSaved,
 }: HistoryCurrentGridProps) {
-  const columns = useMemo(() => buildColumns(detail), [detail]);
+  const { columnOrder, colWidthUnitByKey } = useUnifiedColumnConfig();
+
+  const columns = useMemo(() => buildColumns(columnOrder), [columnOrder]);
 
   const {
     rows,
@@ -325,9 +207,9 @@ export default function HistoryCurrentGrid({
                   key={columnKey}
                   className="border-r border-slate-200 px-2 py-2 text-left font-semibold"
                   style={{
-                    width: getColumnWidth(columnKey),
-                    minWidth: getColumnWidth(columnKey),
-                    maxWidth: getColumnWidth(columnKey),
+                    width: getColumnWidthPx(columnKey, colWidthUnitByKey),
+                    minWidth: getColumnWidthPx(columnKey, colWidthUnitByKey),
+                    maxWidth: getColumnWidthPx(columnKey, colWidthUnitByKey),
                   }}
                   title={columnKey}
                 >
@@ -375,9 +257,9 @@ export default function HistoryCurrentGrid({
                           selected ? "outline outline-2 outline-blue-400 outline-offset-[-2px]" : ""
                         }`}
                         style={{
-                          width: getColumnWidth(columnKey),
-                          minWidth: getColumnWidth(columnKey),
-                          maxWidth: getColumnWidth(columnKey),
+                          width: getColumnWidthPx(columnKey, colWidthUnitByKey),
+                          minWidth: getColumnWidthPx(columnKey, colWidthUnitByKey),
+                          maxWidth: getColumnWidthPx(columnKey, colWidthUnitByKey),
                         }}
                         title={shortValue(value)}
                         onClick={() => selectCell(row.rowKey, columnKey)}
