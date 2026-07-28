@@ -12,9 +12,10 @@
     "prune:change-history": "node scripts/prune-unified-change-history.mjs",
     "prebuild": "npm run check:browser-storage"
   },
-  "dependencies": {
+    "dependencies": {
     "@tailwindcss/postcss": "^4.1.17",
     "autoprefixer": "^10.4.22",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "next": "15.5.6",
