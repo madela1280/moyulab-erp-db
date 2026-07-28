@@ -3,6 +3,7 @@
 "use client";
 
 import { useMemo } from "react";
+import * as unifiedColumnsModule from "@/unified/columns/unifiedColumns";
 import {
   type HistoryOperationDetailResponse,
   type HistoryOperationItem,
@@ -18,59 +19,104 @@ type PastGridRow = {
   rowData: Record<string, any>;
 };
 
-const PREFERRED_UNIFIED_COLUMN_ORDER = [
-  "거래처분류",
-  "상태",
-  "안내분류",
-  "구매/렌탈",
-  "기기번호",
-  "기종",
-  "에러횟수",
-  "제품",
-  "수취인명",
-  "연락처1",
-  "연락처2",
-  "계약자주소",
-  "택배발송일",
-  "시작일",
-  "종료일",
-  "반납요청일",
-  "반납완료일",
-  "0차연장",
-  "1차연장",
-  "2차연장",
-  "3차연장",
-  "4차연장",
-  "5차연장",
-  "총연장횟수",
-];
-
-const UNIFIED_COLUMN_WIDTH_MAP: Record<string, number> = {
-  거래처분류: 110,
-  상태: 90,
-  안내분류: 120,
-  "구매/렌탈": 90,
-  기기번호: 90,
-  기종: 100,
-  에러횟수: 80,
-  제품: 100,
-  수취인명: 110,
-  연락처1: 120,
-  연락처2: 120,
-  계약자주소: 320,
-  택배발송일: 110,
-  시작일: 100,
-  종료일: 100,
-  반납요청일: 110,
-  반납완료일: 110,
-  "0차연장": 90,
-  "1차연장": 130,
-  "2차연장": 130,
-  "3차연장": 130,
-  "4차연장": 130,
-  "5차연장": 130,
-  총연장횟수: 100,
+type UnifiedColumnLike = {
+  key?: any;
+  id?: any;
+  accessorKey?: any;
+  name?: any;
+  label?: any;
+  title?: any;
+  width?: any;
+  defaultWidth?: any;
+  size?: any;
 };
+
+function cleanColumnText(v: any) {
+  return String(v ?? "").trim();
+}
+
+function isColumnObject(v: any): v is UnifiedColumnLike {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function getUnifiedColumnKey(column: any) {
+  if (typeof column === "string") return cleanColumnText(column);
+
+  if (!isColumnObject(column)) return "";
+
+  const candidates = [
+    column.key,
+    column.id,
+    column.accessorKey,
+    column.name,
+    column.label,
+    column.title,
+  ];
+
+  for (const candidate of candidates) {
+    const text = cleanColumnText(candidate);
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function getUnifiedColumnWidthFromDef(column: any) {
+  if (!isColumnObject(column)) return null;
+
+  const candidates = [
+    column.width,
+    column.defaultWidth,
+    column.size,
+  ];
+
+  for (const candidate of candidates) {
+    const n = Number(candidate);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+
+  return null;
+}
+
+function getUnifiedColumnSourceArray() {
+  const values = Object.values(unifiedColumnsModule as Record<string, any>);
+  const arrays = values.filter((value) => Array.isArray(value));
+
+  if (!arrays.length) return [];
+
+  const scored = arrays
+    .map((arr) => {
+      const keys = arr.map(getUnifiedColumnKey).filter(Boolean);
+      const score =
+        keys.length +
+        (keys.includes("거래처분류") ? 1000 : 0) +
+        (keys.includes("반납완료일") ? 1000 : 0) +
+        (keys.includes("특이사항2") ? 1000 : 0) +
+        (keys.includes("15차연장") ? 1000 : 0);
+
+      return { arr, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.arr ?? [];
+}
+
+const UNIFIED_COLUMN_DEFS = getUnifiedColumnSourceArray();
+
+const UNIFIED_COLUMN_KEYS = UNIFIED_COLUMN_DEFS
+  .map(getUnifiedColumnKey)
+  .filter(Boolean);
+
+const UNIFIED_COLUMN_WIDTH_MAP: Record<string, number> = {};
+
+for (const column of UNIFIED_COLUMN_DEFS) {
+  const key = getUnifiedColumnKey(column);
+  const width = getUnifiedColumnWidthFromDef(column);
+
+  if (key && width) {
+    UNIFIED_COLUMN_WIDTH_MAP[key] = width;
+  }
+}
 
 function getColumnWidth(columnKey: string) {
   return UNIFIED_COLUMN_WIDTH_MAP[columnKey] ?? 120;
@@ -116,7 +162,7 @@ function getPastRowData(item: HistoryOperationItem) {
 function buildColumns(rows: PastGridRow[], items: HistoryOperationItem[]) {
   const keySet = new Set<string>();
 
-  for (const key of PREFERRED_UNIFIED_COLUMN_ORDER) {
+  for (const key of UNIFIED_COLUMN_KEYS) {
     keySet.add(key);
   }
 
@@ -134,12 +180,12 @@ function buildColumns(rows: PastGridRow[], items: HistoryOperationItem[]) {
 
   const allKeys = Array.from(keySet);
 
-  const preferred = PREFERRED_UNIFIED_COLUMN_ORDER.filter((key) =>
+  const preferred = UNIFIED_COLUMN_KEYS.filter((key) =>
     allKeys.includes(key)
   );
 
   const extra = allKeys
-    .filter((key) => !PREFERRED_UNIFIED_COLUMN_ORDER.includes(key))
+    .filter((key) => !UNIFIED_COLUMN_KEYS.includes(key))
     .sort((a, b) => a.localeCompare(b, "ko"));
 
   return [...preferred, ...extra];
