@@ -3,7 +3,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { computeZeroExtensionDaysFromDates } from "@/views/unified/extensions/extensionCompute";
+import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
 import {
+  buildUnifiedCellChangeItems,
   getChangeHistoryActor,
   recordUnifiedChangeHistory,
   type UnifiedChangeItemInput,
@@ -28,6 +31,10 @@ import {
 
 function normalizeString(v: any) {
   return String(v ?? "").trim();
+}
+
+function normalizeLower(v: any) {
+  return normalizeString(v).toLowerCase();
 }
 
 function normalizeJsonValue(value: any) {
@@ -110,6 +117,266 @@ function parseUnifiedIdFromRowKey(rowKey: string | null) {
   if (!text.startsWith("u:")) return null;
 
   return normalizePositiveInt(text.slice(2));
+}
+
+// ✅ 거래처분류 → 안내분류 매핑 조회
+async function findGuideByPartnerName(partnerName: string): Promise<string | null> {
+  const p = normalizeString(partnerName);
+  if (!p) return null;
+
+  const r = await query(
+    `
+    SELECT guide_name
+    FROM partner_guide_map
+    WHERE partner_name = $1
+    LIMIT 1
+    `,
+    [p]
+  );
+
+  const g = normalizeString(r.rows?.[0]?.guide_name);
+  return g ? g : null;
+}
+
+// 기기관리 6개 테이블(소카테고리)
+const DEVICE_TABLES = [
+  "device_symphony",
+  "device_lactina",
+  "device_swing",
+  "device_swing_maxi",
+  "device_simile",
+  "device_gaksimil",
+] as const;
+
+type DeviceInfo = {
+  제품명: string | null;
+  기종: string | null;
+  구매렌탈: string | null;
+  에러횟수: string | null;
+};
+
+async function getExistingDeviceTables(): Promise<string[]> {
+  const cached = (globalThis as any).__existingDeviceTables;
+  if (Array.isArray(cached) && cached.length >= 0) return cached;
+
+  const names = Array.from(DEVICE_TABLES);
+  const r = await query(
+    `
+    SELECT
+      t.name,
+      to_regclass('public.' || t.name) AS reg
+    FROM unnest($1::text[]) AS t(name)
+    `,
+    [names]
+  );
+
+  const exists = (r.rows || [])
+    .filter((x: any) => !!x?.reg)
+    .map((x: any) => String(x.name))
+    .filter(Boolean);
+
+  (globalThis as any).__existingDeviceTables = exists;
+  return exists;
+}
+
+async function findDeviceInfoBySystemNo(deviceNo: string): Promise<DeviceInfo | null> {
+  const needle = normalizeLower(deviceNo);
+  if (!needle) return null;
+
+  const tables = await getExistingDeviceTables();
+  if (!tables.length) return null;
+
+  const parts: string[] = [];
+
+  for (let i = 0; i < tables.length; i++) {
+    const tableName = tables[i];
+
+    parts.push(`
+      SELECT data, ${i + 1} AS pri
+      FROM ${tableName}
+      WHERE lower(COALESCE(data->>'시스템 기기번호','')) = $1::text
+    `);
+  }
+
+  const sql = `
+    SELECT data
+    FROM (
+      ${parts.join(" UNION ALL ")}
+    ) x
+    ORDER BY x.pri ASC
+    LIMIT 1
+  `;
+
+  const r = await query(sql, [needle]);
+  if (!r.rows?.length) return null;
+
+  const data =
+    r.rows[0]?.data && typeof r.rows[0].data === "object"
+      ? r.rows[0].data
+      : {};
+
+  const 제품명 = normalizeString((data as any)["제품명"]) || "";
+  const 기종 = normalizeString((data as any)["기종"]) || "";
+  const 구매렌탈 = normalizeString((data as any)["구매/렌탈"]) || "";
+  const 에러횟수 = normalizeString((data as any)["에러횟수"]);
+
+  return {
+    제품명: 제품명 ? 제품명 : null,
+    기종: 기종 ? 기종 : null,
+    구매렌탈: 구매렌탈 ? 구매렌탈 : null,
+    에러횟수: 에러횟수 ? 에러횟수 : null,
+  };
+}
+
+async function buildManualAutoPatch(params: {
+  currentRowData: Record<string, any>;
+  columnKey: string;
+  nextValue: any;
+}) {
+  const currentRowData = isPlainObject(params.currentRowData)
+    ? params.currentRowData
+    : {};
+
+  const columnKey = normalizeString(params.columnKey);
+  const nextValue = params.nextValue;
+
+  const patch: Record<string, any> = {
+    [columnKey]: nextValue,
+  };
+
+  // ✅ 거래처분류 → 안내분류 자동매핑
+  if (columnKey === "거래처분류") {
+    const lockedByExistingRow = isGuideMigrationLocked(currentRowData);
+    const lockedByPatch = isGuideMigrationLocked(patch);
+
+    if (!lockedByExistingRow && !lockedByPatch) {
+      const partnerName = normalizeString(nextValue);
+
+      if (!partnerName) {
+        patch["안내분류"] = null;
+      } else {
+        const guide = await findGuideByPartnerName(partnerName);
+        patch["안내분류"] = guide ? guide : null;
+      }
+    }
+  }
+
+  // ✅ 기기번호 → 기종/구매렌탈/에러횟수/제품 자동매칭
+  if (columnKey === "기기번호") {
+    const deviceNo = normalizeString(nextValue);
+
+    if (deviceNo) {
+      const info = await findDeviceInfoBySystemNo(deviceNo);
+
+      if (info) {
+        patch["기종"] = info.기종;
+        patch["구매/렌탈"] = info.구매렌탈;
+        patch["에러횟수"] = info.에러횟수;
+        patch["제품"] = info.제품명;
+      } else {
+        patch["기종"] = null;
+        patch["구매/렌탈"] = null;
+        patch["에러횟수"] = null;
+        patch["제품"] = null;
+      }
+    } else {
+      patch["기종"] = null;
+      patch["구매/렌탈"] = null;
+      patch["에러횟수"] = null;
+      patch["제품"] = null;
+    }
+  }
+
+  // ✅ 시작일/종료일 수정 시 0차연장 최초 1회 자동계산
+  if (
+    columnKey !== "0차연장" &&
+    (columnKey === "시작일" || columnKey === "종료일")
+  ) {
+    const mergedData = {
+      ...currentRowData,
+      ...patch,
+    };
+
+    const zeroRaw = normalizeString(mergedData?.["0차연장"]);
+    const startRaw = normalizeString(mergedData?.["시작일"]);
+    const endRaw = normalizeString(mergedData?.["종료일"]);
+
+    if (!zeroRaw) {
+      const computed = computeZeroExtensionDaysFromDates(startRaw, endRaw);
+
+      if (computed != null) {
+        patch["0차연장"] = computed;
+      }
+    }
+  }
+
+  return patch;
+}
+
+async function buildManualAutoCompletedInsertData(inputData: Record<string, any>) {
+  const patch: Record<string, any> = isPlainObject(inputData)
+    ? { ...inputData }
+    : {};
+
+  if (Object.prototype.hasOwnProperty.call(patch, "거래처분류")) {
+    const lockedByPatch = isGuideMigrationLocked(patch);
+
+    if (!lockedByPatch) {
+      const partnerName = normalizeString(patch["거래처분류"]);
+
+      if (!partnerName) {
+        patch["안내분류"] = null;
+      } else {
+        const guide = await findGuideByPartnerName(partnerName);
+        patch["안내분류"] = guide ? guide : null;
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, "기기번호")) {
+    const deviceNo = normalizeString(patch["기기번호"]);
+
+    if (deviceNo) {
+      const info = await findDeviceInfoBySystemNo(deviceNo);
+
+      if (info) {
+        patch["기종"] = info.기종;
+        patch["구매/렌탈"] = info.구매렌탈;
+        patch["에러횟수"] = info.에러횟수;
+        patch["제품"] = info.제품명;
+      } else {
+        patch["기종"] = null;
+        patch["구매/렌탈"] = null;
+        patch["에러횟수"] = null;
+        patch["제품"] = null;
+      }
+    } else {
+      patch["기종"] = null;
+      patch["구매/렌탈"] = null;
+      patch["에러횟수"] = null;
+      patch["제품"] = null;
+    }
+  }
+
+  if (
+    !Object.prototype.hasOwnProperty.call(patch, "0차연장") &&
+    (Object.prototype.hasOwnProperty.call(patch, "시작일") ||
+      Object.prototype.hasOwnProperty.call(patch, "종료일"))
+  ) {
+    const zeroRaw = normalizeString(patch?.["0차연장"]);
+    const startRaw = normalizeString(patch?.["시작일"]);
+    const endRaw = normalizeString(patch?.["종료일"]);
+
+    if (!zeroRaw) {
+      const computed = computeZeroExtensionDaysFromDates(startRaw, endRaw);
+
+      if (computed != null) {
+        patch["0차연장"] = computed;
+      }
+    }
+  }
+
+  return patch;
 }
 
 type ManualSaveSkipped = {
@@ -356,9 +623,11 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const patch = {
-      [columnKey]: nextValue,
-    };
+       const patch = await buildManualAutoPatch({
+      currentRowData,
+      columnKey,
+      nextValue,
+    });
 
     const updateResult = await query(
       `
@@ -368,7 +637,7 @@ export async function POST(req: Request) {
       RETURNING id, data
       `,
       [JSON.stringify(patch), unifiedId]
-    );
+    ); 
 
     const saved = updateResult.rows?.[0];
 
@@ -385,15 +654,23 @@ export async function POST(req: Request) {
 
     const afterRowData = isPlainObject(saved?.data) ? saved.data : {};
 
-    historyItems.push({
-      unified_id: unifiedId,
-      column_key: columnKey,
-      before_value: normalizeJsonValue(currentValue),
-      after_value: normalizeJsonValue(nextValue),
-      before_row_data: currentRowData,
-      after_row_data: afterRowData,
-      action_type: "bulk_patch",
+        const changedColumnKeys = Array.from(
+      new Set(
+        Object.keys(patch)
+          .map((key) => normalizeString(key))
+          .filter(Boolean)
+      )
+    );
+
+    const items = buildUnifiedCellChangeItems({
+      unifiedId,
+      beforeData: currentRowData,
+      afterData: afterRowData,
+      columnKeys: changedColumnKeys,
+      actionType: "bulk_patch",
     });
+
+    historyItems.push(...items);
 
     currentRowMap.set(unifiedId, afterRowData);
     updatedCount++;
@@ -488,9 +765,10 @@ export async function POST(req: Request) {
     deletedCount++;
   }
 
-  for (const item of inserts) {
+   for (const item of inserts) {
     const afterUnifiedId = parseUnifiedIdFromRowKey(item.after_row_key);
     const sortKey = await getInsertSortKey(afterUnifiedId);
+    const insertData = await buildManualAutoCompletedInsertData(item.data);
 
     const insertResult = await query(
       `
@@ -508,8 +786,8 @@ export async function POST(req: Request) {
       SELECT id, data
       FROM ins
       `,
-      [JSON.stringify(item.data), sortKey]
-    );
+      [JSON.stringify(insertData), sortKey]
+    ); 
 
     const inserted = insertResult.rows?.[0];
 
@@ -524,7 +802,7 @@ export async function POST(req: Request) {
     }
 
     const insertedId = Number(inserted?.id);
-    const insertedData = isPlainObject(inserted?.data) ? inserted.data : item.data;
+    const insertedData = isPlainObject(inserted?.data) ? inserted.data : insertData;
 
     historyItems.push({
       unified_id: Number.isFinite(insertedId) ? insertedId : null,
