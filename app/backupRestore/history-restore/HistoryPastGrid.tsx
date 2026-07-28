@@ -14,8 +14,8 @@ type HistoryPastGridProps = {
 
 type PastGridRow = {
   unified_id: number;
+  row_number: number | null;
   rowData: Record<string, any>;
-  actionTypes: string[];
 };
 
 const PREFERRED_UNIFIED_COLUMN_ORDER = [
@@ -66,15 +66,6 @@ function shortValue(value: any) {
   } catch {
     return String(value);
   }
-}
-
-function actionLabel(actionType: string) {
-  if (actionType === "cell_update") return "수정";
-  if (actionType === "bulk_patch") return "대량수정";
-  if (actionType === "bulk_delete") return "삭제";
-  if (actionType === "insert") return "행추가";
-  if (actionType === "restore") return "복원";
-  return actionType || "-";
 }
 
 function getPastRowData(item: HistoryOperationItem) {
@@ -128,7 +119,6 @@ function buildPastGridModel(detail: HistoryOperationDetailResponse | null) {
     if (!Number.isFinite(unifiedId) || unifiedId <= 0) continue;
 
     const rowData = getPastRowData(item);
-    const actionType = normalizeString(item.action_type);
     const columnKey = normalizeString(item.column_key);
 
     const prev = rowMap.get(unifiedId);
@@ -136,8 +126,11 @@ function buildPastGridModel(detail: HistoryOperationDetailResponse | null) {
     if (!prev) {
       rowMap.set(unifiedId, {
         unified_id: unifiedId,
+        row_number:
+          Number.isFinite(Number((item as any).row_number)) && Number((item as any).row_number) > 0
+            ? Math.floor(Number((item as any).row_number))
+            : null,
         rowData,
-        actionTypes: actionType ? [actionType] : [],
       });
     } else {
       const prevKeyCount = Object.keys(prev.rowData || {}).length;
@@ -145,10 +138,15 @@ function buildPastGridModel(detail: HistoryOperationDetailResponse | null) {
 
       rowMap.set(unifiedId, {
         unified_id: unifiedId,
+        row_number:
+          prev.row_number ??
+          (
+            Number.isFinite(Number((item as any).row_number)) &&
+            Number((item as any).row_number) > 0
+              ? Math.floor(Number((item as any).row_number))
+              : null
+          ),
         rowData: nextKeyCount >= prevKeyCount ? rowData : prev.rowData,
-        actionTypes: Array.from(
-          new Set([...prev.actionTypes, ...(actionType ? [actionType] : [])])
-        ),
       });
     }
 
@@ -222,11 +220,8 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
         <table className="min-w-max w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-slate-100">
             <tr className="border-b border-slate-200 text-slate-600">
-              <th className="sticky left-0 z-20 w-[90px] border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold">
-                row id
-              </th>
-              <th className="w-[90px] border-r border-slate-200 px-2 py-2 text-left font-semibold">
-                작업
+            <th className="sticky left-0 z-20 w-[70px] border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold">
+                행번호
               </th>
 
               {columns.map((columnKey) => (
@@ -252,12 +247,8 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
                     isChangedRow ? "bg-orange-50" : "bg-white hover:bg-slate-50"
                   }`}
                 >
-                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-inherit px-2 py-2 font-semibold text-slate-700">
-                    {row.unified_id}
-                  </td>
-
-                  <td className="border-r border-slate-200 px-2 py-2 text-slate-600">
-                    {row.actionTypes.map(actionLabel).join(", ")}
+                <td className="sticky left-0 z-10 border-r border-slate-200 bg-inherit px-2 py-2 font-semibold text-slate-700">
+                    {row.row_number ?? "-"}
                   </td>
 
                   {columns.map((columnKey) => {

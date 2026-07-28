@@ -305,6 +305,39 @@ export async function GET(
     }
   }
 
+  const rowNumberMap = new Map<number, number>();
+
+  if (unifiedIds.length) {
+    const rowNumberResult = await query(
+      `
+      WITH ordered AS (
+        SELECT
+          unified_id,
+          ROW_NUMBER() OVER (ORDER BY sort_key ASC, unified_id ASC)::int AS row_number
+        FROM unified_order
+      )
+      SELECT unified_id, row_number
+      FROM ordered
+      WHERE unified_id = ANY($1::int[])
+      `,
+      [unifiedIds]
+    );
+
+    for (const row of rowNumberResult.rows || []) {
+      const unifiedId = Number(row?.unified_id);
+      const rowNumber = Number(row?.row_number);
+
+      if (
+        Number.isFinite(unifiedId) &&
+        unifiedId > 0 &&
+        Number.isFinite(rowNumber) &&
+        rowNumber > 0
+      ) {
+        rowNumberMap.set(Math.floor(unifiedId), Math.floor(rowNumber));
+      }
+    }
+  }
+
   const items = itemsRaw.map((item: any) => {
     const itemId = Number(item?.id);
     const unifiedId = Number(item?.unified_id);
@@ -330,6 +363,10 @@ export async function GET(
       id: itemId,
       operation_id: item?.operation_id,
       unified_id: Number.isFinite(unifiedId) ? unifiedId : null,
+      row_number:
+        Number.isFinite(unifiedId) && unifiedId > 0
+          ? rowNumberMap.get(Math.floor(unifiedId)) ?? null
+          : null,
       column_key: columnKey,
       action_type: item?.action_type,
 

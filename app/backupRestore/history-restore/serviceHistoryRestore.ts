@@ -38,6 +38,7 @@ export type HistoryOperationItem = {
   id: number;
   operation_id: string;
   unified_id: number | null;
+  row_number: number | null;
   column_key: string | null;
   action_type: string;
 
