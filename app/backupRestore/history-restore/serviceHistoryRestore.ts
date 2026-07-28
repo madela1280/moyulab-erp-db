@@ -28,6 +28,7 @@ export type HistoryOperationsResponse = {
 
 export type HistoryItemStatus =
   | "restorable"
+  | "restored"
   | "conflict"
   | "deleted"
   | "already_deleted"
@@ -62,6 +63,7 @@ export type HistoryOperationDetailResponse = {
   summary: {
     total: number;
     restorable: number;
+    restored: number;
     conflict: number;
     deleted: number;
     already_deleted: number;

@@ -47,6 +47,7 @@ function buildItemStatus(params: {
   afterValue: any;
   beforeRowData: any;
   afterRowData: any;
+  isRestored: boolean;
 }) {
   const actionType = normalizeString(params.actionType);
   const columnKey = params.columnKey ? normalizeString(params.columnKey) : null;
@@ -65,6 +66,15 @@ function buildItemStatus(params: {
         status: "deleted",
         statusLabel: "현재 행 없음",
         current_value: null,
+        restorable: false,
+      };
+    }
+
+    if (params.isRestored && isSameJsonValue(currentCellValue, params.beforeValue)) {
+      return {
+        status: "restored",
+        statusLabel: "복원완료",
+        current_value: currentCellValue,
         restorable: false,
       };
     }
@@ -88,6 +98,15 @@ function buildItemStatus(params: {
 
   // 삭제 이력: 삭제 전 row를 다시 살릴 수 있는지 확인
   if (actionType === "bulk_delete") {
+    if (params.isRestored && currentRowExists) {
+      return {
+        status: "restored",
+        statusLabel: "복원완료",
+        current_value: params.currentRowData,
+        restorable: false,
+      };
+    }
+
     if (!currentRowExists) {
       return {
         status: "restorable",
@@ -107,6 +126,15 @@ function buildItemStatus(params: {
 
   // 삽입 이력: 잘못 삽입한 행을 제거할 수 있는지 확인
   if (actionType === "insert") {
+    if (params.isRestored && !currentRowExists) {
+      return {
+        status: "restored",
+        statusLabel: "복원완료",
+        current_value: null,
+        restorable: false,
+      };
+    }
+
     if (!currentRowExists) {
       return {
         status: "already_deleted",
@@ -217,6 +245,36 @@ export async function GET(
 
   const itemsRaw = itemsResult.rows || [];
 
+   const itemIds = Array.from(
+    new Set(
+      itemsRaw
+        .map((item: any) => Number(item?.id))
+        .filter((id: number) => Number.isFinite(id) && id > 0)
+        .map((id: number) => Math.floor(id))
+    )
+  );
+
+  const restoredItemIdSet = new Set<number>();
+
+  if (itemIds.length) {
+    const restoredResult = await query(
+      `
+      SELECT DISTINCT restored_from_item_id
+      FROM unified_change_items
+      WHERE action_type = 'restore'
+        AND restored_from_item_id = ANY($1::bigint[])
+      `,
+      [itemIds]
+    );
+
+    for (const row of restoredResult.rows || []) {
+      const id = Number(row?.restored_from_item_id);
+      if (Number.isFinite(id) && id > 0) {
+        restoredItemIdSet.add(Math.floor(id));
+      }
+    }
+  }
+
   const unifiedIds = Array.from(
     new Set(
       itemsRaw
@@ -265,6 +323,7 @@ export async function GET(
       afterValue: item?.after_value,
       beforeRowData: item?.before_row_data,
       afterRowData: item?.after_row_data,
+      isRestored: restoredItemIdSet.has(itemId),
     });
 
     return {
@@ -294,6 +353,7 @@ export async function GET(
   const summary = {
     total: items.length,
     restorable: items.filter((item: any) => item.restorable).length,
+    restored: items.filter((item: any) => item.status === "restored").length,
     conflict: items.filter((item: any) => item.status === "conflict").length,
     deleted: items.filter((item: any) => item.status === "deleted").length,
     already_deleted: items.filter((item: any) => item.status === "already_deleted").length,

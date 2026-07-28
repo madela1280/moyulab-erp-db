@@ -29,6 +29,7 @@ function shortValue(value: any) {
 
 function statusClass(status: string) {
   if (status === "restorable") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "restored") return "bg-blue-50 text-blue-700 border-blue-200";
   if (status === "conflict") return "bg-red-50 text-red-700 border-red-200";
   if (status === "deleted") return "bg-orange-50 text-orange-700 border-orange-200";
   if (status === "already_deleted") return "bg-slate-50 text-slate-500 border-slate-200";
@@ -255,6 +256,9 @@ export default function HistoryRestoreView() {
                 </span>
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
                   복원가능 {detail.summary.restorable}
+                </span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700">
+                  복원완료 {detail.summary.restored}
                 </span>
                 <span className="rounded-full border border-red-200 bg-red-50 px-2 py-1 text-red-700">
                   충돌 {detail.summary.conflict}
