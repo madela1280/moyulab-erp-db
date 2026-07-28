@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useHistoryRestore } from "@/backupRestore/history-restore/useHistoryRestore";
+import HistoryPastGrid from "@/backupRestore/history-restore/HistoryPastGrid";
 
 function actionLabel(actionType: string) {
   if (actionType === "cell_update") return "수정";
@@ -10,30 +11,6 @@ function actionLabel(actionType: string) {
   if (actionType === "insert") return "행추가";
   if (actionType === "restore") return "복원";
   return actionType || "-";
-}
-
-function shortValue(value: any) {
-  if (value === null || value === undefined) return "";
-
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-
-  try {
-    const text = JSON.stringify(value);
-    if (text.length > 120) return text.slice(0, 120) + "...";
-    return text;
-  } catch {
-    return String(value);
-  }
-}
-
-function statusClass(status: string) {
-  if (status === "restorable") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (status === "restored") return "bg-blue-50 text-blue-700 border-blue-200";
-  if (status === "conflict") return "bg-red-50 text-red-700 border-red-200";
-  if (status === "deleted") return "bg-orange-50 text-orange-700 border-orange-200";
-  if (status === "already_deleted") return "bg-slate-50 text-slate-500 border-slate-200";
-  return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
 export default function HistoryRestoreView() {
@@ -51,8 +28,7 @@ export default function HistoryRestoreView() {
 
     error,
     message,
-    restoreResult,
-
+   
     loadToday,
     showRecent7Dates,
     loadDate,
@@ -131,17 +107,7 @@ export default function HistoryRestoreView() {
             {message && <div className="text-slate-600">{message}</div>}
           </div>
         )}
-
-        {restoreResult && (
-          <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            복원 결과: 성공 {restoreResult.restoredCount}건 / 제외 {restoreResult.skippedCount}건
-            {restoreResult.restoreOperationId ? (
-              <span className="ml-2 text-xs text-emerald-600">
-                복원ID: {restoreResult.restoreOperationId}
-              </span>
-            ) : null}
-          </div>
-        )}
+        
       </div>
 
       <div className="mt-4 min-h-0 flex-1 grid grid-cols-[360px_1fr] gap-4">
@@ -208,12 +174,12 @@ export default function HistoryRestoreView() {
               <div>
                 <div className="font-bold text-slate-800">상세 비교</div>
                 <div className="mt-1 text-xs text-slate-500">
-                  과거값과 현재값을 비교합니다. 현재값 직접 수정 기능은 다음 단계에서 연결합니다.
+                  선택한 작업의 과거시점 통합관리 화면을 확인합니다.
                 </div>
               </div>
 
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
-                아래 직접 수정 영역에서 과거값을 참고해 현재값 수정 내용을 준비할 수 있습니다.
+                현재 단계에서는 과거시점 화면을 읽기전용으로 확인합니다. 현재화면 수정은 다음 단계에서 연결합니다.
               </div>
             </div>
 
@@ -238,7 +204,7 @@ export default function HistoryRestoreView() {
             )}
           </div>
 
-                    <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             {!detail ? (
               <div className="p-6 text-sm text-slate-500">
                 왼쪽 작업목록에서 비교할 작업을 선택하세요.
@@ -246,87 +212,12 @@ export default function HistoryRestoreView() {
             ) : loadingDetail ? (
               <div className="p-6 text-sm text-slate-500">상세 조회중...</div>
             ) : (
-              <div className="min-w-[980px]">
-                
-                <table className="w-full border-collapse text-sm">
-                  <thead className="sticky top-0 z-10 bg-slate-100">
-                    <tr className="border-b border-slate-200 text-xs text-slate-600">
-                      <th className="w-12 px-2 py-2 text-center">구분</th>
-                      <th className="w-20 px-2 py-2 text-left">row id</th>
-                      <th className="w-28 px-2 py-2 text-left">컬럼</th>
-                      <th className="px-2 py-2 text-left">변경 전</th>
-                      <th className="px-2 py-2 text-left">변경 후</th>
-                      <th className="px-2 py-2 text-left">현재값</th>
-                      <th className="w-24 px-2 py-2 text-center">상태</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {detail.items.map((item) => {
-                      return (
-                        <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="px-2 py-2 text-center">
-                            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                              비교
-                            </span>
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-700">
-                            {item.unified_id ?? "-"}
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-700">
-                            {item.column_key || "(행 전체)"}
-                          </td>
-
-                          <td className="max-w-[260px] px-2 py-2 text-slate-700">
-                            <div className="truncate" title={shortValue(item.before_value)}>
-                              {shortValue(item.before_value)}
-                            </div>
-                          </td>
-
-                          <td className="max-w-[260px] px-2 py-2 text-slate-700">
-                            <div className="truncate" title={shortValue(item.after_value)}>
-                              {shortValue(item.after_value)}
-                            </div>
-                          </td>
-
-                          <td className="max-w-[260px] px-2 py-2 text-slate-700">
-                            <div className="truncate" title={shortValue(item.current_value)}>
-                              {shortValue(item.current_value)}
-                            </div>
-                          </td>
-
-                          <td className="px-2 py-2 text-center">
-                            <span
-                              className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusClass(
-                                item.status
-                              )}`}
-                            >
-                              {item.statusLabel}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="min-w-[980px] p-4">
+                <HistoryPastGrid detail={detail} />
               </div>
             )}
-          </div>
-
-          {restoreResult?.skipped?.length ? (
-            <div className="shrink-0 border-t bg-orange-50 px-4 py-3 text-xs text-orange-700">
-              제외 항목 {restoreResult.skipped.length}건:
-              <span className="ml-2">
-                {restoreResult.skipped
-                  .slice(0, 3)
-                  .map((x) => x.message)
-                  .join(" / ")}
-                {restoreResult.skipped.length > 3 ? " ..." : ""}
-              </span>
-            </div>
-          ) : null}
+          </div>  
+          
         </div>
       </div>
     </div>
