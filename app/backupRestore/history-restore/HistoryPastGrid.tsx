@@ -192,7 +192,7 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
       </div>
 
       <div className="max-h-[360px] overflow-auto">
-        <table className="min-w-max w-full border-collapse text-xs">
+         <table className="min-w-max w-full border-collapse text-[11px]">
           <thead className="sticky top-0 z-10 bg-slate-100">
             <tr className="border-b border-slate-200 text-slate-600">
             <th className="sticky left-0 z-20 w-[70px] border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold">
@@ -240,7 +240,7 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
                      <td
                         key={cellKey}
                         className={`border-r border-slate-100 px-2 py-2 text-slate-700 ${
-                          changed ? "bg-yellow-50 font-semibold" : ""
+                          changed ? "bg-yellow-50" : ""
                         }`}
                      style={{
                           width: getColumnWidthPx(columnKey, colWidthUnitByKey),
