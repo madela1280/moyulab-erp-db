@@ -50,12 +50,10 @@ export default function HistoryRestoreView() {
     <div className="w-full h-full bg-white border rounded-md p-6 overflow-hidden flex flex-col">
       <div className="shrink-0">
         <div className="text-lg font-bold text-slate-800">변경이력복원</div>
-        <div className="mt-2 text-sm text-slate-500">
-          통합관리 작업 중 발생한 입력, 삭제, 붙여넣기 이력을 과거값과 현재값으로 비교하는 화면입니다.
-        </div>
+      </div>
       </div>
 
-      <div className="mt-5 shrink-0 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="mt-3 shrink-0 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
