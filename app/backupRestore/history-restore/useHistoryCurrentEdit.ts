@@ -19,6 +19,7 @@ export type HistoryCurrentGridRow = {
   row_number: number | null;
   baseData: Record<string, any>;
   isNew: boolean;
+  insertAfterRowKey?: string | null;
 };
 
 type SelectedCell = {
@@ -173,8 +174,30 @@ export function useHistoryCurrentEdit({
   const baseRows = useMemo(() => buildInitialRows(detail), [detail]);
   const sourceChangedCellSet = useMemo(() => buildSourceChangedCellSet(detail), [detail]);
 
-  const rows = useMemo(() => {
-    return [...baseRows, ...extraRows];
+    const rows = useMemo(() => {
+    if (!extraRows.length) return baseRows;
+
+    const out = [...baseRows];
+
+    for (const extraRow of extraRows) {
+      const afterRowKey = extraRow.insertAfterRowKey ?? null;
+
+      if (!afterRowKey) {
+        out.push(extraRow);
+        continue;
+      }
+
+      const insertIndex = out.findIndex((row) => row.rowKey === afterRowKey);
+
+      if (insertIndex < 0) {
+        out.push(extraRow);
+        continue;
+      }
+
+      out.splice(insertIndex + 1, 0, extraRow);
+    }
+
+    return out;
   }, [baseRows, extraRows]);
 
   useEffect(() => {
@@ -287,9 +310,12 @@ export function useHistoryCurrentEdit({
     [allRowMap]
   );
 
-  const addRowAfterSelected = useCallback(() => {
+   const addRowAfterSelected = useCallback(() => {
+    if (!selectedCell) return;
+
     const seq = newRowSeq;
     const rowKey = `new:${Date.now()}:${seq}`;
+    const insertAfterRowKey = selectedCell.rowKey;
 
     const newRow: HistoryCurrentGridRow = {
       rowKey,
@@ -297,22 +323,12 @@ export function useHistoryCurrentEdit({
       row_number: null,
       baseData: {},
       isNew: true,
+      insertAfterRowKey,
     };
 
     setNewRowSeq((prev) => prev + 1);
 
-    setExtraRows((prev) => {
-      if (!selectedCell) return [...prev, newRow];
-
-      const selectedIndex = rows.findIndex((row) => row.rowKey === selectedCell.rowKey);
-      if (selectedIndex < 0) return [...prev, newRow];
-
-      const nextAllRows = [...rows];
-      nextAllRows.splice(selectedIndex + 1, 0, newRow);
-
-      const nextExtraRows = nextAllRows.filter((row) => row.isNew);
-      return nextExtraRows;
-    });
+    setExtraRows((prev) => [...prev, newRow]);
 
     setDraftMap((prev) => {
       const next = new Map(prev);
@@ -328,7 +344,7 @@ export function useHistoryCurrentEdit({
     setError("");
     setMessage("");
     setSaveResult(null);
-  }, [columns, newRowSeq, rows, selectedCell]);
+  }, [columns, newRowSeq, selectedCell]);
 
   const markSelectedRowDeleted = useCallback(() => {
     if (!selectedCell) return;
@@ -449,9 +465,9 @@ export function useHistoryCurrentEdit({
           }
         }
 
-        if (Object.keys(data).length > 0) {
+       if (Object.keys(data).length > 0) {
           inserts.push({
-            after_row_key: selectedCell?.rowKey ?? null,
+            after_row_key: row.insertAfterRowKey ?? null,
             data,
           });
         }

@@ -76,7 +76,6 @@ export default function HistoryCurrentGrid({
     clearSelectedCell,
     addRowAfterSelected,
     markSelectedRowDeleted,
-    undoSelectedRow,
     isCellDirty,
     isSourceChangedCell,
     isRowDeleted,
@@ -154,17 +153,8 @@ export default function HistoryCurrentGrid({
 
             <button
               type="button"
-              onClick={undoSelectedRow}
-              disabled={!selectedCell || saving}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-            >
-              선택행 되돌림
-            </button>
-
-            <button
-              type="button"
               onClick={addRowAfterSelected}
-              disabled={saving}
+              disabled={!selectedCell || saving}
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
             >
               아래 행추가
