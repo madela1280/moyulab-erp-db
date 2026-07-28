@@ -153,15 +153,6 @@ export default function HistoryCurrentGrid({
 
             <button
               type="button"
-              onClick={addRowAfterSelected}
-              disabled={!selectedCell || saving}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-            >
-              아래 행추가
-            </button>
-
-            <button
-              type="button"
               onClick={() => void saveChanges()}
               disabled={dirtyCount === 0 || saving}
               className="rounded-md border border-blue-600 bg-blue-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
