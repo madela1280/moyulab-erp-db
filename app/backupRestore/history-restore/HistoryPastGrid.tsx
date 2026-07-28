@@ -69,8 +69,16 @@ function shortValue(value: any) {
 }
 
 function getPastRowData(item: HistoryOperationItem) {
-  if (isPlainObject(item.before_row_data)) return item.before_row_data;
+  const actionType = normalizeString(item.action_type);
+
+  if (actionType === "bulk_delete") {
+    if (isPlainObject(item.before_row_data)) return item.before_row_data;
+    if (isPlainObject(item.after_row_data)) return item.after_row_data;
+    return {};
+  }
+
   if (isPlainObject(item.after_row_data)) return item.after_row_data;
+  if (isPlainObject(item.before_row_data)) return item.before_row_data;
   return {};
 }
 
