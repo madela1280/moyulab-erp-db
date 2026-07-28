@@ -45,6 +45,37 @@ const PREFERRED_UNIFIED_COLUMN_ORDER = [
   "총연장횟수",
 ];
 
+const UNIFIED_COLUMN_WIDTH_MAP: Record<string, number> = {
+  거래처분류: 110,
+  상태: 90,
+  안내분류: 120,
+  "구매/렌탈": 90,
+  기기번호: 90,
+  기종: 100,
+  에러횟수: 80,
+  제품: 100,
+  수취인명: 110,
+  연락처1: 120,
+  연락처2: 120,
+  계약자주소: 320,
+  택배발송일: 110,
+  시작일: 100,
+  종료일: 100,
+  반납요청일: 110,
+  반납완료일: 110,
+  "0차연장": 90,
+  "1차연장": 130,
+  "2차연장": 130,
+  "3차연장": 130,
+  "4차연장": 130,
+  "5차연장": 130,
+  총연장횟수: 100,
+};
+
+function getColumnWidth(columnKey: string) {
+  return UNIFIED_COLUMN_WIDTH_MAP[columnKey] ?? 120;
+}
+
 function isPlainObject(v: any): v is Record<string, any> {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
@@ -233,13 +264,18 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
               </th>
 
               {columns.map((columnKey) => (
-                <th
+               <th
                   key={columnKey}
-                  className="min-w-[120px] max-w-[220px] border-r border-slate-200 px-2 py-2 text-left font-semibold"
+                  className="border-r border-slate-200 px-2 py-2 text-left font-semibold"
+                  style={{
+                    width: getColumnWidth(columnKey),
+                    minWidth: getColumnWidth(columnKey),
+                    maxWidth: getColumnWidth(columnKey),
+                  }}
                   title={columnKey}
                 >
                   {columnKey}
-                </th>
+                </th>  
               ))}
             </tr>
           </thead>
@@ -265,17 +301,22 @@ export default function HistoryPastGrid({ detail }: HistoryPastGridProps) {
                     const value = row.rowData?.[columnKey];
 
                     return (
-                      <td
+                     <td
                         key={cellKey}
-                        className={`max-w-[220px] border-r border-slate-100 px-2 py-2 text-slate-700 ${
+                        className={`border-r border-slate-100 px-2 py-2 text-slate-700 ${
                           changed ? "bg-yellow-50 font-semibold" : ""
                         }`}
+                        style={{
+                          width: getColumnWidth(columnKey),
+                          minWidth: getColumnWidth(columnKey),
+                          maxWidth: getColumnWidth(columnKey),
+                        }}
                         title={shortValue(value)}
                       >
                         <div className="truncate">
                           {shortValue(value)}
                         </div>
-                      </td>
+                      </td>  
                     );
                   })}
                 </tr>
