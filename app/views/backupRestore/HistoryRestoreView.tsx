@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useHistoryRestore } from "@/backupRestore/history-restore/useHistoryRestore";
 import HistoryPastGrid from "@/backupRestore/history-restore/HistoryPastGrid";
+import HistoryCurrentGrid from "@/backupRestore/history-restore/HistoryCurrentGrid";
 
 function actionLabel(actionType: string) {
   if (actionType === "cell_update") return "수정";
@@ -35,9 +36,15 @@ export default function HistoryRestoreView() {
     selectOperation,
   } = useHistoryRestore();
 
+  const [editMode, setEditMode] = useState(false);
+
   useEffect(() => {
     loadToday();
   }, [loadToday]);
+
+  useEffect(() => {
+    setEditMode(false);
+  }, [selectedOperationId]);
 
   return (
     <div className="w-full h-full bg-white border rounded-md p-6 overflow-hidden flex flex-col">
@@ -178,8 +185,19 @@ export default function HistoryRestoreView() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
-                현재 단계에서는 과거시점 화면을 읽기전용으로 확인합니다. 현재화면 수정은 다음 단계에서 연결합니다.
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                  과거시점 화면을 확인한 뒤, 필요하면 현재화면 수정을 시작하세요.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditMode((prev) => !prev)}
+                  disabled={!detail || loadingDetail}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  {editMode ? "수정화면 닫기" : "수정하기"}
+                </button>
               </div>
             </div>
 
@@ -211,9 +229,23 @@ export default function HistoryRestoreView() {
               </div>
             ) : loadingDetail ? (
               <div className="p-6 text-sm text-slate-500">상세 조회중...</div>
-            ) : (
+                        ) : (
               <div className="min-w-[980px] p-4">
                 <HistoryPastGrid detail={detail} />
+
+                {editMode && (
+                  <div className="mt-4">
+                    <HistoryCurrentGrid
+                      detail={detail}
+                      loading={loadingDetail}
+                      onSaved={() =>
+                        selectedOperationId
+                          ? selectOperation(selectedOperationId)
+                          : undefined
+                      }
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>  
