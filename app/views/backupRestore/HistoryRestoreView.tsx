@@ -2,7 +2,6 @@
 
 import { useEffect } from "react";
 import { useHistoryRestore } from "@/backupRestore/history-restore/useHistoryRestore";
-import HistoryManualEditPanel from "@/backupRestore/history-restore/HistoryManualEditPanel";
 
 function actionLabel(actionType: string) {
   if (actionType === "cell_update") return "수정";
@@ -248,10 +247,7 @@ export default function HistoryRestoreView() {
               <div className="p-6 text-sm text-slate-500">상세 조회중...</div>
             ) : (
               <div className="min-w-[980px]">
-                <div className="p-4">
-                  <HistoryManualEditPanel detail={detail} loading={loadingDetail} />
-                </div>
-
+                
                 <table className="w-full border-collapse text-sm">
                   <thead className="sticky top-0 z-10 bg-slate-100">
                     <tr className="border-b border-slate-200 text-xs text-slate-600">
