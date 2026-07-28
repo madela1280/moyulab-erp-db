@@ -37,7 +37,7 @@ function statusClass(status: string) {
 }
 
 export default function HistoryRestoreView() {
-  const {
+ const {
     mode,
     selectedDate,
     recent7Dates,
@@ -45,11 +45,9 @@ export default function HistoryRestoreView() {
     operations,
     selectedOperationId,
     detail,
-    selectedItemIds,
 
     loadingOperations,
     loadingDetail,
-    restoring,
 
     error,
     message,
@@ -59,11 +57,6 @@ export default function HistoryRestoreView() {
     showRecent7Dates,
     loadDate,
     selectOperation,
-
-    toggleItem,
-    selectAllRestorable,
-    clearSelectedItems,
-    restoreSelected,
   } = useHistoryRestore();
 
   useEffect(() => {
@@ -75,7 +68,7 @@ export default function HistoryRestoreView() {
       <div className="shrink-0">
         <div className="text-lg font-bold text-slate-800">변경이력복원</div>
         <div className="mt-2 text-sm text-slate-500">
-          통합관리 작업 중 발생한 입력, 삭제, 붙여넣기 실수를 이력 기반으로 선택 복원하는 화면입니다.
+          통합관리 작업 중 발생한 입력, 삭제, 붙여넣기 이력을 과거값과 현재값으로 비교하는 화면입니다.
         </div>
       </div>
 
@@ -108,7 +101,7 @@ export default function HistoryRestoreView() {
           </button>
 
           <div className="ml-2 text-xs text-slate-500">
-            오늘 또는 최근 7일 날짜를 선택한 뒤, 작업목록에서 복원할 시점을 고르세요.
+            오늘 또는 최근 7일 날짜를 선택한 뒤, 작업목록에서 비교할 작업을 고르세요.
           </div>
         </div>
 
@@ -215,37 +208,12 @@ export default function HistoryRestoreView() {
               <div>
                 <div className="font-bold text-slate-800">상세 비교</div>
                 <div className="mt-1 text-xs text-slate-500">
-                  과거값과 현재값을 비교한 뒤, 복원 가능한 항목만 선택 복원합니다.
+                  과거값과 현재값을 비교합니다. 현재값 직접 수정 기능은 다음 단계에서 연결합니다.
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={selectAllRestorable}
-                  disabled={!detail || loadingDetail || restoring}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                >
-                  복원가능 전체선택
-                </button>
-
-                <button
-                  type="button"
-                  onClick={clearSelectedItems}
-                  disabled={!detail || loadingDetail || restoring}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                >
-                  선택해제
-                </button>
-
-                <button
-                  type="button"
-                  onClick={restoreSelected}
-                  disabled={!detail || selectedItemIds.length === 0 || loadingDetail || restoring}
-                  className="rounded-md border border-blue-600 bg-blue-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {restoring ? "복원중..." : `선택복원 ${selectedItemIds.length}건`}
-                </button>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                자동 선택복원은 중단되었습니다. 현재 단계에서는 이력 비교만 가능합니다.
               </div>
             </div>
 
@@ -281,7 +249,7 @@ export default function HistoryRestoreView() {
               <table className="min-w-[980px] w-full border-collapse text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-100">
                   <tr className="border-b border-slate-200 text-xs text-slate-600">
-                    <th className="w-12 px-2 py-2 text-center">선택</th>
+                    <th className="w-12 px-2 py-2 text-center">구분</th>
                     <th className="w-20 px-2 py-2 text-left">row id</th>
                     <th className="w-28 px-2 py-2 text-left">컬럼</th>
                     <th className="px-2 py-2 text-left">변경 전</th>
@@ -292,18 +260,13 @@ export default function HistoryRestoreView() {
                 </thead>
 
                 <tbody>
-                  {detail.items.map((item) => {
-                    const checked = selectedItemIds.includes(item.id);
-
+                 {detail.items.map((item) => {
                     return (
                       <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-2 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={!item.restorable || restoring}
-                            onChange={() => toggleItem(item.id)}
-                          />
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500">
+                            비교
+                          </span>
                         </td>
 
                         <td className="px-2 py-2 text-slate-700">
