@@ -51,7 +51,6 @@ export default function HistoryRestoreView() {
       <div className="shrink-0">
         <div className="text-lg font-bold text-slate-800">변경이력복원</div>
       </div>
-      </div>
 
       <div className="mt-3 shrink-0 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
