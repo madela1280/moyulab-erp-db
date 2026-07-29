@@ -9,6 +9,7 @@
     "start": "next start",
     "check:browser-storage": "node scripts/forbid-browser-storage.mjs",
     "regular-backup": "node scripts/regular-backup.mjs",
+    "excel-backup": "node scripts/excel-backup.mjs",
     "prune:change-history": "node scripts/prune-unified-change-history.mjs",
     "prebuild": "npm run check:browser-storage"
   },
