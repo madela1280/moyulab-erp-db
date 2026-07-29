@@ -60,14 +60,16 @@ export default function ExcelBackupView() {
     backups,
     loading,
     creating,
+    deletingId,
     error,
     reload,
     createBackup,
+    removeBackup,
     downloadBackup,
   } = useExcelBackup();
 
   const handleCreate = async () => {
-    if (creating) return;
+    if (creating || deletingId) return;
 
     const ok = window.confirm(
       [
@@ -87,6 +89,29 @@ export default function ExcelBackupView() {
     }
   };
 
+  const handleDelete = async (id: number, fileName: string) => {
+    if (creating || deletingId) return;
+
+    const ok = window.confirm(
+      [
+        "선택한 엑셀백업 파일을 삭제할까요?",
+        "",
+        fileName,
+        "",
+        "서버에 저장된 .xlsx 파일과 목록 정보가 함께 삭제됩니다.",
+      ].join("\n")
+    );
+
+    if (!ok) return;
+
+    try {
+      await removeBackup(id);
+      alert("엑셀백업이 삭제되었습니다.");
+    } catch {
+      alert("엑셀백업 삭제에 실패했습니다.");
+    }
+  };
+
   return (
     <div className="w-full h-full bg-white border rounded-md p-6 flex flex-col min-h-0">
       <div className="flex items-start justify-between gap-4">
@@ -98,7 +123,7 @@ export default function ExcelBackupView() {
           <button
             type="button"
             onClick={() => void reload()}
-            disabled={loading || creating}
+            disabled={loading || creating || !!deletingId}
             className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             새로고침
@@ -107,7 +132,7 @@ export default function ExcelBackupView() {
           <button
             type="button"
             onClick={() => void handleCreate()}
-            disabled={creating}
+            disabled={creating || !!deletingId}
             className="px-3 py-2 rounded-md bg-slate-900 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
           >
             {creating ? "엑셀 생성중..." : "수동생성"}
@@ -135,7 +160,7 @@ export default function ExcelBackupView() {
               <th className="px-3 py-2 text-left font-semibold">파일명</th>
               <th className="px-3 py-2 text-left font-semibold w-[100px]">행 수</th>
               <th className="px-3 py-2 text-left font-semibold w-[120px]">크기</th>
-              <th className="px-3 py-2 text-left font-semibold w-[170px]">
+              <th className="px-3 py-2 text-left font-semibold w-[230px]">
                 생성일자
               </th>
               <th className="px-3 py-2 text-left font-semibold w-[120px]">
@@ -144,19 +169,22 @@ export default function ExcelBackupView() {
               <th className="px-3 py-2 text-center font-semibold w-[110px]">
                 다운로드
               </th>
+              <th className="px-3 py-2 text-center font-semibold w-[90px]">
+                삭제
+              </th>
             </tr>
           </thead>
 
           <tbody className="bg-white divide-y divide-slate-100">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
                   엑셀백업 목록을 불러오는 중입니다.
                 </td>
               </tr>
             ) : backups.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
                   생성된 엑셀백업이 없습니다.
                 </td>
               </tr>
@@ -190,7 +218,7 @@ export default function ExcelBackupView() {
                     {formatBytes(Number(b.file_size_bytes || 0))}
                   </td>
 
-                  <td className="px-3 py-2 text-slate-600">
+                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                     {formatDateTime(b.finished_at || b.created_at || null)}
                   </td>
 
@@ -203,10 +231,23 @@ export default function ExcelBackupView() {
                       <button
                         type="button"
                         onClick={() => downloadBackup(b.id)}
-                        disabled={b.status !== "success" || creating}
+                        disabled={b.status !== "success" || creating || !!deletingId}
                         className="px-2 py-1 rounded border border-slate-300 bg-white text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                       >
                         다운로드
+                      </button>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(b.id, b.file_name)}
+                        disabled={b.status === "running" || creating || deletingId === b.id}
+                        className="px-2 py-1 rounded border border-rose-200 bg-white text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        {deletingId === b.id ? "삭제중" : "삭제"}
                       </button>
                     </div>
                   </td>

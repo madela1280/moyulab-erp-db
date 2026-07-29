@@ -31,6 +31,11 @@ type ExcelBackupCreateResponse = {
   error?: string;
 };
 
+type ExcelBackupDeleteResponse = {
+  ok: boolean;
+  error?: string;
+};
+
 const BASE_URL = "/api/backup-restore/excel-backups";
 
 async function readJsonSafe<T>(res: Response): Promise<T> {
@@ -69,6 +74,19 @@ export async function createExcelBackup(): Promise<ExcelBackupItem> {
   }
 
   return data.backup;
+}
+
+export async function deleteExcelBackup(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/${encodeURIComponent(String(id))}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+
+  const data = await readJsonSafe<ExcelBackupDeleteResponse>(res);
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "excel_backup_delete_failed");
+  }
 }
 
 export function getExcelBackupDownloadUrl(id: number): string {

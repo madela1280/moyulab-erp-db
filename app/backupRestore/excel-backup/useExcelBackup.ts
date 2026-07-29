@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   createExcelBackup,
+  deleteExcelBackup,
   fetchExcelBackups,
   getExcelBackupDownloadUrl,
   type ExcelBackupItem,
@@ -13,6 +14,7 @@ export function useExcelBackup() {
   const [latestBackup, setLatestBackup] = useState<ExcelBackupItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -50,6 +52,25 @@ export function useExcelBackup() {
     }
   }, [reload]);
 
+  const removeBackup = useCallback(
+    async (id: number) => {
+      setDeletingId(id);
+      setError(null);
+
+      try {
+        await deleteExcelBackup(id);
+        await reload();
+      } catch (e: any) {
+        console.error("excel backup delete error:", e);
+        setError(e?.message || "excel_backup_delete_failed");
+        throw e;
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [reload]
+  );
+
   const downloadBackup = useCallback((id: number) => {
     window.location.href = getExcelBackupDownloadUrl(id);
   }, []);
@@ -63,9 +84,11 @@ export function useExcelBackup() {
     latestBackup,
     loading,
     creating,
+    deletingId,
     error,
     reload,
     createBackup,
+    removeBackup,
     downloadBackup,
   };
 }
