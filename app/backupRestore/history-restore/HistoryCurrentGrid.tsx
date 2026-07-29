@@ -75,6 +75,8 @@ export default function HistoryCurrentGrid({
     setCellValue,
     clearSelectedCell,
     addRowAfterSelected,
+    restoreDeletedRows,
+    hasDeletedRowsToRestore,
     markSelectedRowDeleted,
     isCellDirty,
     isSourceChangedCell,
@@ -153,12 +155,21 @@ export default function HistoryCurrentGrid({
 
             <button
               type="button"
+              onClick={restoreDeletedRows}
+              disabled={!hasDeletedRowsToRestore || saving}
+              className="rounded-md border border-emerald-500 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              삭제행 복원
+            </button>
+
+            <button
+              type="button"
               onClick={() => void saveChanges()}
               disabled={dirtyCount === 0 || saving}
               className="rounded-md border border-blue-600 bg-blue-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? "저장중..." : "수정 저장"}
-            </button>
+            </button> 
           </div>
         </div>
 

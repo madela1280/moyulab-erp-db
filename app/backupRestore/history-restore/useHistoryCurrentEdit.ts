@@ -155,6 +155,49 @@ function buildInitialDraftMap(rows: HistoryCurrentGridRow[], columns: string[]) 
   return map;
 }
 
+function buildDeletedRestoreRows(detail: HistoryOperationDetailResponse | null) {
+  const rows: HistoryCurrentGridRow[] = [];
+  const seen = new Set<string>();
+
+  for (const item of detail?.items || []) {
+    const actionType = normalizeString(item.action_type);
+    if (actionType !== "bulk_delete") continue;
+    if (item.status !== "restorable") continue;
+    if (!isPlainObject(item.before_row_data)) continue;
+    if (isPlainObject(item.current_row_data)) continue;
+
+    const itemId = Number(item.id);
+    if (!Number.isFinite(itemId) || itemId <= 0) continue;
+
+    const rowKey = `restore:${Math.floor(itemId)}`;
+    if (seen.has(rowKey)) continue;
+    seen.add(rowKey);
+
+    const rowNumber =
+      Number.isFinite(Number((item as any).row_number)) && Number((item as any).row_number) > 0
+        ? Math.floor(Number((item as any).row_number))
+        : null;
+
+    rows.push({
+      rowKey,
+      unified_id: null,
+      row_number: rowNumber,
+      baseData: item.before_row_data,
+      isNew: true,
+      insertAfterRowKey: null,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    const ar = Number(a.row_number);
+    const br = Number(b.row_number);
+
+    if (Number.isFinite(ar) && Number.isFinite(br)) return ar - br;
+
+    return a.rowKey.localeCompare(b.rowKey);
+  });
+}
+
 export function useHistoryCurrentEdit({
   detail,
   columns,
@@ -310,6 +353,14 @@ export function useHistoryCurrentEdit({
     [allRowMap]
   );
 
+    const hasDeletedRowsToRestore = useMemo(() => {
+    const restoreRows = buildDeletedRestoreRows(detail);
+    if (!restoreRows.length) return false;
+
+    const existingKeys = new Set(extraRows.map((row) => row.rowKey));
+    return restoreRows.some((row) => !existingKeys.has(row.rowKey));
+  }, [detail, extraRows]);
+
    const addRowAfterSelected = useCallback(() => {
     if (!selectedCell) return;
 
@@ -345,6 +396,56 @@ export function useHistoryCurrentEdit({
     setMessage("");
     setSaveResult(null);
   }, [columns, newRowSeq, selectedCell]);
+
+  const restoreDeletedRows = useCallback(() => {
+    const restoreRows = buildDeletedRestoreRows(detail);
+
+    if (!restoreRows.length) {
+      setMessage("복원할 삭제행이 없습니다.");
+      return;
+    }
+
+    const existingKeys = new Set(extraRows.map((row) => row.rowKey));
+    const rowsToAdd = restoreRows.filter((row) => !existingKeys.has(row.rowKey));
+
+    if (!rowsToAdd.length) {
+      setMessage("이미 삭제행 복원 준비가 완료되어 있습니다.");
+      return;
+    }
+
+    setExtraRows((prev) => [...prev, ...rowsToAdd]);
+
+    setDraftMap((prev) => {
+      const next = new Map(prev);
+
+      for (const row of rowsToAdd) {
+        for (const columnKey of columns) {
+          next.set(`${row.rowKey}::${columnKey}`, stringifyCellValue(row.baseData?.[columnKey]));
+        }
+      }
+
+      return next;
+    });
+
+    setDeletedRowKeys((prev) => {
+      const next = new Set(prev);
+
+      for (const row of rowsToAdd) {
+        next.delete(row.rowKey);
+      }
+
+      return next;
+    });
+
+    const firstRow = rowsToAdd[0];
+    if (firstRow) {
+      setSelectedCell({ rowKey: firstRow.rowKey, columnKey: columns[0] ?? "" });
+    }
+
+    setError("");
+    setMessage(`삭제행 ${rowsToAdd.length}건을 복원 준비했습니다. 수정 저장을 누르면 통합관리에 다시 생성됩니다.`);
+    setSaveResult(null);
+  }, [columns, detail, extraRows]);
 
   const markSelectedRowDeleted = useCallback(() => {
     if (!selectedCell) return;
@@ -575,6 +676,8 @@ export function useHistoryCurrentEdit({
     setCellValue,
     clearSelectedCell,
     addRowAfterSelected,
+    restoreDeletedRows,
+    hasDeletedRowsToRestore,
     markSelectedRowDeleted,
     undoSelectedRow,
     isCellDirty,
