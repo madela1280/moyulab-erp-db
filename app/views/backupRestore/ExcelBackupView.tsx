@@ -58,7 +58,6 @@ function statusClassName(status: string) {
 export default function ExcelBackupView() {
   const {
     backups,
-    latestBackup,
     loading,
     creating,
     error,
@@ -67,31 +66,25 @@ export default function ExcelBackupView() {
     downloadBackup,
   } = useExcelBackup();
 
-  const handleCreateAndDownload = async () => {
+  const handleCreate = async () => {
     if (creating) return;
 
     const ok = window.confirm(
       [
         "현재 시점의 통합관리 데이터를 .xlsx 엑셀백업 파일로 생성할까요?",
         "",
-        "생성된 파일은 서버에 저장되고, 완료 후 바로 다운로드됩니다.",
+        "생성된 파일은 서버에 저장되고, 목록에서 다운로드할 수 있습니다.",
       ].join("\n")
     );
 
     if (!ok) return;
 
     try {
-      const backup = await createBackup();
-      alert("엑셀백업이 생성되었습니다. 다운로드를 시작합니다.");
-      downloadBackup(backup.id);
+      await createBackup();
+      alert("엑셀백업이 생성되었습니다.");
     } catch {
       alert("엑셀백업 생성에 실패했습니다.");
     }
-  };
-
-  const handleLatestDownload = () => {
-    if (!latestBackup || latestBackup.status !== "success") return;
-    downloadBackup(latestBackup.id);
   };
 
   return (
@@ -99,9 +92,6 @@ export default function ExcelBackupView() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-lg font-bold text-slate-800">엑셀백업</div>
-          <div className="mt-2 text-sm text-slate-500">
-            ERP 접속 불가 상황에서도 업무를 이어가기 위한 통합관리 엑셀 백업 화면입니다.
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -116,20 +106,11 @@ export default function ExcelBackupView() {
 
           <button
             type="button"
-            onClick={handleLatestDownload}
-            disabled={!latestBackup || latestBackup.status !== "success" || creating}
-            className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            최신 파일 다운로드
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleCreateAndDownload()}
+            onClick={() => void handleCreate()}
             disabled={creating}
             className="px-3 py-2 rounded-md bg-slate-900 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
           >
-            {creating ? "엑셀 생성중..." : "수동생성 후 다운로드"}
+            {creating ? "엑셀 생성중..." : "수동생성"}
           </button>
         </div>
       </div>
@@ -146,51 +127,6 @@ export default function ExcelBackupView() {
         별도 보관 위치에 내려받아 보관할 수 있습니다.
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="rounded-md border border-slate-200 bg-white p-4">
-          <div className="text-xs font-semibold text-slate-500">마지막 생성 시간</div>
-          <div className="mt-2 text-sm font-medium text-slate-800">
-            {formatDateTime(latestBackup?.finished_at || latestBackup?.created_at || null)}
-          </div>
-        </div>
-
-        <div className="rounded-md border border-slate-200 bg-white p-4">
-          <div className="text-xs font-semibold text-slate-500">마지막 생성 상태</div>
-          <div className="mt-2">
-            {latestBackup ? (
-              <span
-                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${statusClassName(
-                  latestBackup.status
-                )}`}
-              >
-                {statusLabel(latestBackup.status)}
-              </span>
-            ) : (
-              <span className="text-sm text-slate-400">-</span>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-md border border-slate-200 bg-white p-4">
-          <div className="text-xs font-semibold text-slate-500">파일 정보</div>
-          <div className="mt-2 text-sm text-slate-800">
-            {latestBackup ? (
-              <>
-                <div className="font-medium truncate" title={latestBackup.file_name}>
-                  {latestBackup.file_name}
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {formatBytes(Number(latestBackup.file_size_bytes || 0))} /{" "}
-                  {Number(latestBackup.row_count || 0).toLocaleString("ko-KR")}행
-                </div>
-              </>
-            ) : (
-              <span className="text-slate-400">생성된 엑셀백업이 없습니다.</span>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="mt-5 flex-1 min-h-0 overflow-auto border rounded-md">
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 bg-slate-100 text-slate-700 border-b">
@@ -200,10 +136,7 @@ export default function ExcelBackupView() {
               <th className="px-3 py-2 text-left font-semibold w-[100px]">행 수</th>
               <th className="px-3 py-2 text-left font-semibold w-[120px]">크기</th>
               <th className="px-3 py-2 text-left font-semibold w-[170px]">
-                생성 시작
-              </th>
-              <th className="px-3 py-2 text-left font-semibold w-[170px]">
-                생성 완료
+                생성일자
               </th>
               <th className="px-3 py-2 text-left font-semibold w-[120px]">
                 생성자
@@ -217,13 +150,13 @@ export default function ExcelBackupView() {
           <tbody className="bg-white divide-y divide-slate-100">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
                   엑셀백업 목록을 불러오는 중입니다.
                 </td>
               </tr>
             ) : backups.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
                   생성된 엑셀백업이 없습니다.
                 </td>
               </tr>
@@ -258,11 +191,7 @@ export default function ExcelBackupView() {
                   </td>
 
                   <td className="px-3 py-2 text-slate-600">
-                    {formatDateTime(b.started_at)}
-                  </td>
-
-                  <td className="px-3 py-2 text-slate-600">
-                    {formatDateTime(b.finished_at)}
+                    {formatDateTime(b.finished_at || b.created_at || null)}
                   </td>
 
                   <td className="px-3 py-2 text-slate-600">
