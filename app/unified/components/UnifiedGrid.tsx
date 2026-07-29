@@ -2442,13 +2442,13 @@ async function bulkPatchAndReconcile(
 
       const result = failed.result;
 
-      if (result?.reason === "locked_by_other" && (result as any).lock) {
-        const lock = (result as any).lock as LockInfo;
+      if (result && !result.ok && result.reason === "locked_by_other" && result.lock) {
+        const lock = result.lock as LockInfo;
         alert(
           `${actionLabel}을(를) 할 수 없습니다.\n` +
             `${lock.locked_by_name}님이 포함된 행을 편집 중입니다.`
         );
-      } else if (result?.reason === "unauthorized") {
+      } else if (result && !result.ok && result.reason === "unauthorized") {
         alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
       } else {
         alert(`${actionLabel}을(를) 할 수 없습니다. 잠시 후 다시 시도해 주세요.`);
