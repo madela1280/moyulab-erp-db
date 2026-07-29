@@ -39,12 +39,9 @@ function makeExcelBackupFileName() {
   return `unified_excel_${sanitizeFilePart(stamp)}.xlsx`;
 }
 
-async function requireAdmin() {
+async function requireUser() {
   const me = (await getSessionUser()) as SessionUser | null;
   if (!me) return null;
-
-  const role = String(me.role || "").trim().toLowerCase();
-  if (role !== "admin") return null;
 
   return me;
 }
@@ -246,11 +243,11 @@ async function createUnifiedExcelFile(params: {
  */
 export async function GET() {
   try {
-    const me = await requireAdmin();
+    const me = await requireUser();
     if (!me) {
       return NextResponse.json(
-        { ok: false, error: "forbidden" },
-        { status: 403 }
+        { ok: false, error: "unauthorized" },
+        { status: 401 }
       );
     }
 
@@ -321,11 +318,11 @@ export async function POST() {
   let filePath = "";
 
   try {
-    const me = await requireAdmin();
+    const me = await requireUser();
     if (!me) {
       return NextResponse.json(
-        { ok: false, error: "forbidden" },
-        { status: 403 }
+        { ok: false, error: "unauthorized" },
+        { status: 401 }
       );
     }
 
