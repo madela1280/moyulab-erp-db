@@ -303,8 +303,16 @@ export default function RegularBackupView() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          오류: {error}
+        <div
+          className={
+            error === "forbidden"
+              ? "mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+              : "mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          }
+        >
+          {error === "forbidden"
+            ? "정기백업은 관리자만 접근 가능한 화면입니다. (관리자: 장대윤)"
+            : `오류: ${error}`}
         </div>
       )}
 
