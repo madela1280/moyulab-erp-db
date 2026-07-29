@@ -2377,6 +2377,30 @@ async function bulkPatchAndReconcile(
   };
 }
 
+      const BULK_LOCK_CONCURRENCY = 8;
+
+    async function runWithConcurrency<T, R>(
+      items: T[],
+      concurrency: number,
+      worker: (item: T, index: number) => Promise<R>
+    ): Promise<R[]> {
+      const results = new Array<R>(items.length);
+      let nextIndex = 0;
+
+      const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (nextIndex < items.length) {
+            const currentIndex = nextIndex++;
+            results[currentIndex] = await worker(items[currentIndex], currentIndex);
+          }
+        })
+      );
+
+      return results;
+    }
+
     async function acquireBulkLocksOrAlert(rowsToLock: UnifiedRow[], actionLabel: string) {
       const uniqueRows: UnifiedRow[] = [];
       const seen = new Set<number>();
@@ -2391,53 +2415,68 @@ async function bulkPatchAndReconcile(
 
       if (!uniqueRows.length) return [] as number[];
 
+      const results = await runWithConcurrency(
+        uniqueRows,
+        BULK_LOCK_CONCURRENCY,
+        async (row) => {
+          const rowId = Number(row.id);
+          const result = await acquireLock("unified", rowId).catch(() => null);
+          return { rowId, result };
+        }
+      );
+
       const acquiredIds: number[] = [];
-
-      for (const row of uniqueRows) {
-        const rowId = Number(row.id);
-
-        const result = await acquireLock("unified", rowId).catch(() => null);
-
+      const failed = results.find(({ rowId, result }) => {
         if (result?.ok) {
           acquiredIds.push(rowId);
-          continue;
+          return false;
         }
+        return true;
+      });
 
-        for (const id of acquiredIds) {
-          try {
-            await releaseLock("unified", id);
-          } catch {
-            // ignore
-          }
-        }
-
-        if (result?.reason === "locked_by_other" && (result as any).lock) {
-          const lock = (result as any).lock as LockInfo;
-          alert(
-            `${actionLabel}을(를) 할 수 없습니다.\n` +
-              `${lock.locked_by_name}님이 포함된 행을 편집 중입니다.`
-          );
-        } else if (result?.reason === "unauthorized") {
-          alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
-        } else {
-          alert(`${actionLabel}을(를) 할 수 없습니다. 잠시 후 다시 시도해 주세요.`);
-        }
-
-        return null;
+      if (!failed) {
+        return acquiredIds;
       }
 
-      return acquiredIds;
+      await releaseBulkLocks(acquiredIds);
+
+      const result = failed.result;
+
+      if (result?.reason === "locked_by_other" && (result as any).lock) {
+        const lock = (result as any).lock as LockInfo;
+        alert(
+          `${actionLabel}을(를) 할 수 없습니다.\n` +
+            `${lock.locked_by_name}님이 포함된 행을 편집 중입니다.`
+        );
+      } else if (result?.reason === "unauthorized") {
+        alert("로그인이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
+      } else {
+        alert(`${actionLabel}을(를) 할 수 없습니다. 잠시 후 다시 시도해 주세요.`);
+      }
+
+      return null;
     }
 
     async function releaseBulkLocks(lockIds: number[]) {
-      for (const id of lockIds) {
+      const uniqueIds = Array.from(
+        new Set(
+          (lockIds || [])
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+            .map((id) => Math.floor(id))
+        )
+      );
+
+      if (!uniqueIds.length) return;
+
+      await runWithConcurrency(uniqueIds, BULK_LOCK_CONCURRENCY, async (id) => {
         try {
           await releaseLock("unified", id);
         } catch {
           // ignore
         }
-      }
-    }
+      });
+    } 
 
     /* --------------------- 행 컨텍스트 메뉴 --------------------- */
 
