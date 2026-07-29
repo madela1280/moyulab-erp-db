@@ -477,14 +477,58 @@ async function getInsertSortKey(afterUnifiedId: number | null) {
     return (Number.isFinite(maxSortKey) ? maxSortKey : 0) + 1000;
   }
 
+  // ✅ 삭제행 복원처럼 기준행이 없는 insert는 "통합관리 맨 끝"이 아니라
+  //    "마지막 실제 데이터 행 바로 아래"에 넣는다.
+  // - 통합관리에는 아래쪽에 빈 행이 많이 존재할 수 있음
+  // - MAX(sort_key)+1000을 쓰면 빈 행들 아래로 들어가서 사용자가 찾기 어려움
+  // - __cellStyle 같은 메타 키는 실제 데이터로 보지 않음
   const result = await query(
     `
-    SELECT COALESCE(MAX(sort_key), 0) + 1000 AS next_sort_key
-    FROM unified_order
+    WITH last_data AS (
+      SELECT o.sort_key
+      FROM unified_order o
+      JOIN unified u ON u.id = o.unified_id
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_each_text(COALESCE(u.data, '{}'::jsonb)) kv
+        WHERE kv.key !~ '^__'
+          AND kv.value IS NOT NULL
+          AND btrim(kv.value) <> ''
+      )
+      ORDER BY o.sort_key DESC, o.unified_id DESC
+      LIMIT 1
+    ),
+    next_row AS (
+      SELECT MIN(o.sort_key) AS next_sort_key
+      FROM unified_order o
+      WHERE o.sort_key > (SELECT sort_key FROM last_data)
+    ),
+    max_row AS (
+      SELECT COALESCE(MAX(sort_key), 0) AS max_sort_key
+      FROM unified_order
+    )
+    SELECT
+      (SELECT sort_key FROM last_data) AS last_data_sort_key,
+      (SELECT next_sort_key FROM next_row) AS next_sort_key,
+      (SELECT max_sort_key FROM max_row) AS max_sort_key
     `
   );
 
-  return Number(result.rows?.[0]?.next_sort_key ?? 1000);
+  const row = result.rows?.[0];
+
+  const lastDataSortKey = Number(row?.last_data_sort_key);
+  const nextSortKey = Number(row?.next_sort_key);
+  const maxSortKey = Number(row?.max_sort_key);
+
+  if (Number.isFinite(lastDataSortKey)) {
+    if (Number.isFinite(nextSortKey) && nextSortKey > lastDataSortKey) {
+      return (lastDataSortKey + nextSortKey) / 2;
+    }
+
+    return lastDataSortKey + 1000;
+  }
+
+  return (Number.isFinite(maxSortKey) ? maxSortKey : 0) + 1000;
 }
 
 export async function POST(req: Request) {
