@@ -3402,21 +3402,29 @@ useEffect(() => {
 
     async function handlePasteToSelectedRowsFromClipboard() {
       let text = "";
+
       try {
         text = await navigator.clipboard.readText();
-      } catch (e) {
-        console.error(e);
-        setRowContextMenu(null);
-        return;
+      } catch {
+        text = "";
       }
 
+      // ✅ 브라우저/PC 권한 정책으로 직접 읽기가 실패해도
+      // ✅ prompt/alert 같은 대체 팝업은 띄우지 않는다.
+      // ✅ 실제 Ctrl+V는 paste 이벤트의 clipboardData로 처리한다.
       if (!text) {
+        try {
+          pasteCatcherRef.current?.focus();
+        } catch {
+          // ignore
+        }
+
         setRowContextMenu(null);
         return;
       }
 
       await pasteTextToSelectedRange(text);
-    }
+    } 
 
     /* --------------------- UI --------------------- */
     if (!rows.length)

@@ -908,15 +908,16 @@ export default function SignupGrid({
 
     const text = (await safeReadClipboardText().catch(() => "")) || lastCopiedRef.current || "";
 
-    // ✅ 권한/브라우저 정책으로 readText가 막히는 경우 prompt fallback
-    const finalText =
-      text || window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") || "";
+    // ✅ 브라우저 권한/PC 정책으로 직접 읽기가 실패하면 prompt를 띄우지 않는다.
+    // ✅ 실제 Ctrl+V는 window paste 이벤트의 clipboardData로 처리한다.
+    if (!text) {
+      focusGridForPaste();
+      return;
+    }
 
-    if (!finalText) return;
-
-    const matrix = parseTSV(finalText);
+    const matrix = parseTSV(text);
     pasteMatrixAt(start, matrix);
-  }
+  }  
 
   function findCellFromPoint(x: number, y: number): CellPos | null {
     const el = document.elementFromPoint(x, y) as HTMLElement | null;
@@ -1205,38 +1206,22 @@ export default function SignupGrid({
         return;
       }
 
-            // Ctrl/Cmd+V
+      // Ctrl/Cmd+V
       if (isMod && key === "v") {
         const start = getSelectionTopLeft();
         if (!start) return;
 
-        // ✅ 기본 입력 컴포넌트로 이벤트가 흘러가서 "한 셀에 몰림"이 생기는 케이스 차단
-        e.preventDefault();
-        e.stopPropagation();
+        // ✅ prompt fallback 제거.
+        // ✅ keydown에서 preventDefault를 걸면 브라우저의 실제 paste 이벤트가 막힐 수 있으므로 막지 않는다.
+        // ✅ Ctrl+V 직전에 숨김 textarea로 포커스만 이동시켜 paste 이벤트가 안정적으로 들어오게 한다.
+        if (pasteFallbackTimerRef.current) {
+          window.clearTimeout(pasteFallbackTimerRef.current);
+          pasteFallbackTimerRef.current = null;
+        }
 
-        // 1) 우선 textarea로 포커스 이동 → paste 이벤트를 최대한 안정적으로 받는다
         focusGridForPaste();
-
-        // 2) 일부 브라우저/상황에서 paste 이벤트가 안 잡히는 경우가 있어 fallback 1회
-        const requestedAt = Date.now();
-        if (pasteFallbackTimerRef.current) window.clearTimeout(pasteFallbackTimerRef.current);
-
-        pasteFallbackTimerRef.current = window.setTimeout(async () => {
-          // paste 이벤트가 이미 처리되었으면 fallback 취소
-          if (lastPasteHandledAtRef.current >= requestedAt) return;
-
-          const text = (await safeReadClipboardText().catch(() => "")) || lastCopiedRef.current || "";
-          const finalText =
-            text || window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") || "";
-
-          if (!finalText) return;
-
-          const matrix = parseTSV(finalText);
-          pasteMatrixAt(start, matrix);
-        }, 80);
-
         return;
-      }
+      }  
 
       // 방향키
       if (key === "arrowup" || key === "arrowdown" || key === "arrowleft" || key === "arrowright") {
@@ -1698,32 +1683,13 @@ export default function SignupGrid({
                       setMenu((m) => ({ ...m, open: false, baseRow: null }));
                     },
                   },
-                                    {
+            {
                     label: "붙여넣기",
                     onClick: async () => {
-                      // 1) 일반 붙여넣기 시도
-                      const start = getSelectionTopLeft();
-                      if (!start) {
-                        setMenu((m) => ({ ...m, open: false, baseRow: null }));
-                        return;
-                      }
-
-                      const text = (await safeReadClipboardText()) || lastCopiedRef.current || "";
-
-                      // 2) 브라우저 정책으로 readText가 실패하면 prompt fallback
-                      const finalText =
-                        text ||
-                        window.prompt("붙여넣을 내용을 여기에 Ctrl+V로 붙여넣고 확인을 누르세요.") ||
-                        "";
-
-                      if (finalText) {
-                        const matrix = parseTSV(finalText);
-                        pasteMatrixAt(start, matrix);
-                      }
-
+                      await pasteFromClipboard();
                       setMenu((m) => ({ ...m, open: false, baseRow: null }));
                     },
-                  },
+                  }, 
                 ]
               : [
                   {
