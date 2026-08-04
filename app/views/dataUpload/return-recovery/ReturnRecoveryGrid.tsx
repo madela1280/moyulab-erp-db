@@ -32,10 +32,7 @@ export default function ReturnRecoveryGrid({ rows }: ReturnRecoveryGridProps) {
                   backgroundColor: index === 0 || index === RETURN_RECOVERY_COLUMNS.length - 1 ? "#ff0000" : "#7030a0",
                 }}
               >
-                <div className="flex items-center justify-center gap-1">
-                  <span>{col.label}</span>
-                  <span className="text-[10px] text-slate-200">▼</span>
-                </div>
+                {col.label}
               </th>
             ))}
           </tr>

@@ -4,7 +4,6 @@ type ReturnRecoveryHeaderProps = {
   onDownloadExcel?: () => void;
   onMoveColumns?: () => void;
   onAddTemplate?: () => void;
-  onAddRows?: () => void;
   onOpenReturnRequestDate?: () => void;
 };
 
@@ -12,7 +11,6 @@ export default function ReturnRecoveryHeader({
   onDownloadExcel,
   onMoveColumns,
   onAddTemplate,
-  onAddRows,
   onOpenReturnRequestDate,
 }: ReturnRecoveryHeaderProps) {
   return (
@@ -22,10 +20,10 @@ export default function ReturnRecoveryHeader({
 
         <button
           type="button"
-          className="text-xs px-3 py-[6px] rounded bg-blue-50 hover:bg-blue-100 border disabled:opacity-60"
+          className="text-xs px-4 py-[7px] rounded bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 disabled:opacity-60"
           onClick={onOpenReturnRequestDate}
         >
-          반납요청일 확인
+          반납회수 확인
         </button>
       </div>
 
@@ -52,14 +50,6 @@ export default function ReturnRecoveryHeader({
           onClick={onAddTemplate}
         >
           양식추가
-        </button>
-
-        <button
-          type="button"
-          className="text-xs px-3 py-[6px] rounded bg-white hover:bg-slate-50 border disabled:opacity-60"
-          onClick={onAddRows}
-        >
-          행10추가
         </button>
       </div>
     </div>
