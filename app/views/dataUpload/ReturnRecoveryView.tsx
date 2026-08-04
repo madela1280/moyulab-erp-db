@@ -8,11 +8,14 @@ import {
   fetchReturnRecoveryFromUnified,
   type ReturnRecoveryUnifiedSourceRow,
 } from "@/views/dataUpload/return-recovery/serviceReturnRecovery";
+import { mapUnifiedToReturnRecoveryRows } from "@/views/dataUpload/return-recovery/mapUnifiedToReturnRecovery";
+import type { ReturnRecoveryRow } from "@/views/dataUpload/return-recovery/columns";
 
 export default function ReturnRecoveryView() {
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [selectedReturnRequestDate, setSelectedReturnRequestDate] = useState("");
   const [sourceRows, setSourceRows] = useState<ReturnRecoveryUnifiedSourceRow[]>([]);
+  const [mappedRows, setMappedRows] = useState<ReturnRecoveryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -25,8 +28,12 @@ export default function ReturnRecoveryView() {
 
     try {
       const result = await fetchReturnRecoveryFromUnified(date);
+      const nextSourceRows = Array.isArray(result.rows) ? result.rows : [];
+      const nextMappedRows = mapUnifiedToReturnRecoveryRows(nextSourceRows);
+
       setSelectedReturnRequestDate(date);
-      setSourceRows(Array.isArray(result.rows) ? result.rows : []);
+      setSourceRows(nextSourceRows);
+      setMappedRows(nextMappedRows);
       setDateModalOpen(false);
     } catch (e: any) {
       setError(e?.message || "반납회수 데이터를 불러오지 못했습니다.");
@@ -51,7 +58,8 @@ export default function ReturnRecoveryView() {
 
           {!loading && selectedReturnRequestDate && !error && (
             <div className="text-slate-600">
-              통합관리 조회 결과: <span className="font-semibold text-slate-800">{sourceRows.length}</span>건
+              통합관리 조회 결과: <span className="font-semibold text-slate-800">{sourceRows.length}</span>건 / 반납회수 표시:{" "}
+              <span className="font-semibold text-slate-800">{mappedRows.length}</span>건
             </div>
           )}
 
@@ -59,7 +67,7 @@ export default function ReturnRecoveryView() {
         </div>
       )}
 
-      <ReturnRecoveryGrid />
+      <ReturnRecoveryGrid rows={mappedRows} />
 
       <ReturnRequestDateModal
         open={dateModalOpen}

@@ -4,7 +4,7 @@ import {
 } from "@/views/dataUpload/return-recovery/columns";
 import type { ReturnRecoveryUnifiedSourceRow } from "@/views/dataUpload/return-recovery/serviceReturnRecovery";
 
-export const RETURN_RECOVERY_DEFAULT_MEMO = "연락 후 방문부탁드립니다. 한국모유수유정보센터 반품\n꼭 수거해주세요";
+export const RETURN_RECOVERY_DEFAULT_MEMO = "연락 후 방문부탁드립니다. 한국모유수유정보센터 반품";
 
 function text(v: unknown) {
   return String(v ?? "").trim();
@@ -18,8 +18,15 @@ function makeEmptyData() {
 }
 
 function buildItemName(data: Record<string, any>) {
-  const parts = [text(data["기기번호"]), text(data["제품"]), text(data["거래처분류"])].filter(Boolean);
+  const parts = [
+    text(data["기기번호"]),
+    text(data["제품"]),
+    text(data["거래처분류"]),
+    text(data["특이사항2"]),
+  ].filter(Boolean);
+
   parts.push("반납");
+
   return parts.join("/");
 }
 
