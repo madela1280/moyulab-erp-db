@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
       SELECT id, data
       FROM unified
       WHERE TRIM(COALESCE(data->>'반납요청일', '')) = $1
+        AND TRIM(COALESCE(data->>'반납완료일', '')) = ''
       ORDER BY id ASC
       `,
       [returnRequestDate]
