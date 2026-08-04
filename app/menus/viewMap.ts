@@ -22,7 +22,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 통합관리
   "통합관리>통합관리": dynamic(() => import("@/views/unified/UnifiedMainView")),
- 
+
   // 기기관리
   "기기관리>심포니": dynamic(() => import("@/views/devices/SymphonyView")),
   "기기관리>락티나": dynamic(() => import("@/views/devices/LactinaView")),
@@ -33,6 +33,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 데이터업로드
   "데이터업로드>신규가입": dynamic(() => import("@/views/dataUpload/SignupView")),
+  "데이터업로드>반납회수": dynamic(() => import("@/views/dataUpload/ReturnRecoveryView")),
 
   // ✅ 회수완료
   "회수완료>회수1": dynamic(() => import("@/views/recoveryComplete/Recovery1View")),
