@@ -23,8 +23,6 @@ function extractValidPhone(...values: any[]): string {
     const text = String(value ?? "").trim();
     const onlyNumber = normalizePhone(text);
 
-    // 010-1234-5678 / 01012345678 / 010 1234 5678 허용
-    // 최종 숫자는 반드시 010으로 시작하는 11자리만 인정
     if (/^010\d{8}$/.test(onlyNumber)) {
       return onlyNumber;
     }
@@ -37,10 +35,15 @@ function getPhoneFromKakaoBody(body: any): string {
   return extractValidPhone(
     body?.action?.detailParams?.전화?.origin,
     body?.action?.detailParams?.전화?.value,
+    body?.action?.detailParams?.전화?.resolved,
+
     body?.action?.detailParams?.phone?.origin,
     body?.action?.detailParams?.phone?.value,
+    body?.action?.detailParams?.phone?.resolved,
+
     body?.action?.detailParams?.전화번호?.origin,
     body?.action?.detailParams?.전화번호?.value,
+    body?.action?.detailParams?.전화번호?.resolved,
 
     body?.action?.params?.전화,
     body?.action?.params?.phone,
@@ -170,14 +173,13 @@ export async function POST(req: NextRequest) {
         : rentalInfo.phone2;
 
     return kakaoText(
-      `대여정보 조회 결과입니다.\n\n` +
+      `고객님의 대여 정보를 확인했습니다.\n\n` +
         `이름: ${rentalInfo.name}\n` +
         `연락처: ${maskPhone(displayPhone)}\n` +
         `대여한곳: ${rentalInfo.rentalPlace}\n` +
         `대여기종: ${rentalInfo.product}\n` +
         `시작일: ${rentalInfo.startDate}\n` +
-        `종료일: ${rentalInfo.endDate}\n\n` +
-        `연장을 원하시면 상담원에게 연결해주세요.`
+        `종료일: ${rentalInfo.endDate}`
     );
   } catch (error) {
     console.error("[KAKAO_RENTAL_LOOKUP_ERROR]", error);
