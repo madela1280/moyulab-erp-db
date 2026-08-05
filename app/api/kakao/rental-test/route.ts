@@ -8,8 +8,7 @@ type RentalInfo = {
   name: string;
   phone1: string;
   phone2: string;
-  partnerType: string;
-  productModel: string;
+  rentalPlace: string;
   product: string;
   startDate: string;
   endDate: string;
@@ -24,8 +23,9 @@ function extractValidPhone(...values: any[]): string {
     const text = String(value ?? "").trim();
     const onlyNumber = normalizePhone(text);
 
-    // 01012345678, 010-1234-5678, 010 1234 5678 등 허용
-    if (onlyNumber.length >= 9 && onlyNumber.length <= 11) {
+    // 010-1234-5678 / 01012345678 / 010 1234 5678 허용
+    // 최종 숫자는 반드시 010으로 시작하는 11자리만 인정
+    if (/^010\d{8}$/.test(onlyNumber)) {
       return onlyNumber;
     }
   }
@@ -35,7 +35,6 @@ function extractValidPhone(...values: any[]): string {
 
 function getPhoneFromKakaoBody(body: any): string {
   return extractValidPhone(
-    // 카카오 필수 파라미터에서 실제 추출값이 주로 여기 들어옴
     body?.action?.detailParams?.전화?.origin,
     body?.action?.detailParams?.전화?.value,
     body?.action?.detailParams?.phone?.origin,
@@ -43,14 +42,12 @@ function getPhoneFromKakaoBody(body: any): string {
     body?.action?.detailParams?.전화번호?.origin,
     body?.action?.detailParams?.전화번호?.value,
 
-    // 일반 params 후보
     body?.action?.params?.전화,
     body?.action?.params?.phone,
     body?.action?.params?.전화번호,
     body?.action?.params?.tel,
     body?.action?.params?.mobile,
 
-    // 최후 후보: 사용자가 입력한 전체 문장
     body?.userRequest?.utterance
   );
 }
@@ -138,8 +135,7 @@ async function findRentalInfoByPhone(phone: string): Promise<RentalInfo | null> 
     name: valueOrDash(data["수취인명"]),
     phone1: valueOrDash(data["연락처1"]),
     phone2: valueOrDash(data["연락처2"]),
-    partnerType: valueOrDash(data["거래처분류"]),
-    productModel: valueOrDash(data["기종"]),
+    rentalPlace: valueOrDash(data["거래처분류"]),
     product: valueOrDash(data["제품"]),
     startDate: valueOrDash(data["시작일"]),
     endDate: valueOrDash(data["종료일"]),
@@ -173,17 +169,12 @@ export async function POST(req: NextRequest) {
         ? rentalInfo.phone1
         : rentalInfo.phone2;
 
-    const displayProduct =
-      rentalInfo.productModel !== "-"
-        ? rentalInfo.productModel
-        : rentalInfo.product;
-
     return kakaoText(
       `대여정보 조회 결과입니다.\n\n` +
         `이름: ${rentalInfo.name}\n` +
         `연락처: ${maskPhone(displayPhone)}\n` +
-        `대여한곳/거래처분류: ${rentalInfo.partnerType}\n` +
-        `대여기종: ${displayProduct}\n` +
+        `대여한곳: ${rentalInfo.rentalPlace}\n` +
+        `대여기종: ${rentalInfo.product}\n` +
         `시작일: ${rentalInfo.startDate}\n` +
         `종료일: ${rentalInfo.endDate}\n\n` +
         `연장을 원하시면 상담원에게 연결해주세요.`
