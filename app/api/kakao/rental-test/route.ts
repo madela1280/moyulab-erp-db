@@ -15,26 +15,44 @@ type RentalInfo = {
   endDate: string;
 };
 
-function getPhoneFromKakaoBody(body: any): string {
-  return (
-    body?.action?.params?.전화 ||
-    body?.action?.params?.phone ||
-    body?.action?.params?.전화번호 ||
-    body?.action?.params?.tel ||
-    body?.action?.params?.mobile ||
-    body?.action?.detailParams?.전화?.origin ||
-    body?.action?.detailParams?.전화?.value ||
-    body?.action?.detailParams?.phone?.origin ||
-    body?.action?.detailParams?.phone?.value ||
-    body?.action?.detailParams?.전화번호?.origin ||
-    body?.action?.detailParams?.전화번호?.value ||
-    body?.userRequest?.utterance ||
-    ""
-  );
-}
-
 function normalizePhone(phone: string): string {
   return String(phone || "").replace(/[^0-9]/g, "");
+}
+
+function extractValidPhone(...values: any[]): string {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    const onlyNumber = normalizePhone(text);
+
+    // 01012345678, 010-1234-5678, 010 1234 5678 등 허용
+    if (onlyNumber.length >= 9 && onlyNumber.length <= 11) {
+      return onlyNumber;
+    }
+  }
+
+  return "";
+}
+
+function getPhoneFromKakaoBody(body: any): string {
+  return extractValidPhone(
+    // 카카오 필수 파라미터에서 실제 추출값이 주로 여기 들어옴
+    body?.action?.detailParams?.전화?.origin,
+    body?.action?.detailParams?.전화?.value,
+    body?.action?.detailParams?.phone?.origin,
+    body?.action?.detailParams?.phone?.value,
+    body?.action?.detailParams?.전화번호?.origin,
+    body?.action?.detailParams?.전화번호?.value,
+
+    // 일반 params 후보
+    body?.action?.params?.전화,
+    body?.action?.params?.phone,
+    body?.action?.params?.전화번호,
+    body?.action?.params?.tel,
+    body?.action?.params?.mobile,
+
+    // 최후 후보: 사용자가 입력한 전체 문장
+    body?.userRequest?.utterance
+  );
 }
 
 function maskPhone(phone: string): string {
@@ -132,8 +150,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const inputPhone = getPhoneFromKakaoBody(body);
-    const normalizedPhone = normalizePhone(inputPhone);
+    const normalizedPhone = getPhoneFromKakaoBody(body);
 
     if (!normalizedPhone) {
       return kakaoText(
@@ -146,7 +163,7 @@ export async function POST(req: NextRequest) {
     if (!rentalInfo) {
       return kakaoText(
         `입력하신 전화번호로 대여 정보를 찾지 못했습니다.\n\n` +
-          `입력 전화번호: ${inputPhone}\n\n` +
+          `입력 전화번호: ${normalizedPhone}\n\n` +
           `번호를 다시 확인하시거나 상담원에게 문의해주세요.`
       );
     }
