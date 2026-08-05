@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 type RentalInfo = {
+  id: number;
   name: string;
-  phone: string;
-  rentalPlace: string;
-  customerType: string;
+  phone1: string;
+  phone2: string;
+  partnerType: string;
+  productModel: string;
   product: string;
   startDate: string;
   endDate: string;
@@ -20,8 +23,11 @@ function getPhoneFromKakaoBody(body: any): string {
     body?.action?.params?.tel ||
     body?.action?.params?.mobile ||
     body?.action?.detailParams?.전화?.origin ||
+    body?.action?.detailParams?.전화?.value ||
     body?.action?.detailParams?.phone?.origin ||
+    body?.action?.detailParams?.phone?.value ||
     body?.action?.detailParams?.전화번호?.origin ||
+    body?.action?.detailParams?.전화번호?.value ||
     body?.userRequest?.utterance ||
     ""
   );
@@ -35,7 +41,7 @@ function maskPhone(phone: string): string {
   const onlyNumber = normalizePhone(phone);
 
   if (onlyNumber.length < 7) {
-    return phone;
+    return phone || "-";
   }
 
   const last4 = onlyNumber.slice(-4);
@@ -49,6 +55,11 @@ function maskPhone(phone: string): string {
   }
 
   return `****-${last4}`;
+}
+
+function valueOrDash(value: any): string {
+  const text = String(value ?? "").trim();
+  return text ? text : "-";
 }
 
 function kakaoText(text: string) {
@@ -66,12 +77,6 @@ function kakaoText(text: string) {
   });
 }
 
-/**
- * TODO: 다음 단계에서 ERP 통합관리 DB 실제 조회 코드로 교체할 부분
- *
- * 지금은 카카오 연결 안정화를 위해 테스트 데이터 반환.
- * 다음에 여기만 DB 조회로 바꾸면 됩니다.
- */
 async function findRentalInfoByPhone(phone: string): Promise<RentalInfo | null> {
   const normalizedPhone = normalizePhone(phone);
 
@@ -79,15 +84,47 @@ async function findRentalInfoByPhone(phone: string): Promise<RentalInfo | null> 
     return null;
   }
 
-  // 임시 테스트 데이터
+  const result = await query(
+    `
+    SELECT
+      u.id,
+      u.data
+    FROM unified u
+    LEFT JOIN unified_order o ON o.unified_id = u.id
+    WHERE
+      regexp_replace(COALESCE(u.data->>'연락처1', ''), '[^0-9]', '', 'g') = $1
+      OR
+      regexp_replace(COALESCE(u.data->>'연락처2', ''), '[^0-9]', '', 'g') = $1
+    ORDER BY
+      CASE
+        WHEN COALESCE(u.data->>'반납완료일', '') = '' THEN 0
+        ELSE 1
+      END ASC,
+      o.sort_key DESC NULLS LAST,
+      u.id DESC
+    LIMIT 1
+    `,
+    [normalizedPhone]
+  );
+
+  const row = result.rows?.[0];
+
+  if (!row) {
+    return null;
+  }
+
+  const data = row.data || {};
+
   return {
-    name: "홍길동",
-    phone: normalizedPhone,
-    rentalPlace: "테스트 조리원",
-    customerType: "테스트 거래처",
-    product: "테스트 유축기",
-    startDate: "2026-01-01",
-    endDate: "2026-01-15",
+    id: Number(row.id),
+    name: valueOrDash(data["수취인명"]),
+    phone1: valueOrDash(data["연락처1"]),
+    phone2: valueOrDash(data["연락처2"]),
+    partnerType: valueOrDash(data["거래처분류"]),
+    productModel: valueOrDash(data["기종"]),
+    product: valueOrDash(data["제품"]),
+    startDate: valueOrDash(data["시작일"]),
+    endDate: valueOrDash(data["종료일"]),
   };
 }
 
@@ -114,19 +151,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const displayPhone =
+      normalizePhone(rentalInfo.phone1) === normalizedPhone
+        ? rentalInfo.phone1
+        : rentalInfo.phone2;
+
+    const displayProduct =
+      rentalInfo.productModel !== "-"
+        ? rentalInfo.productModel
+        : rentalInfo.product;
+
     return kakaoText(
       `대여정보 조회 결과입니다.\n\n` +
         `이름: ${rentalInfo.name}\n` +
-        `연락처: ${maskPhone(rentalInfo.phone)}\n` +
-        `대여한곳: ${rentalInfo.rentalPlace}\n` +
-        `거래처분류: ${rentalInfo.customerType}\n` +
-        `대여기종: ${rentalInfo.product}\n` +
+        `연락처: ${maskPhone(displayPhone)}\n` +
+        `대여한곳/거래처분류: ${rentalInfo.partnerType}\n` +
+        `대여기종: ${displayProduct}\n` +
         `시작일: ${rentalInfo.startDate}\n` +
         `종료일: ${rentalInfo.endDate}\n\n` +
         `연장을 원하시면 상담원에게 연결해주세요.`
     );
   } catch (error) {
-    console.error("[KAKAO_RENTAL_TEST_ERROR]", error);
+    console.error("[KAKAO_RENTAL_LOOKUP_ERROR]", error);
 
     return kakaoText(
       `대여정보 조회 중 오류가 발생했습니다.\n\n잠시 후 다시 시도해주세요.`
