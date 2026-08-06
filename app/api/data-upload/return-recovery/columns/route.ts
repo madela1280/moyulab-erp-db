@@ -109,12 +109,14 @@ async function loadCurrentColumnOrder() {
   );
 
   const row = Array.isArray((result as any)?.rows) ? (result as any).rows[0] : null;
-  const rawOrder = Array.isArray(row?.column_order) ? row.column_order.map(String) : [];
+  const rawOrder: string[] = Array.isArray(row?.column_order) ? row.column_order.map((v: unknown) => String(v)) : [];
 
-  const allowed = new Set(allowedKeys);
-  const unique = Array.from(new Set(rawOrder.map((v) => String(v || "").trim()).filter(Boolean)));
-  const filtered = unique.filter((key) => allowed.has(key));
-  const missing = allowedKeys.filter((key) => !filtered.includes(key));
+  const allowed = new Set<string>(allowedKeys);
+  const unique: string[] = Array.from(
+    new Set<string>(rawOrder.map((v: string) => String(v || "").trim()).filter((v: string) => Boolean(v)))
+  );
+  const filtered: string[] = unique.filter((key: string) => allowed.has(key));
+  const missing: string[] = allowedKeys.filter((key: string) => !filtered.includes(key));
 
   return [...filtered, ...missing];
 }
