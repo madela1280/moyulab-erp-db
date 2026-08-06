@@ -9,6 +9,7 @@ import {
   type ReturnRecoveryUnifiedSourceRow,
 } from "@/views/dataUpload/return-recovery/serviceReturnRecovery";
 import { mapUnifiedToReturnRecoveryRows } from "@/views/dataUpload/return-recovery/mapUnifiedToReturnRecovery";
+import { downloadReturnRecoveryCsv } from "@/views/dataUpload/return-recovery/serviceReturnRecoveryExport";
 import type { ReturnRecoveryRow } from "@/views/dataUpload/return-recovery/columns";
 
 export default function ReturnRecoveryView() {
@@ -19,7 +20,7 @@ export default function ReturnRecoveryView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleConfirmReturnRequestDate(dateText: string) {
+   async function handleConfirmReturnRequestDate(dateText: string) {
     const date = String(dateText || "").trim();
     if (!date) return;
 
@@ -42,9 +43,16 @@ export default function ReturnRecoveryView() {
     }
   }
 
+  function handleDownloadExcel() {
+    downloadReturnRecoveryCsv(mappedRows);
+  }
+
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
-      <ReturnRecoveryHeader onOpenReturnRequestDate={() => setDateModalOpen(true)} />
+    <ReturnRecoveryHeader
+        onOpenReturnRequestDate={() => setDateModalOpen(true)}
+        onDownloadExcel={handleDownloadExcel}
+      />     
 
       {(selectedReturnRequestDate || loading || error) && (
         <div className="flex items-center gap-3 text-xs">
