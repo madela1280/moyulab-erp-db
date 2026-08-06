@@ -34,6 +34,7 @@ export default function ReturnRecoveryView() {
     saveColumnWidth,
     addCustomColumn,
     deleteCustomColumn,
+    reloadColumnConfig,
   } = useReturnRecoveryColumnConfig();
 
   async function handleConfirmReturnRequestDate(dateText: string) {
@@ -63,8 +64,8 @@ export default function ReturnRecoveryView() {
     downloadReturnRecoveryCsv(mappedRows, orderedColumns);
   }
 
-  async function handleAddCustomColumn(label: string) {
-    await addCustomColumn(label);
+  async function handleAddCustomColumn(label: string, referenceKey: string, position: "after" | "before") {
+    await addCustomColumn(label, referenceKey, position);
   }
 
   async function handleDeleteCustomColumn(key: string) {
@@ -102,7 +103,7 @@ export default function ReturnRecoveryView() {
         </div>
       )}
 
-     <ReturnRecoveryGrid
+      <ReturnRecoveryGrid
         rows={mappedRows}
         columns={orderedColumns}
         isColumnEditMode={isColumnEditMode}
@@ -116,16 +117,17 @@ export default function ReturnRecoveryView() {
         onClose={() => setDateModalOpen(false)}
         onConfirm={handleConfirmReturnRequestDate}
       />
-      
+
       <ReturnRecoveryTemplateModal
         open={templateModalOpen}
+        columns={orderedColumns}
         customColumns={customColumns}
         loading={columnLoading}
         saving={columnSaving}
-        error={columnError}
         onClose={() => setTemplateModalOpen(false)}
         onAdd={handleAddCustomColumn}
         onDelete={handleDeleteCustomColumn}
+        onReload={reloadColumnConfig}
       />
     </div>
   );

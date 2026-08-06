@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   RETURN_RECOVERY_COLUMNS,
   type ReturnRecoveryColumn,
@@ -13,6 +13,7 @@ import {
   addReturnRecoveryCustomColumn,
   deleteReturnRecoveryCustomColumn,
   fetchReturnRecoveryCustomColumns,
+  type ReturnRecoveryInsertPosition,
 } from "@/views/dataUpload/return-recovery/template/serviceReturnRecoveryTemplate";
 
 function normalizeWidth(v: unknown, fallback = 140) {
@@ -91,48 +92,38 @@ export function useReturnRecoveryColumnConfig() {
   const allColumns = useMemo(() => buildAllColumns(customColumns, columnWidths), [customColumns, columnWidths]);
   const orderedColumns = useMemo(() => buildOrderedColumns(allColumns, columnOrder), [allColumns, columnOrder]);
 
-  useEffect(() => {
-    let alive = true;
+  const reloadColumnConfig = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-    async function load() {
-      setLoading(true);
-      setError("");
+    try {
+      const [loadedCustomColumns, settings] = await Promise.all([
+        fetchReturnRecoveryCustomColumns(),
+        fetchReturnRecoveryGridSettings(),
+      ]);
 
-      try {
-        const [loadedCustomColumns, settings] = await Promise.all([
-          fetchReturnRecoveryCustomColumns(),
-          fetchReturnRecoveryGridSettings(),
-        ]);
+      const nextCustomColumns = normalizeCustomColumns(loadedCustomColumns);
+      const tempAllColumns = buildAllColumns(nextCustomColumns, settings.columnWidths);
+      const nextColumnWidths = normalizeColumnWidths(settings.columnWidths, tempAllColumns);
+      const finalAllColumns = buildAllColumns(nextCustomColumns, nextColumnWidths);
+      const nextColumnOrder = normalizeColumnOrder(settings.columnOrder, finalAllColumns);
 
-        if (!alive) return;
-
-        const nextCustomColumns = normalizeCustomColumns(loadedCustomColumns);
-        const tempAllColumns = buildAllColumns(nextCustomColumns, settings.columnWidths);
-        const nextColumnWidths = normalizeColumnWidths(settings.columnWidths, tempAllColumns);
-        const finalAllColumns = buildAllColumns(nextCustomColumns, nextColumnWidths);
-        const nextColumnOrder = normalizeColumnOrder(settings.columnOrder, finalAllColumns);
-
-        setCustomColumns(nextCustomColumns);
-        setColumnWidths(nextColumnWidths);
-        setColumnOrder(nextColumnOrder);
-      } catch (e: any) {
-        if (!alive) return;
-
-        setError(e?.message || "반납회수 열 설정을 불러오지 못했습니다.");
-        setCustomColumns([]);
-        setColumnWidths(buildDefaultWidths());
-        setColumnOrder(defaultOrder);
-      } finally {
-        if (alive) setLoading(false);
-      }
+      setCustomColumns(nextCustomColumns);
+      setColumnWidths(nextColumnWidths);
+      setColumnOrder(nextColumnOrder);
+    } catch (e: any) {
+      setError(e?.message || "반납회수 열 설정을 불러오지 못했습니다.");
+      setCustomColumns([]);
+      setColumnWidths(buildDefaultWidths());
+      setColumnOrder(defaultOrder);
+    } finally {
+      setLoading(false);
     }
-
-    load();
-
-    return () => {
-      alive = false;
-    };
   }, [defaultOrder]);
+
+  useEffect(() => {
+    void reloadColumnConfig();
+  }, [reloadColumnConfig]);
 
   async function saveColumnOrder(nextOrder: string[]) {
     const normalizedOrder = normalizeColumnOrder(nextOrder, allColumns);
@@ -189,27 +180,24 @@ export function useReturnRecoveryColumnConfig() {
     }
   }
 
-  async function addCustomColumn(label: string) {
+  async function addCustomColumn(label: string, referenceKey: string, position: ReturnRecoveryInsertPosition) {
     const columnLabel = String(label || "").trim();
-    if (!columnLabel) return;
+    const refKey = String(referenceKey || "").trim();
+
+    if (!columnLabel || !refKey) return;
 
     setSaving(true);
     setError("");
 
     try {
-      const nextCustomColumns = normalizeCustomColumns(await addReturnRecoveryCustomColumn(columnLabel, 140));
-      const nextAllColumns = buildAllColumns(nextCustomColumns, columnWidths);
-      const nextWidths = normalizeColumnWidths(columnWidths, nextAllColumns);
-      const nextOrder = normalizeColumnOrder([...columnOrder, ...nextCustomColumns.map((col) => col.key)], nextAllColumns);
-
-      const saved = await saveReturnRecoveryGridSettings({
-        columnOrder: nextOrder,
-        columnWidths: nextWidths,
+      await addReturnRecoveryCustomColumn({
+        label: columnLabel,
+        referenceKey: refKey,
+        position,
+        width: 140,
       });
 
-      setCustomColumns(nextCustomColumns);
-      setColumnWidths(normalizeColumnWidths(saved.columnWidths, nextAllColumns));
-      setColumnOrder(normalizeColumnOrder(saved.columnOrder, nextAllColumns));
+      await reloadColumnConfig();
     } catch (e: any) {
       setError(e?.message || "반납회수 추가 컬럼을 저장하지 못했습니다.");
     } finally {
@@ -226,25 +214,7 @@ export function useReturnRecoveryColumnConfig() {
 
     try {
       await deleteReturnRecoveryCustomColumn(columnKey);
-
-      const nextCustomColumns = customColumns.filter((col) => col.key !== columnKey);
-      const nextAllColumns = buildAllColumns(nextCustomColumns, columnWidths);
-      const nextWidths = { ...columnWidths };
-      delete nextWidths[columnKey];
-
-      const nextOrder = normalizeColumnOrder(
-        columnOrder.filter((keyValue) => keyValue !== columnKey),
-        nextAllColumns
-      );
-
-      const saved = await saveReturnRecoveryGridSettings({
-        columnOrder: nextOrder,
-        columnWidths: normalizeColumnWidths(nextWidths, nextAllColumns),
-      });
-
-      setCustomColumns(nextCustomColumns);
-      setColumnWidths(normalizeColumnWidths(saved.columnWidths, nextAllColumns));
-      setColumnOrder(normalizeColumnOrder(saved.columnOrder, nextAllColumns));
+      await reloadColumnConfig();
     } catch (e: any) {
       setError(e?.message || "반납회수 추가 컬럼을 삭제하지 못했습니다.");
     } finally {
@@ -265,5 +235,6 @@ export function useReturnRecoveryColumnConfig() {
     saveColumnWidth,
     addCustomColumn,
     deleteCustomColumn,
+    reloadColumnConfig,
   };
 }

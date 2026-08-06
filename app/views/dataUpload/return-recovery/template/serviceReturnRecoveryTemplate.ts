@@ -1,5 +1,7 @@
 import type { ReturnRecoveryColumn } from "@/views/dataUpload/return-recovery/columns";
 
+export type ReturnRecoveryInsertPosition = "after" | "before";
+
 export type ReturnRecoveryTemplateResponse = {
   ok: boolean;
   message?: string;
@@ -23,13 +25,23 @@ export async function fetchReturnRecoveryCustomColumns(): Promise<ReturnRecovery
   return Array.isArray(j?.columns) ? j.columns : [];
 }
 
-export async function addReturnRecoveryCustomColumn(label: string, width = 140): Promise<ReturnRecoveryColumn[]> {
+export async function addReturnRecoveryCustomColumn(params: {
+  label: string;
+  referenceKey: string;
+  position: ReturnRecoveryInsertPosition;
+  width?: number;
+}): Promise<ReturnRecoveryColumn[]> {
   const r = await fetch("/api/data-upload/return-recovery/columns", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ label, width }),
+    body: JSON.stringify({
+      label: params.label,
+      referenceKey: params.referenceKey,
+      position: params.position,
+      width: params.width ?? 140,
+    }),
   });
 
   const j = (await r.json().catch(() => null)) as ReturnRecoveryTemplateResponse | null;
