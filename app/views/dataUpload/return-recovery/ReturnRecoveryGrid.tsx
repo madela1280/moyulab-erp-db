@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent } from "react";
 import {
   RETURN_RECOVERY_COLUMNS,
   createEmptyReturnRecoveryRow,
@@ -26,15 +18,10 @@ import {
 type ReturnRecoveryGridProps = {
   rows?: ReturnRecoveryRow[];
   columns?: ReturnRecoveryColumn[];
+  isColumnEditMode?: boolean;
   onRowsChange?: (rows: ReturnRecoveryRow[]) => void;
+  onColumnOrderChange?: (columnOrder: string[]) => void | Promise<void>;
   onColumnWidthChange?: (key: string, width: number) => void | Promise<void>;
-};
-
-type ResizingState = {
-  key: string;
-  startX: number;
-  startWidth: number;
-  nextWidth: number;
 };
 
 function isMultiCellRange(range: ReturnRecoveryCellRange | null) {
@@ -49,14 +36,12 @@ function normalizeWidth(width: number) {
 export default function ReturnRecoveryGrid({
   rows,
   columns,
+  isColumnEditMode,
   onRowsChange,
+  onColumnOrderChange,
   onColumnWidthChange,
 }: ReturnRecoveryGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const resizingRef = useRef<ResizingState | null>(null);
-
-  const [tempColumnWidths, setTempColumnWidths] = useState<Record<string, number>>({});
-  const [resizingKey, setResizingKey] = useState("");
 
   const displayRows = useMemo(() => {
     if (Array.isArray(rows) && rows.length > 0) return rows;
@@ -68,51 +53,12 @@ export default function ReturnRecoveryGrid({
 
     return baseColumns.map((col) => ({
       ...col,
-      width: normalizeWidth(tempColumnWidths[col.key] ?? col.width),
+      width: normalizeWidth(col.width),
     }));
-  }, [columns, tempColumnWidths]);
+  }, [columns]);
 
   const [selectionAnchor, setSelectionAnchor] = useState<ReturnRecoveryCellPoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<ReturnRecoveryCellRange | null>(null);
-
-  useEffect(() => {
-    if (!resizingKey) return;
-
-    function handleMouseMove(e: globalThis.MouseEvent) {
-      const resizing = resizingRef.current;
-      if (!resizing) return;
-
-      const nextWidth = normalizeWidth(resizing.startWidth + e.clientX - resizing.startX);
-      resizingRef.current = {
-        ...resizing,
-        nextWidth,
-      };
-
-      setTempColumnWidths((prev) => ({
-        ...prev,
-        [resizing.key]: nextWidth,
-      }));
-    }
-
-    function handleMouseUp() {
-      const resizing = resizingRef.current;
-      resizingRef.current = null;
-      setResizingKey("");
-
-      if (!resizing) return;
-
-      const finalWidth = normalizeWidth(resizing.nextWidth);
-      onColumnWidthChange?.(resizing.key, finalWidth);
-    }
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [resizingKey, onColumnWidthChange]);
 
   function focusCell(rowIndex: number, colIndex: number) {
     window.setTimeout(() => {
@@ -185,30 +131,29 @@ export default function ReturnRecoveryGrid({
     setSelectedRange(buildReturnRecoveryCellRange(selectionAnchor, { rowIndex, colIndex }));
   }
 
-  function handleColumnResizeMouseDown(e: MouseEvent<HTMLSpanElement>, col: ReturnRecoveryColumn) {
-    if (e.button !== 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const startWidth = normalizeWidth(col.width);
-
-    resizingRef.current = {
-      key: col.key,
-      startX: e.clientX,
-      startWidth,
-      nextWidth: startWidth,
-    };
-
-    setResizingKey(col.key);
-  }
-
   function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
     const safeRowIndex = Math.max(0, Math.min(displayRows.length - 1, nextRowIndex));
     const safeColIndex = Math.max(0, Math.min(displayColumns.length - 1, nextColIndex));
 
     selectSingleCell(safeRowIndex, safeColIndex);
     focusCell(safeRowIndex, safeColIndex);
+  }
+
+  function moveColumn(colIndex: number, direction: -1 | 1) {
+    const nextIndex = colIndex + direction;
+    if (nextIndex < 0 || nextIndex >= displayColumns.length) return;
+
+    const nextColumns = [...displayColumns];
+    const current = nextColumns[colIndex];
+    nextColumns[colIndex] = nextColumns[nextIndex];
+    nextColumns[nextIndex] = current;
+
+    onColumnOrderChange?.(nextColumns.map((col) => col.key));
+  }
+
+  function handleColumnWidthChange(col: ReturnRecoveryColumn, value: string) {
+    const nextWidth = normalizeWidth(Number(value));
+    onColumnWidthChange?.(col.key, nextWidth);
   }
 
   function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>, rowIndex: number, colIndex: number) {
@@ -290,19 +235,61 @@ export default function ReturnRecoveryGrid({
             {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
-                className="relative select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
+                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
                 style={{
                   width: col.width,
                   minWidth: col.width,
                   backgroundColor: index === 0 || index === displayColumns.length - 1 ? "#ff0000" : "#7030a0",
                 }}
               >
-                {col.label}
+                <div className="flex flex-col items-center gap-1">
+                  <div className="w-full overflow-hidden text-ellipsis whitespace-nowrap">{col.label}</div>
 
-                <span
-                  className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-white/30"
-                  onMouseDown={(e) => handleColumnResizeMouseDown(e, col)}
-                />
+                  {isColumnEditMode && (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600 disabled:opacity-30"
+                          disabled={index === 0}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            moveColumn(index, -1);
+                          }}
+                          title="왼쪽으로 이동"
+                        >
+                          ←
+                        </button>
+
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600 disabled:opacity-30"
+                          disabled={index === displayColumns.length - 1}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            moveColumn(index, 1);
+                          }}
+                          title="오른쪽으로 이동"
+                        >
+                          →
+                        </button>
+                      </div>
+
+                      <input
+                        className="h-6 w-14 rounded border border-slate-200 bg-white px-1 text-center text-[11px] text-slate-700"
+                        type="number"
+                        min={60}
+                        max={800}
+                        value={col.width}
+                        onChange={(e) => handleColumnWidthChange(col, e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        title="열 넓이(px)"
+                      />
+                    </div>
+                  )}
+                </div>
               </th>
             ))}
           </tr>
