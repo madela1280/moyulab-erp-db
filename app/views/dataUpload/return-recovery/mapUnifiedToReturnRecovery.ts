@@ -22,10 +22,9 @@ function buildItemName(data: Record<string, any>) {
     text(data["기기번호"]),
     text(data["제품"]),
     text(data["거래처분류"]),
+    "반납",
     text(data["특이사항2"]),
   ].filter(Boolean);
-
-  parts.push("반납");
 
   return parts.join("/");
 }
@@ -35,7 +34,7 @@ export function mapUnifiedToReturnRecoveryRows(sourceRows: ReturnRecoveryUnified
     const data = source?.data && typeof source.data === "object" ? source.data : {};
     const mapped = makeEmptyData();
 
-    mapped.senderName = text(data["수취인"]);
+    mapped.senderName = text(data["수취인명"]);
     mapped.senderPhone1 = text(data["연락처1"]);
     mapped.senderPhone2 = text(data["연락처2"]);
     mapped.senderAddress = text(data["계약자주소"]);
