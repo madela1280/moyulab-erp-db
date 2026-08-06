@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ClipboardEvent } from "react";
+import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent } from "react";
 import {
   RETURN_RECOVERY_COLUMNS,
   createEmptyReturnRecoveryRow,
@@ -19,7 +19,14 @@ type ReturnRecoveryGridProps = {
   onRowsChange?: (rows: ReturnRecoveryRow[]) => void;
 };
 
+function isMultiCellRange(range: ReturnRecoveryCellRange | null) {
+  if (!range) return false;
+  return range.startRow !== range.endRow || range.startCol !== range.endCol;
+}
+
 export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecoveryGridProps) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+
   const displayRows = useMemo(() => {
     if (Array.isArray(rows) && rows.length > 0) return rows;
     return Array.from({ length: 10 }, (_, index) => createEmptyReturnRecoveryRow(index + 1));
@@ -27,6 +34,26 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
 
   const [selectionAnchor, setSelectionAnchor] = useState<ReturnRecoveryCellPoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<ReturnRecoveryCellRange | null>(null);
+
+  function focusCell(rowIndex: number, colIndex: number) {
+    window.setTimeout(() => {
+      const input = gridRef.current?.querySelector<HTMLInputElement>(
+        `input[data-rr-row="${rowIndex}"][data-rr-col="${colIndex}"]`
+      );
+
+      if (!input) return;
+
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }, 0);
+  }
+
+  function selectSingleCell(rowIndex: number, colIndex: number) {
+    const point = { rowIndex, colIndex };
+    setSelectionAnchor(point);
+    setSelectedRange(buildReturnRecoveryCellRange(point, point));
+  }
 
   function updateCell(rowIndex: number, colKey: string, value: string) {
     const nextRows = displayRows.map((row, index) => {
@@ -44,10 +71,34 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
     onRowsChange?.(nextRows);
   }
 
-  function handleCellMouseDown(rowIndex: number, colIndex: number) {
-    const point = { rowIndex, colIndex };
-    setSelectionAnchor(point);
-    setSelectedRange(buildReturnRecoveryCellRange(point, point));
+  function clearSelectedCells() {
+    if (!selectedRange) return;
+
+    const nextRows = displayRows.map((row, rowIndex) => {
+      if (rowIndex < selectedRange.startRow || rowIndex > selectedRange.endRow) return row;
+
+      const nextData = { ...(row.data ?? {}) };
+
+      for (let colIndex = selectedRange.startCol; colIndex <= selectedRange.endCol; colIndex += 1) {
+        const col = RETURN_RECOVERY_COLUMNS[colIndex];
+        if (col) nextData[col.key] = "";
+      }
+
+      return {
+        ...row,
+        data: nextData,
+      };
+    });
+
+    onRowsChange?.(nextRows);
+  }
+
+  function handleCellMouseDown(e: MouseEvent<HTMLTableCellElement>, rowIndex: number, colIndex: number) {
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    selectSingleCell(rowIndex, colIndex);
+    focusCell(rowIndex, colIndex);
   }
 
   function handleCellMouseEnter(rowIndex: number, colIndex: number, buttons: number) {
@@ -55,20 +106,73 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
     setSelectedRange(buildReturnRecoveryCellRange(selectionAnchor, { rowIndex, colIndex }));
   }
 
-  function handleCopy(e: ClipboardEvent<HTMLDivElement>) {
-    if (!selectedRange) return;
+  function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
+    const safeRowIndex = Math.max(0, Math.min(displayRows.length - 1, nextRowIndex));
+    const safeColIndex = Math.max(0, Math.min(RETURN_RECOVERY_COLUMNS.length - 1, nextColIndex));
 
-    const target = e.target as HTMLInputElement | HTMLTextAreaElement | null;
-    const tagName = String(target?.tagName || "").toLowerCase();
+    selectSingleCell(safeRowIndex, safeColIndex);
+    focusCell(safeRowIndex, safeColIndex);
+  }
 
-    if (
-      (tagName === "input" || tagName === "textarea") &&
-      typeof target?.selectionStart === "number" &&
-      typeof target?.selectionEnd === "number" &&
-      target.selectionStart !== target.selectionEnd
-    ) {
+  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>, rowIndex: number, colIndex: number) {
+    if (e.key === "Delete" && selectedRange) {
+      e.preventDefault();
+      clearSelectedCells();
       return;
     }
+
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      moveCell(rowIndex, colIndex, e.shiftKey ? rowIndex - 1 : rowIndex + 1, colIndex);
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+
+      if (e.shiftKey) {
+        if (colIndex > 0) {
+          moveCell(rowIndex, colIndex, rowIndex, colIndex - 1);
+        } else {
+          moveCell(rowIndex, colIndex, rowIndex - 1, RETURN_RECOVERY_COLUMNS.length - 1);
+        }
+      } else if (colIndex < RETURN_RECOVERY_COLUMNS.length - 1) {
+        moveCell(rowIndex, colIndex, rowIndex, colIndex + 1);
+      } else {
+        moveCell(rowIndex, colIndex, rowIndex + 1, 0);
+      }
+
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveCell(rowIndex, colIndex, rowIndex - 1, colIndex);
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveCell(rowIndex, colIndex, rowIndex + 1, colIndex);
+      return;
+    }
+
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      moveCell(rowIndex, colIndex, rowIndex, colIndex - 1);
+      return;
+    }
+
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      moveCell(rowIndex, colIndex, rowIndex, colIndex + 1);
+    }
+  }
+
+  function handleCopy(e: ClipboardEvent<HTMLDivElement>) {
+    if (!selectedRange) return;
 
     const tsv = makeReturnRecoveryTSV(displayRows, RETURN_RECOVERY_COLUMNS, selectedRange);
     if (!tsv) return;
@@ -78,8 +182,12 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
   }
 
   return (
-    <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto" onCopy={handleCopy}>
-      <table className="border-collapse text-xs text-slate-900">
+    <div
+      ref={gridRef}
+      className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto"
+      onCopy={handleCopy}
+    >
+      <table className="border-collapse text-xs text-slate-900 font-normal">
         <thead className="sticky top-0 z-10">
           <tr>
             {RETURN_RECOVERY_COLUMNS.map((col, index) => (
@@ -103,25 +211,28 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
             <tr key={row.id} className="h-8">
               {RETURN_RECOVERY_COLUMNS.map((col, colIndex) => {
                 const selected = isReturnRecoveryCellInRange(rowIndex, colIndex, selectedRange);
+                const multiSelected = selected && isMultiCellRange(selectedRange);
 
                 return (
                   <td
                     key={`${row.id}-${col.key}`}
-                    className={`border border-slate-300 align-middle bg-white ${
-                      selected ? "outline outline-2 outline-blue-500 outline-offset-[-2px]" : ""
+                    className={`border border-slate-300 align-middle font-normal ${
+                      multiSelected ? "bg-blue-50" : selected ? "bg-blue-100" : "bg-white"
                     }`}
                     style={{
                       width: col.width,
                       minWidth: col.width,
                     }}
-                    onMouseDown={() => handleCellMouseDown(rowIndex, colIndex)}
+                    onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex)}
                     onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}
                   >
                     <input
+                      data-rr-row={rowIndex}
+                      data-rr-col={colIndex}
                       value={row.data?.[col.key] ?? ""}
                       onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
-                      onFocus={() => handleCellMouseDown(rowIndex, colIndex)}
-                      className="block h-full min-h-8 w-full border-0 bg-transparent px-2 py-1 text-xs text-slate-900 outline-none"
+                      onKeyDown={(e) => handleInputKeyDown(e, rowIndex, colIndex)}
+                      className="block h-full min-h-8 w-full border-0 bg-transparent px-2 py-1 text-xs font-normal text-slate-900 outline-none"
                       style={{
                         width: col.width - 2,
                         minWidth: col.width - 2,
