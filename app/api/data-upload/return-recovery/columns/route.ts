@@ -20,6 +20,13 @@ const DEFAULT_COLUMNS = [
   "originalInvoiceNo",
 ];
 
+type ReturnRecoveryCustomColumn = {
+  key: string;
+  label: string;
+  width: number;
+  sortOrder: number;
+};
+
 async function ensureTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS return_recovery_columns (
@@ -67,7 +74,7 @@ function normalizePosition(v: unknown) {
   return v === "before" ? "before" : "after";
 }
 
-async function getCustomColumns() {
+async function getCustomColumns(): Promise<ReturnRecoveryCustomColumn[]> {
   await ensureTable();
 
   const result = await query(`
@@ -78,7 +85,7 @@ async function getCustomColumns() {
 
   const rows = Array.isArray((result as any)?.rows) ? (result as any).rows : [];
 
-  return rows.map((row: any) => ({
+  return rows.map((row: any): ReturnRecoveryCustomColumn => ({
     key: String(row.key),
     label: String(row.label),
     width: normalizeWidth(row.width),
