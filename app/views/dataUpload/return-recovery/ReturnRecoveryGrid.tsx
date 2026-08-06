@@ -1,6 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import {
   RETURN_RECOVERY_COLUMNS,
   createEmptyReturnRecoveryRow,
@@ -19,6 +27,14 @@ type ReturnRecoveryGridProps = {
   rows?: ReturnRecoveryRow[];
   columns?: ReturnRecoveryColumn[];
   onRowsChange?: (rows: ReturnRecoveryRow[]) => void;
+  onColumnWidthChange?: (key: string, width: number) => void | Promise<void>;
+};
+
+type ResizingState = {
+  key: string;
+  startX: number;
+  startWidth: number;
+  nextWidth: number;
 };
 
 function isMultiCellRange(range: ReturnRecoveryCellRange | null) {
@@ -26,8 +42,21 @@ function isMultiCellRange(range: ReturnRecoveryCellRange | null) {
   return range.startRow !== range.endRow || range.startCol !== range.endCol;
 }
 
-export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: ReturnRecoveryGridProps) {
+function normalizeWidth(width: number) {
+  return Math.max(60, Math.min(800, Math.round(width)));
+}
+
+export default function ReturnRecoveryGrid({
+  rows,
+  columns,
+  onRowsChange,
+  onColumnWidthChange,
+}: ReturnRecoveryGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const resizingRef = useRef<ResizingState | null>(null);
+
+  const [tempColumnWidths, setTempColumnWidths] = useState<Record<string, number>>({});
+  const [resizingKey, setResizingKey] = useState("");
 
   const displayRows = useMemo(() => {
     if (Array.isArray(rows) && rows.length > 0) return rows;
@@ -35,12 +64,55 @@ export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: Retu
   }, [rows]);
 
   const displayColumns = useMemo(() => {
-    if (Array.isArray(columns) && columns.length > 0) return columns;
-    return RETURN_RECOVERY_COLUMNS;
-  }, [columns]);
+    const baseColumns = Array.isArray(columns) && columns.length > 0 ? columns : RETURN_RECOVERY_COLUMNS;
+
+    return baseColumns.map((col) => ({
+      ...col,
+      width: normalizeWidth(tempColumnWidths[col.key] ?? col.width),
+    }));
+  }, [columns, tempColumnWidths]);
 
   const [selectionAnchor, setSelectionAnchor] = useState<ReturnRecoveryCellPoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<ReturnRecoveryCellRange | null>(null);
+
+  useEffect(() => {
+    if (!resizingKey) return;
+
+    function handleMouseMove(e: globalThis.MouseEvent) {
+      const resizing = resizingRef.current;
+      if (!resizing) return;
+
+      const nextWidth = normalizeWidth(resizing.startWidth + e.clientX - resizing.startX);
+      resizingRef.current = {
+        ...resizing,
+        nextWidth,
+      };
+
+      setTempColumnWidths((prev) => ({
+        ...prev,
+        [resizing.key]: nextWidth,
+      }));
+    }
+
+    function handleMouseUp() {
+      const resizing = resizingRef.current;
+      resizingRef.current = null;
+      setResizingKey("");
+
+      if (!resizing) return;
+
+      const finalWidth = normalizeWidth(resizing.nextWidth);
+      onColumnWidthChange?.(resizing.key, finalWidth);
+    }
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizingKey, onColumnWidthChange]);
 
   function focusCell(rowIndex: number, colIndex: number) {
     window.setTimeout(() => {
@@ -113,7 +185,25 @@ export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: Retu
     setSelectedRange(buildReturnRecoveryCellRange(selectionAnchor, { rowIndex, colIndex }));
   }
 
-   function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
+  function handleColumnResizeMouseDown(e: MouseEvent<HTMLSpanElement>, col: ReturnRecoveryColumn) {
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startWidth = normalizeWidth(col.width);
+
+    resizingRef.current = {
+      key: col.key,
+      startX: e.clientX,
+      startWidth,
+      nextWidth: startWidth,
+    };
+
+    setResizingKey(col.key);
+  }
+
+  function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
     const safeRowIndex = Math.max(0, Math.min(displayRows.length - 1, nextRowIndex));
     const safeColIndex = Math.max(0, Math.min(displayColumns.length - 1, nextColIndex));
 
@@ -200,7 +290,7 @@ export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: Retu
             {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
-                className="border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
+                className="relative select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
                 style={{
                   width: col.width,
                   minWidth: col.width,
@@ -208,6 +298,11 @@ export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: Retu
                 }}
               >
                 {col.label}
+
+                <span
+                  className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-white/30"
+                  onMouseDown={(e) => handleColumnResizeMouseDown(e, col)}
+                />
               </th>
             ))}
           </tr>

@@ -5,6 +5,7 @@ import ReturnRecoveryHeader from "@/views/dataUpload/return-recovery/ReturnRecov
 import ReturnRecoveryGrid from "@/views/dataUpload/return-recovery/ReturnRecoveryGrid";
 import ReturnRequestDateModal from "@/views/dataUpload/return-recovery/ReturnRequestDateModal";
 import ReturnRecoveryColumnMoveModal from "@/views/dataUpload/return-recovery/ReturnRecoveryColumnMoveModal";
+import ReturnRecoveryTemplateModal from "@/views/dataUpload/return-recovery/template/ReturnRecoveryTemplateModal";
 import {
   fetchReturnRecoveryFromUnified,
   type ReturnRecoveryUnifiedSourceRow,
@@ -17,6 +18,7 @@ import type { ReturnRecoveryRow } from "@/views/dataUpload/return-recovery/colum
 export default function ReturnRecoveryView() {
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [columnMoveModalOpen, setColumnMoveModalOpen] = useState(false);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [selectedReturnRequestDate, setSelectedReturnRequestDate] = useState("");
   const [sourceRows, setSourceRows] = useState<ReturnRecoveryUnifiedSourceRow[]>([]);
   const [mappedRows, setMappedRows] = useState<ReturnRecoveryRow[]>([]);
@@ -25,9 +27,14 @@ export default function ReturnRecoveryView() {
 
   const {
     orderedColumns,
+    customColumns,
+    loading: columnLoading,
     saving: columnSaving,
     error: columnError,
     saveColumnOrder,
+    saveColumnWidth,
+    addCustomColumn,
+    deleteCustomColumn,
   } = useReturnRecoveryColumnConfig();
 
   async function handleConfirmReturnRequestDate(dateText: string) {
@@ -62,12 +69,21 @@ export default function ReturnRecoveryView() {
     setColumnMoveModalOpen(false);
   }
 
+  async function handleAddCustomColumn(label: string) {
+    await addCustomColumn(label);
+  }
+
+  async function handleDeleteCustomColumn(key: string) {
+    await deleteCustomColumn(key);
+  }
+
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
       <ReturnRecoveryHeader
         onOpenReturnRequestDate={() => setDateModalOpen(true)}
         onDownloadExcel={handleDownloadExcel}
         onMoveColumns={() => setColumnMoveModalOpen(true)}
+        onAddTemplate={() => setTemplateModalOpen(true)}
       />
 
       {(selectedReturnRequestDate || loading || error || columnError) && (
@@ -92,7 +108,12 @@ export default function ReturnRecoveryView() {
         </div>
       )}
 
-      <ReturnRecoveryGrid rows={mappedRows} columns={orderedColumns} onRowsChange={setMappedRows} />
+      <ReturnRecoveryGrid
+        rows={mappedRows}
+        columns={orderedColumns}
+        onRowsChange={setMappedRows}
+        onColumnWidthChange={saveColumnWidth}
+      />
 
       <ReturnRequestDateModal
         open={dateModalOpen}
@@ -106,6 +127,17 @@ export default function ReturnRecoveryView() {
         saving={columnSaving}
         onClose={() => setColumnMoveModalOpen(false)}
         onSave={handleSaveColumnOrder}
+      />
+
+      <ReturnRecoveryTemplateModal
+        open={templateModalOpen}
+        customColumns={customColumns}
+        loading={columnLoading}
+        saving={columnSaving}
+        error={columnError}
+        onClose={() => setTemplateModalOpen(false)}
+        onAdd={handleAddCustomColumn}
+        onDelete={handleDeleteCustomColumn}
       />
     </div>
   );
