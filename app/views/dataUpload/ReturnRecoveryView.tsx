@@ -4,23 +4,33 @@ import { useState } from "react";
 import ReturnRecoveryHeader from "@/views/dataUpload/return-recovery/ReturnRecoveryHeader";
 import ReturnRecoveryGrid from "@/views/dataUpload/return-recovery/ReturnRecoveryGrid";
 import ReturnRequestDateModal from "@/views/dataUpload/return-recovery/ReturnRequestDateModal";
+import ReturnRecoveryColumnMoveModal from "@/views/dataUpload/return-recovery/ReturnRecoveryColumnMoveModal";
 import {
   fetchReturnRecoveryFromUnified,
   type ReturnRecoveryUnifiedSourceRow,
 } from "@/views/dataUpload/return-recovery/serviceReturnRecovery";
 import { mapUnifiedToReturnRecoveryRows } from "@/views/dataUpload/return-recovery/mapUnifiedToReturnRecovery";
 import { downloadReturnRecoveryCsv } from "@/views/dataUpload/return-recovery/serviceReturnRecoveryExport";
+import { useReturnRecoveryColumnConfig } from "@/views/dataUpload/return-recovery/column-config/useReturnRecoveryColumnConfig";
 import type { ReturnRecoveryRow } from "@/views/dataUpload/return-recovery/columns";
 
 export default function ReturnRecoveryView() {
   const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [columnMoveModalOpen, setColumnMoveModalOpen] = useState(false);
   const [selectedReturnRequestDate, setSelectedReturnRequestDate] = useState("");
   const [sourceRows, setSourceRows] = useState<ReturnRecoveryUnifiedSourceRow[]>([]);
   const [mappedRows, setMappedRows] = useState<ReturnRecoveryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-   async function handleConfirmReturnRequestDate(dateText: string) {
+  const {
+    orderedColumns,
+    saving: columnSaving,
+    error: columnError,
+    saveColumnOrder,
+  } = useReturnRecoveryColumnConfig();
+
+  async function handleConfirmReturnRequestDate(dateText: string) {
     const date = String(dateText || "").trim();
     if (!date) return;
 
@@ -44,17 +54,23 @@ export default function ReturnRecoveryView() {
   }
 
   function handleDownloadExcel() {
-    downloadReturnRecoveryCsv(mappedRows);
+    downloadReturnRecoveryCsv(mappedRows, orderedColumns);
+  }
+
+  async function handleSaveColumnOrder(columnOrder: string[]) {
+    await saveColumnOrder(columnOrder);
+    setColumnMoveModalOpen(false);
   }
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
-    <ReturnRecoveryHeader
+      <ReturnRecoveryHeader
         onOpenReturnRequestDate={() => setDateModalOpen(true)}
         onDownloadExcel={handleDownloadExcel}
-      />     
+        onMoveColumns={() => setColumnMoveModalOpen(true)}
+      />
 
-      {(selectedReturnRequestDate || loading || error) && (
+      {(selectedReturnRequestDate || loading || error || columnError) && (
         <div className="flex items-center gap-3 text-xs">
           {selectedReturnRequestDate && (
             <div className="text-slate-600">
@@ -72,15 +88,24 @@ export default function ReturnRecoveryView() {
           )}
 
           {error && <div className="text-red-600">{error}</div>}
+          {columnError && <div className="text-red-600">{columnError}</div>}
         </div>
       )}
 
-      <ReturnRecoveryGrid rows={mappedRows} onRowsChange={setMappedRows} />
+      <ReturnRecoveryGrid rows={mappedRows} columns={orderedColumns} onRowsChange={setMappedRows} />
 
       <ReturnRequestDateModal
         open={dateModalOpen}
         onClose={() => setDateModalOpen(false)}
         onConfirm={handleConfirmReturnRequestDate}
+      />
+
+      <ReturnRecoveryColumnMoveModal
+        open={columnMoveModalOpen}
+        columns={orderedColumns}
+        saving={columnSaving}
+        onClose={() => setColumnMoveModalOpen(false)}
+        onSave={handleSaveColumnOrder}
       />
     </div>
   );

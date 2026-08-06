@@ -1,5 +1,6 @@
 import {
   RETURN_RECOVERY_COLUMNS,
+  type ReturnRecoveryColumn,
   type ReturnRecoveryRow,
 } from "@/views/dataUpload/return-recovery/columns";
 
@@ -8,11 +9,17 @@ function formatCsvCell(value: unknown) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function makeCsvText(rows: ReturnRecoveryRow[]) {
-  const headerLine = RETURN_RECOVERY_COLUMNS.map((col) => formatCsvCell(col.label)).join(",");
+function getExportColumns(columns?: ReturnRecoveryColumn[]) {
+  if (Array.isArray(columns) && columns.length > 0) return columns;
+  return RETURN_RECOVERY_COLUMNS;
+}
+
+function makeCsvText(rows: ReturnRecoveryRow[], columns?: ReturnRecoveryColumn[]) {
+  const exportColumns = getExportColumns(columns);
+  const headerLine = exportColumns.map((col) => formatCsvCell(col.label)).join(",");
 
   const bodyLines = (Array.isArray(rows) ? rows : []).map((row) => {
-    return RETURN_RECOVERY_COLUMNS.map((col) => formatCsvCell(row.data?.[col.key] ?? "")).join(",");
+    return exportColumns.map((col) => formatCsvCell(row.data?.[col.key] ?? "")).join(",");
   });
 
   return [headerLine, ...bodyLines].join("\r\n");
@@ -29,8 +36,8 @@ function makeDownloadFileName() {
   return `return-recovery_${yyyy}${mm}${dd}_${hh}${mi}.csv`;
 }
 
-export function downloadReturnRecoveryCsv(rows: ReturnRecoveryRow[]) {
-  const csvText = makeCsvText(rows);
+export function downloadReturnRecoveryCsv(rows: ReturnRecoveryRow[], columns?: ReturnRecoveryColumn[]) {
+  const csvText = makeCsvText(rows, columns);
   const bom = "\uFEFF";
   const blob = new Blob([bom, csvText], {
     type: "text/csv;charset=utf-8;",

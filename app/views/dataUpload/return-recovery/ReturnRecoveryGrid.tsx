@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, typ
 import {
   RETURN_RECOVERY_COLUMNS,
   createEmptyReturnRecoveryRow,
+  type ReturnRecoveryColumn,
   type ReturnRecoveryRow,
 } from "@/views/dataUpload/return-recovery/columns";
 import {
@@ -16,6 +17,7 @@ import {
 
 type ReturnRecoveryGridProps = {
   rows?: ReturnRecoveryRow[];
+  columns?: ReturnRecoveryColumn[];
   onRowsChange?: (rows: ReturnRecoveryRow[]) => void;
 };
 
@@ -24,13 +26,18 @@ function isMultiCellRange(range: ReturnRecoveryCellRange | null) {
   return range.startRow !== range.endRow || range.startCol !== range.endCol;
 }
 
-export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecoveryGridProps) {
+export default function ReturnRecoveryGrid({ rows, columns, onRowsChange }: ReturnRecoveryGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   const displayRows = useMemo(() => {
     if (Array.isArray(rows) && rows.length > 0) return rows;
     return Array.from({ length: 10 }, (_, index) => createEmptyReturnRecoveryRow(index + 1));
   }, [rows]);
+
+  const displayColumns = useMemo(() => {
+    if (Array.isArray(columns) && columns.length > 0) return columns;
+    return RETURN_RECOVERY_COLUMNS;
+  }, [columns]);
 
   const [selectionAnchor, setSelectionAnchor] = useState<ReturnRecoveryCellPoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<ReturnRecoveryCellRange | null>(null);
@@ -80,7 +87,7 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
       const nextData = { ...(row.data ?? {}) };
 
       for (let colIndex = selectedRange.startCol; colIndex <= selectedRange.endCol; colIndex += 1) {
-        const col = RETURN_RECOVERY_COLUMNS[colIndex];
+        const col = displayColumns[colIndex];
         if (col) nextData[col.key] = "";
       }
 
@@ -106,9 +113,9 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
     setSelectedRange(buildReturnRecoveryCellRange(selectionAnchor, { rowIndex, colIndex }));
   }
 
-  function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
+   function moveCell(rowIndex: number, colIndex: number, nextRowIndex: number, nextColIndex: number) {
     const safeRowIndex = Math.max(0, Math.min(displayRows.length - 1, nextRowIndex));
-    const safeColIndex = Math.max(0, Math.min(RETURN_RECOVERY_COLUMNS.length - 1, nextColIndex));
+    const safeColIndex = Math.max(0, Math.min(displayColumns.length - 1, nextColIndex));
 
     selectSingleCell(safeRowIndex, safeColIndex);
     focusCell(safeRowIndex, safeColIndex);
@@ -136,9 +143,9 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
         if (colIndex > 0) {
           moveCell(rowIndex, colIndex, rowIndex, colIndex - 1);
         } else {
-          moveCell(rowIndex, colIndex, rowIndex - 1, RETURN_RECOVERY_COLUMNS.length - 1);
+          moveCell(rowIndex, colIndex, rowIndex - 1, displayColumns.length - 1);
         }
-      } else if (colIndex < RETURN_RECOVERY_COLUMNS.length - 1) {
+      } else if (colIndex < displayColumns.length - 1) {
         moveCell(rowIndex, colIndex, rowIndex, colIndex + 1);
       } else {
         moveCell(rowIndex, colIndex, rowIndex + 1, 0);
@@ -174,7 +181,7 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
   function handleCopy(e: ClipboardEvent<HTMLDivElement>) {
     if (!selectedRange) return;
 
-    const tsv = makeReturnRecoveryTSV(displayRows, RETURN_RECOVERY_COLUMNS, selectedRange);
+    const tsv = makeReturnRecoveryTSV(displayRows, displayColumns, selectedRange);
     if (!tsv) return;
 
     e.preventDefault();
@@ -190,14 +197,14 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
       <table className="border-collapse text-xs text-slate-900 font-normal">
         <thead className="sticky top-0 z-10">
           <tr>
-            {RETURN_RECOVERY_COLUMNS.map((col, index) => (
+            {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
                 className="border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
                 style={{
                   width: col.width,
                   minWidth: col.width,
-                  backgroundColor: index === 0 || index === RETURN_RECOVERY_COLUMNS.length - 1 ? "#ff0000" : "#7030a0",
+                  backgroundColor: index === 0 || index === displayColumns.length - 1 ? "#ff0000" : "#7030a0",
                 }}
               >
                 {col.label}
@@ -209,7 +216,7 @@ export default function ReturnRecoveryGrid({ rows, onRowsChange }: ReturnRecover
         <tbody>
           {displayRows.map((row, rowIndex) => (
             <tr key={row.id} className="h-8">
-              {RETURN_RECOVERY_COLUMNS.map((col, colIndex) => {
+              {displayColumns.map((col, colIndex) => {
                 const selected = isReturnRecoveryCellInRange(rowIndex, colIndex, selectedRange);
                 const multiSelected = selected && isMultiCellRange(selectedRange);
 
