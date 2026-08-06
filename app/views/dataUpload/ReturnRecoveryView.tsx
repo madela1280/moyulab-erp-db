@@ -67,7 +67,7 @@ export default function ReturnRecoveryView() {
         </div>
       )}
 
-      <ReturnRecoveryGrid rows={mappedRows} />
+      <ReturnRecoveryGrid rows={mappedRows} onRowsChange={setMappedRows} />
 
       <ReturnRequestDateModal
         open={dateModalOpen}
