@@ -7,6 +7,27 @@ type ReturnRecoveryHeaderProps = {
   onOpenReturnRequestDate?: () => void;
 };
 
+function HeaderButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60"
+      onClick={onClick}
+    >
+      <span className="text-slate-500">{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export default function ReturnRecoveryHeader({
   onDownloadExcel,
   onMoveColumns,
@@ -18,39 +39,13 @@ export default function ReturnRecoveryHeader({
       <div className="flex items-center gap-3">
         <div className="text-base font-semibold text-slate-800">반납회수</div>
 
-        <button
-          type="button"
-          className="text-xs px-4 py-[7px] rounded bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 disabled:opacity-60"
-          onClick={onOpenReturnRequestDate}
-        >
-          반납회수 확인
-        </button>
+        <HeaderButton icon="✓" label="반납회수 확인" onClick={onOpenReturnRequestDate} />
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="text-xs px-3 py-[6px] rounded bg-white hover:bg-slate-50 border disabled:opacity-60"
-          onClick={onDownloadExcel}
-        >
-          다운로드(엑셀)
-        </button>
-
-        <button
-          type="button"
-          className="text-xs px-3 py-[6px] rounded bg-white hover:bg-slate-50 border disabled:opacity-60"
-          onClick={onMoveColumns}
-        >
-          열이동
-        </button>
-
-        <button
-          type="button"
-          className="text-xs px-3 py-[6px] rounded bg-white hover:bg-slate-50 border disabled:opacity-60"
-          onClick={onAddTemplate}
-        >
-          양식추가
-        </button>
+        <HeaderButton icon="↓" label="다운로드" onClick={onDownloadExcel} />
+        <HeaderButton icon="↔" label="열이동" onClick={onMoveColumns} />
+        <HeaderButton icon="＋" label="양식추가" onClick={onAddTemplate} />
       </div>
     </div>
   );
