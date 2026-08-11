@@ -4,6 +4,7 @@ import { useState } from "react";
 import ReturnRequestHeader from "@/customerReception/return-request/ReturnRequestHeader";
 import ReturnRequestGrid from "@/customerReception/return-request/ReturnRequestGrid";
 import { useReturnRequestColumnConfig } from "@/customerReception/return-request/column-config/useReturnRequestColumnConfig";
+import { useReturnRequests } from "@/customerReception/return-request/useReturnRequests";
 import type {
   ReturnRequestRow,
   ReturnRequestViewMode,
@@ -12,8 +13,15 @@ import type {
 export default function ReturnRequestView() {
   const [mode, setMode] = useState<ReturnRequestViewMode>("current");
   const [isColumnWidthMode, setIsColumnWidthMode] = useState(false);
-  const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
-  const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
+
+  const {
+    currentRows,
+    listRows,
+    loading: rowsLoading,
+    error: rowsError,
+    setCurrentRows,
+    setListRows,
+  } = useReturnRequests(mode);
 
   const {
     currentColumns,
@@ -63,8 +71,10 @@ export default function ReturnRequestView() {
         onDownload={handleDownload}
       />
 
-      {(columnLoading || columnError) && (
+      {(rowsLoading || rowsError || columnLoading || columnError) && (
         <div className="flex items-center gap-3 text-xs">
+          {rowsLoading && <div className="text-blue-600">반납접수 불러오는 중...</div>}
+          {rowsError && <div className="text-red-600">{rowsError}</div>}
           {columnLoading && <div className="text-blue-600">열넓이 불러오는 중...</div>}
           {columnError && <div className="text-red-600">{columnError}</div>}
         </div>
