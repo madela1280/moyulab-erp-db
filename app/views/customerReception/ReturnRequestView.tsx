@@ -14,17 +14,16 @@ export default function ReturnRequestView() {
   const [isColumnWidthMode, setIsColumnWidthMode] = useState(false);
   const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
   const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
+
   const {
     currentColumns,
     listColumns,
     loading: columnLoading,
-    saving: columnSaving,
     error: columnError,
     saveColumnWidth,
   } = useReturnRequestColumnConfig();
 
   const columns = mode === "list" ? listColumns : currentColumns;
-
   const rows = mode === "list" ? listRows : currentRows;
 
   function handleColumnWidthChange(key: string, width: number) {
@@ -64,11 +63,9 @@ export default function ReturnRequestView() {
         onDownload={handleDownload}
       />
 
-    
-      {(columnLoading || columnSaving || columnError) && (
+      {(columnLoading || columnError) && (
         <div className="flex items-center gap-3 text-xs">
           {columnLoading && <div className="text-blue-600">열넓이 불러오는 중...</div>}
-          {columnSaving && <div className="text-blue-600">열넓이 저장 중...</div>}
           {columnError && <div className="text-red-600">{columnError}</div>}
         </div>
       )}

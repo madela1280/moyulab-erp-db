@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RETURN_REQUEST_CURRENT_COLUMNS,
   RETURN_REQUEST_LIST_COLUMNS,
@@ -46,6 +46,8 @@ export function useReturnRequestColumnConfig() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const columnWidthsRef = useRef<Record<string, number>>(buildDefaultWidths());
+
   const currentColumns = useMemo(() => {
     return applyWidths(RETURN_REQUEST_CURRENT_COLUMNS, columnWidths);
   }, [columnWidths]);
@@ -67,10 +69,14 @@ export function useReturnRequestColumnConfig() {
         nextWidths[key] = normalizeWidth(key, width, defaults[key] ?? 120);
       }
 
+      columnWidthsRef.current = nextWidths;
       setColumnWidths(nextWidths);
     } catch (e: any) {
+      const defaults = buildDefaultWidths();
+
       setError(e?.message || "반납접수 열넓이를 불러오지 못했습니다.");
-      setColumnWidths(buildDefaultWidths());
+      columnWidthsRef.current = defaults;
+      setColumnWidths(defaults);
     } finally {
       setLoading(false);
     }
@@ -85,27 +91,19 @@ export function useReturnRequestColumnConfig() {
     if (!columnKey) return;
 
     const nextWidths = {
-      ...columnWidths,
-      [columnKey]: normalizeWidth(columnKey, width, columnWidths[columnKey] ?? 120),
+      ...columnWidthsRef.current,
+      [columnKey]: normalizeWidth(columnKey, width, columnWidthsRef.current[columnKey] ?? 120),
     };
 
+    columnWidthsRef.current = nextWidths;
     setColumnWidths(nextWidths);
     setSaving(true);
     setError("");
 
     try {
-      const saved = await saveReturnRequestGridSettings({
+      await saveReturnRequestGridSettings({
         columnWidths: nextWidths,
       });
-
-      const defaults = buildDefaultWidths();
-      const savedWidths: Record<string, number> = { ...defaults };
-
-      for (const [savedKey, savedWidth] of Object.entries(saved.columnWidths || {})) {
-        savedWidths[savedKey] = normalizeWidth(savedKey, savedWidth, defaults[savedKey] ?? 120);
-      }
-
-      setColumnWidths(savedWidths);
     } catch (e: any) {
       setError(e?.message || "반납접수 열넓이를 저장하지 못했습니다.");
     } finally {
