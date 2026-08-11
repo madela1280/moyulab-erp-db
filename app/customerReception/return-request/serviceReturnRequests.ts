@@ -10,6 +10,19 @@ export type ReturnRequestApiRow = {
   return_memo?: string | null;
   mismatch_reason?: string | null;
   process_status?: string;
+
+  unified_id?: number | null;
+  matched_unified?: {
+    거래처분류?: string;
+    기기번호?: string;
+    연락처2?: string;
+    택배발송일?: string;
+    시작일?: string;
+    종료일?: string;
+    특이사항1?: string;
+    특이사항2?: string;
+    반납요청일?: string;
+  } | null;
 };
 
 export type FetchReturnRequestsParams = {
@@ -56,30 +69,37 @@ function formatDate(value: unknown) {
 export function mapReturnRequestApiRow(row: ReturnRequestApiRow, index: number): ReturnRequestRow {
   const receivedAt = formatDateTime(row.received_at);
   const processStatus = normalizeStatus(row.process_status);
+  const matched = row.matched_unified || {};
 
   return {
-    id: `${receivedAt || "row"}-${index}`,
+    id: `${receivedAt || "row"}-${normalizeString(row.phone) || "phone"}-${index}`,
     checked: false,
     processStatus,
     receivedAt,
     data: {
       processStatus,
       receivedAt,
-      partnerCategory: "",
-      deviceNo: "",
+
+      partnerCategory: normalizeString(matched.거래처분류),
+      deviceNo: normalizeString(matched.기기번호),
+
       product: normalizeString(row.return_model),
       recipientName: normalizeString(row.renter_name),
       phone1: normalizeString(row.phone),
-      phone2: "",
+      phone2: normalizeString(matched.연락처2),
       contractAddress: normalizeString(row.pickup_address),
-      shippingDate: "",
-      startDate: "",
-      endDate: "",
+
+      shippingDate: normalizeString(matched.택배발송일),
+      startDate: normalizeString(matched.시작일),
+      endDate: normalizeString(matched.종료일),
       returnRequestDate: formatDate(row.pickup_preferred_date),
-      specialNote1: "",
-      specialNote2: "",
+      specialNote1: normalizeString(matched.특이사항1),
+      specialNote2: normalizeString(matched.특이사항2),
+
       returnMemo: normalizeString(row.return_memo),
       mismatchReason: normalizeString(row.mismatch_reason),
+      unifiedId: row.unified_id ? String(row.unified_id) : "",
+      currentUnifiedReturnRequestDate: normalizeString(matched.반납요청일),
     },
   };
 }
