@@ -34,22 +34,29 @@ function isSamePhone(a: unknown, b: unknown) {
 }
 
 function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) {
+  const returnRequestDate = normalizeString(unifiedData["반납요청일"]);
+  const returnCompleteDate = normalizeString(unifiedData["반납완료일"]);
+
+  if (returnRequestDate || returnCompleteDate) {
+    return "반납완료일 접수 확인";
+  }
+
   const reasons: string[] = [];
 
   if (!isSameText(requestRow?.renter_name, unifiedData["수취인명"])) {
-    reasons.push("대여자명/수취인명 불일치");
+    reasons.push("수취인명 불일치");
   }
 
   if (!isSamePhone(requestRow?.phone, unifiedData["연락처1"])) {
-    reasons.push("전화번호/연락처1 불일치");
+    reasons.push("연락처불일치");
   }
 
   if (!isSameText(requestRow?.return_model, unifiedData["제품"])) {
-    reasons.push("반납기종/제품 불일치");
+    reasons.push("제품명 불일치");
   }
 
   if (!isSameText(requestRow?.pickup_address, unifiedData["계약자주소"])) {
-    reasons.push("수거주소/계약자주소 불일치");
+    reasons.push("계약자주소 불일치");
   }
 
   return reasons.join(", ");
@@ -100,7 +107,7 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[]) {
       ...requestRow,
       unified_id: null,
       matched_unified: null,
-      mismatch_reason: normalizeString(requestRow?.mismatch_reason) || "통합관리 매칭 없음",
+      mismatch_reason: "통합관리 매칭 없음",
     };
   }
 
@@ -120,8 +127,9 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[]) {
       특이사항1: normalizeString(data["특이사항1"]),
       특이사항2: normalizeString(data["특이사항2"]),
       반납요청일: normalizeString(data["반납요청일"]),
+      반납완료일: normalizeString(data["반납완료일"]),
     },
-    mismatch_reason: normalizeString(requestRow?.mismatch_reason) || mismatchReason,
+    mismatch_reason: mismatchReason,
   };
 }
 
