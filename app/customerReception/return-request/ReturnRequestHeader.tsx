@@ -16,15 +16,22 @@ function HeaderButton({
   label,
   onClick,
   disabled,
+  variant = "default",
 }: {
   label: string;
   onClick?: () => void;
   disabled?: boolean;
+  variant?: "default" | "primary";
 }) {
+  const className =
+    variant === "primary"
+      ? "inline-flex items-center gap-1.5 rounded-md border border-blue-600 bg-blue-600 px-3 py-[6px] text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      : "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed";
+
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+      className={className}
       onClick={onClick}
       disabled={disabled}
     >
@@ -53,13 +60,13 @@ export default function ReturnRequestHeader({
       <div className="flex items-center gap-2">
         {mode === "list" ? (
           <>
-            <HeaderButton label="현재화면" onClick={onCurrent} />
+            <HeaderButton label="반납접수화면" onClick={onCurrent} variant="primary" />
             <HeaderButton label="열넓이" onClick={onToggleColumnWidth} />
             <HeaderButton label="다운로드" onClick={onDownload} />
           </>
         ) : (
           <>
-            <HeaderButton label="전송" onClick={onSubmit} />
+            <HeaderButton label="전송" onClick={onSubmit} variant="primary" />
             <HeaderButton label="삭제" onClick={onDelete} />
             <HeaderButton label="리스트" onClick={onList} />
             <HeaderButton label="열넓이" onClick={onToggleColumnWidth} />
