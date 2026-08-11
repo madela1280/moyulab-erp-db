@@ -1,5 +1,3 @@
-// app/menus/topMenus.ts
-
 export const TOP_MENUS = [
   "사용자관리",
   "통합관리",
@@ -10,6 +8,7 @@ export const TOP_MENUS = [
   "문자",
   "백업복원",
   "집계",
+  "고객접수",
 ] as const;
 
 export type TopMenu = (typeof TOP_MENUS)[number];
