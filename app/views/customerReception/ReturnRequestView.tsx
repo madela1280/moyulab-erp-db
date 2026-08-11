@@ -1,51 +1,90 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import ReturnRequestHeader from "@/customerReception/return-request/ReturnRequestHeader";
+import ReturnRequestGrid from "@/customerReception/return-request/ReturnRequestGrid";
+import {
+  RETURN_REQUEST_CURRENT_COLUMNS,
+  RETURN_REQUEST_LIST_COLUMNS,
+} from "@/customerReception/return-request/columns";
+import type {
+  ReturnRequestColumn,
+  ReturnRequestRow,
+  ReturnRequestViewMode,
+} from "@/customerReception/return-request/types";
+
 export default function ReturnRequestView() {
+  const [mode, setMode] = useState<ReturnRequestViewMode>("current");
+  const [isColumnWidthMode, setIsColumnWidthMode] = useState(false);
+  const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
+  const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
+  const [currentColumns, setCurrentColumns] = useState<ReturnRequestColumn[]>(
+    RETURN_REQUEST_CURRENT_COLUMNS
+  );
+  const [listColumns, setListColumns] = useState<ReturnRequestColumn[]>(
+    RETURN_REQUEST_LIST_COLUMNS
+  );
+
+  const columns = useMemo(() => {
+    return mode === "list" ? listColumns : currentColumns;
+  }, [mode, currentColumns, listColumns]);
+
+  const rows = mode === "list" ? listRows : currentRows;
+
+  function handleColumnWidthChange(key: string, width: number) {
+    if (mode === "list") {
+      setListColumns((prev) =>
+        prev.map((col) => (col.key === key ? { ...col, width } : col))
+      );
+      return;
+    }
+
+    setCurrentColumns((prev) =>
+      prev.map((col) => (col.key === key ? { ...col, width } : col))
+    );
+  }
+
+  function handleRowsChange(nextRows: ReturnRequestRow[]) {
+    if (mode === "list") {
+      setListRows(nextRows);
+      return;
+    }
+
+    setCurrentRows(nextRows);
+  }
+
+  function handleSubmit() {
+    alert("전송 기능은 다음 단계에서 연결합니다.");
+  }
+
+  function handleDelete() {
+    alert("삭제 기능은 다음 단계에서 연결합니다.");
+  }
+
+  function handleDownload() {
+    alert("다운로드 기능은 다음 단계에서 연결합니다.");
+  }
+
   return (
-    <div className="w-full h-full flex flex-col bg-white p-3">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="text-base font-semibold text-slate-800">반납접수</div>
+    <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
+      <ReturnRequestHeader
+        mode={mode}
+        onSubmit={handleSubmit}
+        onDelete={handleDelete}
+        onList={() => setMode("list")}
+        onCurrent={() => setMode("current")}
+        onToggleColumnWidth={() => setIsColumnWidthMode((prev) => !prev)}
+        onDownload={handleDownload}
+      />
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm"
-            disabled
-          >
-            전송
-          </button>
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm"
-            disabled
-          >
-            삭제
-          </button>
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm"
-            disabled
-          >
-            리스트
-          </button>
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm"
-            disabled
-          >
-            열넓이
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
-        <div className="p-4 text-sm text-slate-500">
-          고객접수 &gt; 반납접수 화면 준비중
-        </div>
-      </div>
+      <ReturnRequestGrid
+        mode={mode}
+        rows={rows}
+        columns={columns}
+        isColumnWidthMode={isColumnWidthMode}
+        onRowsChange={handleRowsChange}
+        onColumnWidthChange={handleColumnWidthChange}
+      />
     </div>
   );
 }
