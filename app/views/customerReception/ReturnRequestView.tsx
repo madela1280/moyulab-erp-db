@@ -1,14 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import ReturnRequestHeader from "@/customerReception/return-request/ReturnRequestHeader";
 import ReturnRequestGrid from "@/customerReception/return-request/ReturnRequestGrid";
-import {
-  RETURN_REQUEST_CURRENT_COLUMNS,
-  RETURN_REQUEST_LIST_COLUMNS,
-} from "@/customerReception/return-request/columns";
+import { useReturnRequestColumnConfig } from "@/customerReception/return-request/column-config/useReturnRequestColumnConfig";
 import type {
-  ReturnRequestColumn,
   ReturnRequestRow,
   ReturnRequestViewMode,
 } from "@/customerReception/return-request/types";
@@ -18,30 +14,21 @@ export default function ReturnRequestView() {
   const [isColumnWidthMode, setIsColumnWidthMode] = useState(false);
   const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
   const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
-  const [currentColumns, setCurrentColumns] = useState<ReturnRequestColumn[]>(
-    RETURN_REQUEST_CURRENT_COLUMNS
-  );
-  const [listColumns, setListColumns] = useState<ReturnRequestColumn[]>(
-    RETURN_REQUEST_LIST_COLUMNS
-  );
+  const {
+    currentColumns,
+    listColumns,
+    loading: columnLoading,
+    saving: columnSaving,
+    error: columnError,
+    saveColumnWidth,
+  } = useReturnRequestColumnConfig();
 
-  const columns = useMemo(() => {
-    return mode === "list" ? listColumns : currentColumns;
-  }, [mode, currentColumns, listColumns]);
+  const columns = mode === "list" ? listColumns : currentColumns;
 
   const rows = mode === "list" ? listRows : currentRows;
 
   function handleColumnWidthChange(key: string, width: number) {
-    if (mode === "list") {
-      setListColumns((prev) =>
-        prev.map((col) => (col.key === key ? { ...col, width } : col))
-      );
-      return;
-    }
-
-    setCurrentColumns((prev) =>
-      prev.map((col) => (col.key === key ? { ...col, width } : col))
-    );
+    void saveColumnWidth(key, width);
   }
 
   function handleRowsChange(nextRows: ReturnRequestRow[]) {
@@ -76,6 +63,15 @@ export default function ReturnRequestView() {
         onToggleColumnWidth={() => setIsColumnWidthMode((prev) => !prev)}
         onDownload={handleDownload}
       />
+
+    
+      {(columnLoading || columnSaving || columnError) && (
+        <div className="flex items-center gap-3 text-xs">
+          {columnLoading && <div className="text-blue-600">열넓이 불러오는 중...</div>}
+          {columnSaving && <div className="text-blue-600">열넓이 저장 중...</div>}
+          {columnError && <div className="text-red-600">{columnError}</div>}
+        </div>
+      )}
 
       <ReturnRequestGrid
         mode={mode}

@@ -20,8 +20,14 @@ type ReturnRequestGridProps = {
   onColumnWidthChange?: (key: string, width: number) => void;
 };
 
-function normalizeWidth(width: number) {
-  return Math.max(60, Math.min(800, Math.round(width)));
+function getMinWidth(key: string) {
+  if (key === "checked") return 30;
+  return 60;
+}
+
+function normalizeWidth(key: string, width: number) {
+  const min = getMinWidth(key);
+  return Math.max(min, Math.min(800, Math.round(width)));
 }
 
 function isEditableCell(mode: ReturnRequestViewMode, col: ReturnRequestColumn) {
@@ -42,10 +48,10 @@ export default function ReturnRequestGrid({
     return Array.from({ length: 10 }, (_, index) => createEmptyReturnRequestRow(index + 1));
   }, [rows]);
 
-  const displayColumns = useMemo(() => {
+ const displayColumns = useMemo(() => {
     return columns.map((col) => ({
       ...col,
-      width: normalizeWidth(col.width),
+      width: normalizeWidth(col.key, col.width),
     }));
   }, [columns]);
 
@@ -77,8 +83,8 @@ export default function ReturnRequestGrid({
     onRowsChange?.(nextRows);
   }
 
-  function handleColumnWidthChange(col: ReturnRequestColumn, value: string) {
-    const nextWidth = normalizeWidth(Number(value));
+ function handleColumnWidthChange(col: ReturnRequestColumn, value: string) {
+    const nextWidth = normalizeWidth(col.key, Number(value));
     onColumnWidthChange?.(col.key, nextWidth);
   }
 
@@ -109,7 +115,7 @@ export default function ReturnRequestGrid({
                       <input
                         className="h-6 w-16 rounded border border-slate-300 bg-white px-1 text-center text-[11px] text-slate-700"
                         type="number"
-                        min={60}
+                        min={getMinWidth(col.key)}
                         max={800}
                         value={col.width}
                         onChange={(e) => handleColumnWidthChange(col, e.target.value)}
