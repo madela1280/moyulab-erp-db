@@ -39,11 +39,27 @@ function normalizeText(value: unknown) {
   return normalizeString(value).replace(/\s+/g, "").toLowerCase();
 }
 
+function splitNameCandidates(value: unknown) {
+  return normalizeString(value)
+    .split("/")
+    .map((x) => normalizeText(x))
+    .filter(Boolean);
+}
+
 function isSameText(a: unknown, b: unknown) {
   const aa = normalizeText(a);
   const bb = normalizeText(b);
   if (!aa || !bb) return false;
   return aa === bb;
+}
+
+function isSameName(a: unknown, b: unknown) {
+  const aa = splitNameCandidates(a);
+  const bb = splitNameCandidates(b);
+
+  if (!aa.length || !bb.length) return false;
+
+  return aa.some((x) => bb.includes(x));
 }
 
 function isSamePhone(a: unknown, b: unknown) {
@@ -63,7 +79,7 @@ function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) 
     reasons.push("반납완료일 접수 확인");
   }
 
-  if (!isSameText(requestRow?.renter_name, unifiedData["수취인명"])) {
+  if (!isSameName(requestRow?.renter_name, unifiedData["수취인명"])) {
     reasons.push("수취인명 불일치");
   }
 
@@ -93,6 +109,14 @@ function buildMismatchResolvedNote(originalReason: string, currentReason: string
   return "";
 }
 
+function getSavedOriginalMismatchReason(requestRow: any) {
+  return (
+    normalizeString(requestRow?.initial_mismatch_reason) ||
+    normalizeString(requestRow?.original_mismatch_reason) ||
+    normalizeString(requestRow?.mismatch_reason)
+  );
+}
+
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   const requestPhone = requestRow?.phone;
   const requestName = requestRow?.renter_name;
@@ -107,13 +131,13 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   if (phoneMatches.length > 1) {
     const nameAndProduct = phoneMatches.find(
       (row) =>
-        isSameText(requestName, row.data?.["수취인명"]) &&
+        isSameName(requestName, row.data?.["수취인명"]) &&
         isSameText(requestProduct, row.data?.["제품"])
     );
 
     if (nameAndProduct) return nameAndProduct;
 
-    const nameOnly = phoneMatches.find((row) => isSameText(requestName, row.data?.["수취인명"]));
+    const nameOnly = phoneMatches.find((row) => isSameName(requestName, row.data?.["수취인명"]));
     if (nameOnly) return nameOnly;
 
     return phoneMatches[0];
@@ -121,7 +145,7 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
 
   const nameAndProduct = unifiedRows.find(
     (row) =>
-      isSameText(requestName, row.data?.["수취인명"]) &&
+      isSameName(requestName, row.data?.["수취인명"]) &&
       isSameText(requestProduct, row.data?.["제품"])
   );
 
@@ -143,7 +167,7 @@ function getCurrentMismatchReason(requestRow: any, unifiedRows: any[]) {
 
 function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
-  const savedOriginalMismatchReason = normalizeString(requestRow?.mismatch_reason);
+  const savedOriginalMismatchReason = getSavedOriginalMismatchReason(requestRow);
 
   if (!matched) {
     const currentMismatchReason = "통합관리 매칭 없음";
@@ -203,7 +227,7 @@ function buildCustomerServerIdentityItem(row: any) {
 async function saveInitialMismatchReasons(requestRows: any[], unifiedRows: any[]) {
   const items = requestRows
     .map((row) => {
-      const savedOriginal = normalizeString(row?.mismatch_reason);
+      const savedOriginal = getSavedOriginalMismatchReason(row);
       const currentReason = getCurrentMismatchReason(row, unifiedRows);
 
       if (savedOriginal || !currentReason) return null;
