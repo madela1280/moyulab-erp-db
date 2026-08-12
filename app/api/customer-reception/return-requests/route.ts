@@ -104,17 +104,35 @@ function buildMismatchResolvedNote(originalReason: string, currentReason: string
 
   if (!original) return "";
   if (!current) return "모두 수정됨";
-  if (original !== current) return "일부 수정됨";
+  if (original === current) return "수정되지 않음";
 
-  return "";
+  return "일부 수정됨";
 }
 
-function getSavedOriginalMismatchReason(requestRow: any) {
+function getStoredInitialMismatchReason(requestRow: any) {
   return (
     normalizeString(requestRow?.initial_mismatch_reason) ||
-    normalizeString(requestRow?.original_mismatch_reason) ||
     normalizeString(requestRow?.mismatch_reason)
   );
+}
+
+function buildCustomerServerIdentityItem(row: any) {
+  return {
+    received_at: normalizeString(row?.received_at),
+    phone: normalizeString(row?.phone),
+    renter_name: normalizeString(row?.renter_name),
+    return_model: normalizeString(row?.return_model),
+  };
+}
+
+function buildIdentityKey(row: any) {
+  const item = buildCustomerServerIdentityItem(row);
+  return [
+    item.received_at,
+    item.phone,
+    item.renter_name,
+    item.return_model,
+  ].join("||");
 }
 
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
@@ -165,13 +183,19 @@ function getCurrentMismatchReason(requestRow: any, unifiedRows: any[]) {
   return buildMismatchReason(requestRow, data);
 }
 
-function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
+function mapWithUnifiedMatch(
+  requestRow: any,
+  unifiedRows: any[],
+  isListMode: boolean,
+  savedInitialReasonMap: Map<string, string>
+) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
-  const savedOriginalMismatchReason = getSavedOriginalMismatchReason(requestRow);
+  const storedInitialReason = getStoredInitialMismatchReason(requestRow);
+  const savedNowInitialReason = savedInitialReasonMap.get(buildIdentityKey(requestRow)) || "";
+  const originalMismatchReason = storedInitialReason || savedNowInitialReason;
 
   if (!matched) {
     const currentMismatchReason = "통합관리 매칭 없음";
-    const originalMismatchReason = savedOriginalMismatchReason || currentMismatchReason;
 
     return {
       ...requestRow,
@@ -190,7 +214,6 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
 
   const data = matched.data && typeof matched.data === "object" ? matched.data : {};
   const currentMismatchReason = buildMismatchReason(requestRow, data);
-  const originalMismatchReason = savedOriginalMismatchReason || currentMismatchReason;
 
   return {
     ...requestRow,
@@ -215,34 +238,31 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
   };
 }
 
-function buildCustomerServerIdentityItem(row: any) {
-  return {
-    received_at: normalizeString(row?.received_at),
-    phone: normalizeString(row?.phone),
-    renter_name: normalizeString(row?.renter_name),
-    return_model: normalizeString(row?.return_model),
-  };
-}
-
 async function saveInitialMismatchReasons(requestRows: any[], unifiedRows: any[]) {
+  const savedInitialReasonMap = new Map<string, string>();
+
   const items = requestRows
     .map((row) => {
-      const savedOriginal = getSavedOriginalMismatchReason(row);
+      const storedInitialReason = getStoredInitialMismatchReason(row);
       const currentReason = getCurrentMismatchReason(row, unifiedRows);
 
-      if (savedOriginal || !currentReason) return null;
+      if (storedInitialReason || !currentReason) return null;
 
-      return {
+      const item = {
         ...buildCustomerServerIdentityItem(row),
         mismatch_reason: currentReason,
       };
+
+      savedInitialReasonMap.set(buildIdentityKey(row), currentReason);
+
+      return item;
     })
     .filter((item) => {
       if (!item) return false;
       return item.received_at && item.phone && item.renter_name && item.return_model;
     });
 
-  if (!items.length) return;
+  if (!items.length) return savedInitialReasonMap;
 
   const targetUrl = `${getCsBaseUrl()}/api/erp/return-requests/mismatch-reason`;
 
@@ -260,6 +280,8 @@ async function saveInitialMismatchReasons(requestRows: any[], unifiedRows: any[]
   if (!response.ok) {
     throw new Error(data?.message || `고객접수 서버 불일치사유 저장 실패(${response.status})`);
   }
+
+  return savedInitialReasonMap;
 }
 
 async function fetchCustomerServerRows(status: string) {
@@ -305,13 +327,17 @@ export async function GET(req: NextRequest) {
       fetchUnifiedRows(),
     ]);
 
+    let savedInitialReasonMap = new Map<string, string>();
+
     try {
-      await saveInitialMismatchReasons(requestRows, unifiedRows);
+      savedInitialReasonMap = await saveInitialMismatchReasons(requestRows, unifiedRows);
     } catch (err) {
       console.warn("return request initial mismatch reason save failed (ignored):", err);
     }
 
-    const rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows, isListMode));
+    const rows = requestRows.map((row: any) =>
+      mapWithUnifiedMatch(row, unifiedRows, isListMode, savedInitialReasonMap)
+    );
 
     return NextResponse.json({
       ok: true,
