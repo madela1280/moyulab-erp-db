@@ -7,6 +7,26 @@ function getCsBaseUrl() {
   return String(process.env.CS_SERVER_BASE_URL || DEFAULT_CS_BASE_URL).replace(/\/+$/, "");
 }
 
+function getCsApiHeaders(extra?: Record<string, string>) {
+  const apiKey = String(
+    process.env.CS_SERVER_API_KEY ||
+      process.env.CS_ERP_API_KEY ||
+      process.env.ERP_API_KEY ||
+      ""
+  ).trim();
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...(extra || {}),
+  };
+
+  if (apiKey) {
+    headers["x-erp-api-key"] = apiKey;
+  }
+
+  return headers;
+}
+
 function normalizeString(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -62,6 +82,17 @@ function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) 
   return reasons.join(", ");
 }
 
+function buildMismatchResolvedNote(originalReason: string, currentReason: string) {
+  const original = normalizeString(originalReason);
+  const current = normalizeString(currentReason);
+
+  if (!original) return "";
+  if (!current) return "모두 수정됨";
+  if (original !== current) return "일부 수정됨";
+
+  return "";
+}
+
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   const requestPhone = requestRow?.phone;
   const requestName = requestRow?.renter_name;
@@ -99,20 +130,32 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   return null;
 }
 
-function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[]) {
+function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
+  const savedOriginalMismatchReason = normalizeString(requestRow?.mismatch_reason);
 
   if (!matched) {
+    const currentMismatchReason = "통합관리 매칭 없음";
+    const originalMismatchReason = savedOriginalMismatchReason || currentMismatchReason;
+
     return {
       ...requestRow,
       unified_id: null,
       matched_unified: null,
-      mismatch_reason: "통합관리 매칭 없음",
+
+      mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
+      original_mismatch_reason: originalMismatchReason,
+      current_mismatch_reason: currentMismatchReason,
+      mismatch_resolved_note: buildMismatchResolvedNote(
+        originalMismatchReason,
+        currentMismatchReason
+      ),
     };
   }
 
   const data = matched.data && typeof matched.data === "object" ? matched.data : {};
-  const mismatchReason = buildMismatchReason(requestRow, data);
+  const currentMismatchReason = buildMismatchReason(requestRow, data);
+  const originalMismatchReason = savedOriginalMismatchReason || currentMismatchReason;
 
   return {
     ...requestRow,
@@ -129,8 +172,57 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[]) {
       반납요청일: normalizeString(data["반납요청일"]),
       반납완료일: normalizeString(data["반납완료일"]),
     },
-    mismatch_reason: mismatchReason,
+
+    mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
+    original_mismatch_reason: originalMismatchReason,
+    current_mismatch_reason: currentMismatchReason,
+    mismatch_resolved_note: buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason),
   };
+}
+
+function buildCustomerServerIdentityItem(row: any) {
+  return {
+    received_at: normalizeString(row?.received_at),
+    phone: normalizeString(row?.phone),
+    renter_name: normalizeString(row?.renter_name),
+    return_model: normalizeString(row?.return_model),
+  };
+}
+
+async function saveInitialMismatchReasons(mappedRows: any[]) {
+  const items = mappedRows
+    .filter((row) => {
+      const savedOriginal = normalizeString(row?.mismatch_reason);
+      const currentReason = normalizeString(row?.current_mismatch_reason);
+
+      return !savedOriginal && !!currentReason;
+    })
+    .map((row) => ({
+      ...buildCustomerServerIdentityItem(row),
+      mismatch_reason: normalizeString(row?.current_mismatch_reason),
+    }))
+    .filter(
+      (item) => item.received_at && item.phone && item.renter_name && item.return_model
+    );
+
+  if (!items.length) return;
+
+  const targetUrl = `${getCsBaseUrl()}/api/erp/return-requests/mismatch-reason`;
+
+  const response = await fetch(targetUrl, {
+    method: "POST",
+    cache: "no-store",
+    headers: getCsApiHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ items }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.message || `고객접수 서버 불일치사유 저장 실패(${response.status})`);
+  }
 }
 
 async function fetchCustomerServerRows(status: string) {
@@ -143,9 +235,7 @@ async function fetchCustomerServerRows(status: string) {
   const response = await fetch(targetUrl.toString(), {
     method: "GET",
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-    },
+    headers: getCsApiHeaders(),
   });
 
   const data = await response.json().catch(() => null);
@@ -171,13 +261,24 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const status = String(url.searchParams.get("status") || "").trim();
+    const isListMode = !status;
 
     const [requestRows, unifiedRows] = await Promise.all([
       fetchCustomerServerRows(status),
       fetchUnifiedRows(),
     ]);
 
-    const rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows));
+    const currentMappedRows = requestRows.map((row: any) =>
+      mapWithUnifiedMatch(row, unifiedRows, false)
+    );
+
+    try {
+      await saveInitialMismatchReasons(currentMappedRows);
+    } catch (err) {
+      console.warn("return request initial mismatch reason save failed (ignored):", err);
+    }
+
+    const rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows, isListMode));
 
     return NextResponse.json({
       ok: true,

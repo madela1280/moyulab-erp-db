@@ -37,7 +37,8 @@ export const RETURN_REQUEST_LIST_COLUMNS: ReturnRequestColumn[] = [
   { key: "specialNote1", label: "특이사항1", width: 140, source: "erp" },
   { key: "specialNote2", label: "특이사항2", width: 140, source: "erp" },
   { key: "returnMemo", label: "반납메모", width: 180, source: "web" },
-  { key: "mismatchReason", label: "불일치사유", width: 220, source: "system" },
+  { key: "mismatchReason", label: "최초 불일치사유", width: 220, source: "system" },
+  { key: "mismatchResolvedNote", label: "불일치 수정여부", width: 140, source: "system" },
 ];
 
 export const RETURN_REQUEST_WEB_COLUMN_KEYS = new Set([

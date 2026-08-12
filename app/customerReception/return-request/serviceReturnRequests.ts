@@ -9,6 +9,9 @@ export type ReturnRequestApiRow = {
   pickup_preferred_date?: string;
   return_memo?: string | null;
   mismatch_reason?: string | null;
+  original_mismatch_reason?: string | null;
+  current_mismatch_reason?: string | null;
+  mismatch_resolved_note?: string | null;
   process_status?: string;
 
   unified_id?: number | null;
@@ -98,6 +101,8 @@ export function mapReturnRequestApiRow(row: ReturnRequestApiRow, index: number):
 
       returnMemo: normalizeString(row.return_memo),
       mismatchReason: normalizeString(row.mismatch_reason),
+      mismatchResolvedNote: normalizeString(row.mismatch_resolved_note),
+
       unifiedId: row.unified_id ? String(row.unified_id) : "",
       currentUnifiedReturnRequestDate: normalizeString(matched.반납요청일),
     },
