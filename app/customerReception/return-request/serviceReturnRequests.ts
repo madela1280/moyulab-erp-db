@@ -69,10 +69,23 @@ function formatDate(value: unknown) {
   return raw;
 }
 
-export function mapReturnRequestApiRow(row: ReturnRequestApiRow, index: number): ReturnRequestRow {
+function getMismatchReasonForView(row: ReturnRequestApiRow, isListMode: boolean) {
+  if (isListMode) {
+    return normalizeString(row.original_mismatch_reason || row.mismatch_reason);
+  }
+
+  return normalizeString(row.current_mismatch_reason || row.mismatch_reason);
+}
+
+export function mapReturnRequestApiRow(
+  row: ReturnRequestApiRow,
+  index: number,
+  isListMode: boolean
+): ReturnRequestRow {
   const receivedAt = formatDateTime(row.received_at);
   const processStatus = normalizeStatus(row.process_status);
   const matched = row.matched_unified || {};
+  const mismatchReason = getMismatchReasonForView(row, isListMode);
 
   return {
     id: `${receivedAt || "row"}-${normalizeString(row.phone) || "phone"}-${index}`,
@@ -100,7 +113,7 @@ export function mapReturnRequestApiRow(row: ReturnRequestApiRow, index: number):
       specialNote2: normalizeString(matched.특이사항2),
 
       returnMemo: normalizeString(row.return_memo),
-      mismatchReason: normalizeString(row.mismatch_reason),
+      mismatchReason,
       mismatchResolvedNote: normalizeString(row.mismatch_resolved_note),
 
       unifiedId: row.unified_id ? String(row.unified_id) : "",
@@ -130,8 +143,9 @@ export async function fetchReturnRequests(params: FetchReturnRequestsParams = {}
   }
 
   const rawRows = Array.isArray(j?.rows) ? j.rows : [];
+  const isListMode = !params.status;
 
   return rawRows.map((row: ReturnRequestApiRow, index: number) =>
-    mapReturnRequestApiRow(row, index)
+    mapReturnRequestApiRow(row, index, isListMode)
   );
 }

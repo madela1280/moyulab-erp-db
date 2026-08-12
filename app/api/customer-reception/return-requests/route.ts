@@ -57,11 +57,11 @@ function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) 
   const returnRequestDate = normalizeString(unifiedData["반납요청일"]);
   const returnCompleteDate = normalizeString(unifiedData["반납완료일"]);
 
-  if (returnRequestDate || returnCompleteDate) {
-    return "반납완료일 접수 확인";
-  }
-
   const reasons: string[] = [];
+
+  if (returnRequestDate || returnCompleteDate) {
+    reasons.push("반납완료일 접수 확인");
+  }
 
   if (!isSameText(requestRow?.renter_name, unifiedData["수취인명"])) {
     reasons.push("수취인명 불일치");
@@ -130,6 +130,17 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   return null;
 }
 
+function getCurrentMismatchReason(requestRow: any, unifiedRows: any[]) {
+  const matched = findBestUnifiedMatch(requestRow, unifiedRows);
+
+  if (!matched) {
+    return "통합관리 매칭 없음";
+  }
+
+  const data = matched.data && typeof matched.data === "object" ? matched.data : {};
+  return buildMismatchReason(requestRow, data);
+}
+
 function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
   const savedOriginalMismatchReason = normalizeString(requestRow?.mismatch_reason);
@@ -189,21 +200,23 @@ function buildCustomerServerIdentityItem(row: any) {
   };
 }
 
-async function saveInitialMismatchReasons(mappedRows: any[]) {
-  const items = mappedRows
-    .filter((row) => {
+async function saveInitialMismatchReasons(requestRows: any[], unifiedRows: any[]) {
+  const items = requestRows
+    .map((row) => {
       const savedOriginal = normalizeString(row?.mismatch_reason);
-      const currentReason = normalizeString(row?.current_mismatch_reason);
+      const currentReason = getCurrentMismatchReason(row, unifiedRows);
 
-      return !savedOriginal && !!currentReason;
+      if (savedOriginal || !currentReason) return null;
+
+      return {
+        ...buildCustomerServerIdentityItem(row),
+        mismatch_reason: currentReason,
+      };
     })
-    .map((row) => ({
-      ...buildCustomerServerIdentityItem(row),
-      mismatch_reason: normalizeString(row?.current_mismatch_reason),
-    }))
-    .filter(
-      (item) => item.received_at && item.phone && item.renter_name && item.return_model
-    );
+    .filter((item) => {
+      if (!item) return false;
+      return item.received_at && item.phone && item.renter_name && item.return_model;
+    });
 
   if (!items.length) return;
 
@@ -268,12 +281,8 @@ export async function GET(req: NextRequest) {
       fetchUnifiedRows(),
     ]);
 
-    const currentMappedRows = requestRows.map((row: any) =>
-      mapWithUnifiedMatch(row, unifiedRows, false)
-    );
-
     try {
-      await saveInitialMismatchReasons(currentMappedRows);
+      await saveInitialMismatchReasons(requestRows, unifiedRows);
     } catch (err) {
       console.warn("return request initial mismatch reason save failed (ignored):", err);
     }
