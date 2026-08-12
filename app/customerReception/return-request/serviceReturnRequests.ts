@@ -8,10 +8,12 @@ export type ReturnRequestApiRow = {
   pickup_address?: string;
   pickup_preferred_date?: string;
   return_memo?: string | null;
+
   mismatch_reason?: string | null;
   original_mismatch_reason?: string | null;
   current_mismatch_reason?: string | null;
   mismatch_resolved_note?: string | null;
+
   process_status?: string;
 
   unified_id?: number | null;
@@ -25,6 +27,7 @@ export type ReturnRequestApiRow = {
     특이사항1?: string;
     특이사항2?: string;
     반납요청일?: string;
+    반납완료일?: string;
   } | null;
 };
 
@@ -71,10 +74,10 @@ function formatDate(value: unknown) {
 
 function getMismatchReasonForView(row: ReturnRequestApiRow, isListMode: boolean) {
   if (isListMode) {
-    return normalizeString(row.original_mismatch_reason || row.mismatch_reason);
+    return normalizeString(row.original_mismatch_reason);
   }
 
-  return normalizeString(row.current_mismatch_reason || row.mismatch_reason);
+  return normalizeString(row.current_mismatch_reason);
 }
 
 export function mapReturnRequestApiRow(
@@ -114,7 +117,7 @@ export function mapReturnRequestApiRow(
 
       returnMemo: normalizeString(row.return_memo),
       mismatchReason,
-      mismatchResolvedNote: normalizeString(row.mismatch_resolved_note),
+      mismatchResolvedNote: isListMode ? normalizeString(row.mismatch_resolved_note) : "",
 
       unifiedId: row.unified_id ? String(row.unified_id) : "",
       currentUnifiedReturnRequestDate: normalizeString(matched.반납요청일),

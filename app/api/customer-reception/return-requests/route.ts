@@ -98,22 +98,19 @@ function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) 
   return reasons.join(", ");
 }
 
-function buildMismatchResolvedNote(originalReason: string, currentReason: string) {
-  const original = normalizeString(originalReason);
+function buildMismatchResolvedNote(initialReason: string, currentReason: string) {
+  const initial = normalizeString(initialReason);
   const current = normalizeString(currentReason);
 
-  if (!original) return "";
+  if (!initial) return "";
   if (!current) return "모두 수정됨";
-  if (original === current) return "수정되지 않음";
+  if (initial === current) return "수정되지 않음";
 
   return "일부 수정됨";
 }
 
-function getStoredInitialMismatchReason(requestRow: any) {
-  return (
-    normalizeString(requestRow?.initial_mismatch_reason) ||
-    normalizeString(requestRow?.mismatch_reason)
-  );
+function getFixedInitialMismatchReason(requestRow: any) {
+  return normalizeString(requestRow?.initial_mismatch_reason);
 }
 
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
@@ -155,7 +152,7 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
 
 function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
-  const originalMismatchReason = getStoredInitialMismatchReason(requestRow);
+  const initialMismatchReason = getFixedInitialMismatchReason(requestRow);
 
   if (!matched) {
     const currentMismatchReason = "통합관리 매칭 없음";
@@ -165,11 +162,11 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
       unified_id: null,
       matched_unified: null,
 
-      mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
-      original_mismatch_reason: originalMismatchReason,
+      mismatch_reason: isListMode ? initialMismatchReason : currentMismatchReason,
+      original_mismatch_reason: initialMismatchReason,
       current_mismatch_reason: currentMismatchReason,
       mismatch_resolved_note: isListMode
-        ? buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason)
+        ? buildMismatchResolvedNote(initialMismatchReason, currentMismatchReason)
         : "",
     };
   }
@@ -193,11 +190,11 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
       반납완료일: normalizeString(data["반납완료일"]),
     },
 
-    mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
-    original_mismatch_reason: originalMismatchReason,
+    mismatch_reason: isListMode ? initialMismatchReason : currentMismatchReason,
+    original_mismatch_reason: initialMismatchReason,
     current_mismatch_reason: currentMismatchReason,
     mismatch_resolved_note: isListMode
-      ? buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason)
+      ? buildMismatchResolvedNote(initialMismatchReason, currentMismatchReason)
       : "",
   };
 }
