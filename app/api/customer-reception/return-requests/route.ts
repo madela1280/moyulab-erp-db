@@ -199,6 +199,65 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
   };
 }
 
+function buildInitialMismatchSaveItems(rows: any[]) {
+  return rows
+    .filter((row) => {
+      const initial = normalizeString(row?.original_mismatch_reason);
+      const current = normalizeString(row?.current_mismatch_reason);
+      return !initial && !!current;
+    })
+    .map((row) => ({
+      received_at: row.received_at,
+      phone: row.phone,
+      renter_name: row.renter_name,
+      return_model: row.return_model,
+      mismatch_reason: row.current_mismatch_reason,
+    }))
+    .filter(
+      (item) =>
+        normalizeString(item.received_at) &&
+        normalizeString(item.phone) &&
+        normalizeString(item.renter_name) &&
+        normalizeString(item.return_model) &&
+        normalizeString(item.mismatch_reason)
+    );
+}
+
+async function saveInitialMismatchReasons(rows: any[]) {
+  const items = buildInitialMismatchSaveItems(rows);
+
+  if (!items.length) {
+    return {
+      ok: true,
+      updatedCount: 0,
+      skippedCount: 0,
+    };
+  }
+
+  const targetUrl = `${getCsBaseUrl()}/api/erp/return-requests/mismatch-reason`;
+
+  const response = await fetch(targetUrl, {
+    method: "POST",
+    cache: "no-store",
+    headers: getCsApiHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ items }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.message || `최초 불일치사유 저장 실패(${response.status})`);
+  }
+
+  return {
+    ok: true,
+    updatedCount: Number(data?.updatedCount || 0),
+    skippedCount: Number(data?.skippedCount || 0),
+  };
+}
+
 async function fetchCustomerServerRows(status: string) {
   const targetUrl = new URL(`${getCsBaseUrl()}/api/erp/return-requests`);
 
@@ -242,7 +301,20 @@ export async function GET(req: NextRequest) {
       fetchUnifiedRows(),
     ]);
 
-    const rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows, isListMode));
+    let rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows, isListMode));
+
+    try {
+      const saveResult = await saveInitialMismatchReasons(rows);
+
+      if (saveResult.updatedCount > 0) {
+        const refreshedRequestRows = await fetchCustomerServerRows(status);
+        rows = refreshedRequestRows.map((row: any) =>
+          mapWithUnifiedMatch(row, unifiedRows, isListMode)
+        );
+      }
+    } catch (saveError) {
+      console.error("return request initial mismatch reason save failed:", saveError);
+    }
 
     return NextResponse.json({
       ok: true,
