@@ -116,25 +116,6 @@ function getStoredInitialMismatchReason(requestRow: any) {
   );
 }
 
-function buildCustomerServerIdentityItem(row: any) {
-  return {
-    received_at: normalizeString(row?.received_at),
-    phone: normalizeString(row?.phone),
-    renter_name: normalizeString(row?.renter_name),
-    return_model: normalizeString(row?.return_model),
-  };
-}
-
-function buildIdentityKey(row: any) {
-  const item = buildCustomerServerIdentityItem(row);
-  return [
-    item.received_at,
-    item.phone,
-    item.renter_name,
-    item.return_model,
-  ].join("||");
-}
-
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   const requestPhone = requestRow?.phone;
   const requestName = requestRow?.renter_name;
@@ -172,27 +153,9 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   return null;
 }
 
-function getCurrentMismatchReason(requestRow: any, unifiedRows: any[]) {
+function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
-
-  if (!matched) {
-    return "통합관리 매칭 없음";
-  }
-
-  const data = matched.data && typeof matched.data === "object" ? matched.data : {};
-  return buildMismatchReason(requestRow, data);
-}
-
-function mapWithUnifiedMatch(
-  requestRow: any,
-  unifiedRows: any[],
-  isListMode: boolean,
-  savedInitialReasonMap: Map<string, string>
-) {
-  const matched = findBestUnifiedMatch(requestRow, unifiedRows);
-  const storedInitialReason = getStoredInitialMismatchReason(requestRow);
-  const savedNowInitialReason = savedInitialReasonMap.get(buildIdentityKey(requestRow)) || "";
-  const originalMismatchReason = storedInitialReason || savedNowInitialReason;
+  const originalMismatchReason = getStoredInitialMismatchReason(requestRow);
 
   if (!matched) {
     const currentMismatchReason = "통합관리 매칭 없음";
@@ -205,10 +168,9 @@ function mapWithUnifiedMatch(
       mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
       original_mismatch_reason: originalMismatchReason,
       current_mismatch_reason: currentMismatchReason,
-      mismatch_resolved_note: buildMismatchResolvedNote(
-        originalMismatchReason,
-        currentMismatchReason
-      ),
+      mismatch_resolved_note: isListMode
+        ? buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason)
+        : "",
     };
   }
 
@@ -234,54 +196,10 @@ function mapWithUnifiedMatch(
     mismatch_reason: isListMode ? originalMismatchReason : currentMismatchReason,
     original_mismatch_reason: originalMismatchReason,
     current_mismatch_reason: currentMismatchReason,
-    mismatch_resolved_note: buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason),
+    mismatch_resolved_note: isListMode
+      ? buildMismatchResolvedNote(originalMismatchReason, currentMismatchReason)
+      : "",
   };
-}
-
-async function saveInitialMismatchReasons(requestRows: any[], unifiedRows: any[]) {
-  const savedInitialReasonMap = new Map<string, string>();
-
-  const items = requestRows
-    .map((row) => {
-      const storedInitialReason = getStoredInitialMismatchReason(row);
-      const currentReason = getCurrentMismatchReason(row, unifiedRows);
-
-      if (storedInitialReason || !currentReason) return null;
-
-      const item = {
-        ...buildCustomerServerIdentityItem(row),
-        mismatch_reason: currentReason,
-      };
-
-      savedInitialReasonMap.set(buildIdentityKey(row), currentReason);
-
-      return item;
-    })
-    .filter((item) => {
-      if (!item) return false;
-      return item.received_at && item.phone && item.renter_name && item.return_model;
-    });
-
-  if (!items.length) return savedInitialReasonMap;
-
-  const targetUrl = `${getCsBaseUrl()}/api/erp/return-requests/mismatch-reason`;
-
-  const response = await fetch(targetUrl, {
-    method: "POST",
-    cache: "no-store",
-    headers: getCsApiHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({ items }),
-  });
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(data?.message || `고객접수 서버 불일치사유 저장 실패(${response.status})`);
-  }
-
-  return savedInitialReasonMap;
 }
 
 async function fetchCustomerServerRows(status: string) {
@@ -327,17 +245,7 @@ export async function GET(req: NextRequest) {
       fetchUnifiedRows(),
     ]);
 
-    let savedInitialReasonMap = new Map<string, string>();
-
-    try {
-      savedInitialReasonMap = await saveInitialMismatchReasons(requestRows, unifiedRows);
-    } catch (err) {
-      console.warn("return request initial mismatch reason save failed (ignored):", err);
-    }
-
-    const rows = requestRows.map((row: any) =>
-      mapWithUnifiedMatch(row, unifiedRows, isListMode, savedInitialReasonMap)
-    );
+    const rows = requestRows.map((row: any) => mapWithUnifiedMatch(row, unifiedRows, isListMode));
 
     return NextResponse.json({
       ok: true,
