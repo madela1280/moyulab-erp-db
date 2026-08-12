@@ -3,6 +3,15 @@ import { query } from "@/lib/db";
 
 const DEFAULT_CS_BASE_URL = "https://return.moulab.kr";
 
+const ALLOWED_WEB_EDIT_FIELDS = new Set([
+  "return_model",
+  "renter_name",
+  "phone",
+  "pickup_address",
+  "pickup_preferred_date",
+  "return_memo",
+]);
+
 function getCsBaseUrl() {
   return String(process.env.CS_SERVER_BASE_URL || DEFAULT_CS_BASE_URL).replace(/\/+$/, "");
 }
@@ -290,6 +299,32 @@ async function fetchUnifiedRows() {
   return Array.isArray((result as any)?.rows) ? (result as any).rows : [];
 }
 
+async function patchCustomerServerWebCell(payload: {
+  received_at: string;
+  phone: string;
+  renter_name: string;
+  return_model: string;
+  field: string;
+  value: string;
+}) {
+  const response = await fetch(`${getCsBaseUrl()}/api/erp/return-requests/web-cell`, {
+    method: "PATCH",
+    cache: "no-store",
+    headers: getCsApiHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.message || `반납접수 수정 저장 실패(${response.status})`);
+  }
+
+  return data;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -326,6 +361,61 @@ export async function GET(req: NextRequest) {
         ok: false,
         message: e?.message || "반납접수 데이터를 불러오지 못했습니다.",
         rows: [],
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+
+    const receivedAt = normalizeString(body?.received_at);
+    const phone = normalizeString(body?.phone);
+    const renterName = normalizeString(body?.renter_name);
+    const returnModel = normalizeString(body?.return_model);
+    const field = normalizeString(body?.field);
+    const value = normalizeString(body?.value);
+
+    if (!receivedAt || !phone || !renterName || !returnModel) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "수정 대상 반납접수 행 정보가 부족합니다.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!ALLOWED_WEB_EDIT_FIELDS.has(field)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "수정할 수 없는 컬럼입니다.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await patchCustomerServerWebCell({
+      received_at: receivedAt,
+      phone,
+      renter_name: renterName,
+      return_model: returnModel,
+      field,
+      value,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      result,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: e?.message || "반납접수 수정값을 저장하지 못했습니다.",
       },
       { status: 500 }
     );

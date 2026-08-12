@@ -35,6 +35,15 @@ export type FetchReturnRequestsParams = {
   status?: string;
 };
 
+const WEB_CELL_FIELD_MAP: Record<string, string> = {
+  product: "return_model",
+  recipientName: "renter_name",
+  phone1: "phone",
+  contractAddress: "pickup_address",
+  returnRequestDate: "pickup_preferred_date",
+  returnMemo: "return_memo",
+};
+
 function normalizeString(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -85,13 +94,18 @@ export function mapReturnRequestApiRow(
   index: number,
   isListMode: boolean
 ): ReturnRequestRow {
+  const receivedAtRaw = normalizeString(row.received_at);
   const receivedAt = formatDateTime(row.received_at);
   const processStatus = normalizeStatus(row.process_status);
   const matched = row.matched_unified || {};
   const mismatchReason = getMismatchReasonForView(row, isListMode);
 
+  const renterName = normalizeString(row.renter_name);
+  const returnModel = normalizeString(row.return_model);
+  const phone = normalizeString(row.phone);
+
   return {
-    id: `${receivedAt || "row"}-${normalizeString(row.phone) || "phone"}-${index}`,
+    id: `${receivedAtRaw || receivedAt || "row"}-${phone || "phone"}-${index}`,
     checked: false,
     processStatus,
     receivedAt,
@@ -102,9 +116,9 @@ export function mapReturnRequestApiRow(
       partnerCategory: normalizeString(matched.거래처분류),
       deviceNo: normalizeString(matched.기기번호),
 
-      product: normalizeString(row.return_model),
-      recipientName: normalizeString(row.renter_name),
-      phone1: normalizeString(row.phone),
+      product: returnModel,
+      recipientName: renterName,
+      phone1: phone,
       phone2: normalizeString(matched.연락처2),
       contractAddress: normalizeString(row.pickup_address),
 
@@ -121,6 +135,11 @@ export function mapReturnRequestApiRow(
 
       unifiedId: row.unified_id ? String(row.unified_id) : "",
       currentUnifiedReturnRequestDate: normalizeString(matched.반납요청일),
+
+      __receivedAtRaw: receivedAtRaw,
+      __phoneRaw: phone,
+      __renterNameRaw: renterName,
+      __returnModelRaw: returnModel,
     },
   };
 }
@@ -151,4 +170,49 @@ export async function fetchReturnRequests(params: FetchReturnRequestsParams = {}
   return rawRows.map((row: ReturnRequestApiRow, index: number) =>
     mapReturnRequestApiRow(row, index, isListMode)
   );
+}
+
+export async function updateReturnRequestWebCell(
+  row: ReturnRequestRow,
+  colKey: string,
+  value: string
+) {
+  const field = WEB_CELL_FIELD_MAP[colKey];
+
+  if (!field) {
+    throw new Error("수정할 수 없는 컬럼입니다.");
+  }
+
+  const receivedAt = normalizeString(row.data?.__receivedAtRaw || row.receivedAt);
+  const phone = normalizeString(row.data?.__phoneRaw || row.data?.phone1);
+  const renterName = normalizeString(row.data?.__renterNameRaw || row.data?.recipientName);
+  const returnModel = normalizeString(row.data?.__returnModelRaw || row.data?.product);
+
+  if (!receivedAt || !phone || !renterName || !returnModel) {
+    throw new Error("수정 대상 반납접수 행을 찾을 수 없습니다.");
+  }
+
+  const r = await fetch("/api/customer-reception/return-requests", {
+    method: "PATCH",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      received_at: receivedAt,
+      phone,
+      renter_name: renterName,
+      return_model: returnModel,
+      field,
+      value,
+    }),
+  });
+
+  const j = await r.json().catch(() => null);
+
+  if (!r.ok || j?.ok === false) {
+    throw new Error(j?.message || `FAILED(${r.status})`);
+  }
+
+  return j;
 }

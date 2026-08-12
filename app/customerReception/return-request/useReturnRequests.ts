@@ -5,13 +5,17 @@ import type {
   ReturnRequestRow,
   ReturnRequestViewMode,
 } from "@/customerReception/return-request/types";
-import { fetchReturnRequests } from "@/customerReception/return-request/serviceReturnRequests";
+import {
+  fetchReturnRequests,
+  updateReturnRequestWebCell,
+} from "@/customerReception/return-request/serviceReturnRequests";
 import { syncListen } from "@/global-sync/sync-engine";
 
 export function useReturnRequests(mode: ReturnRequestViewMode) {
   const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
   const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const reloadCurrent = useCallback(async () => {
@@ -62,6 +66,26 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     }
   }, []);
 
+  const saveWebCell = useCallback(
+    async (row: ReturnRequestRow, colKey: string, value: string) => {
+      if (mode === "list") return;
+
+      setSaving(true);
+      setError("");
+
+      try {
+        await updateReturnRequestWebCell(row, colKey, value);
+        await reloadCurrentSilent();
+      } catch (e: any) {
+        setError(e?.message || "반납접수 수정값을 저장하지 못했습니다.");
+        await reloadCurrentSilent();
+      } finally {
+        setSaving(false);
+      }
+    },
+    [mode, reloadCurrentSilent]
+  );
+
   useEffect(() => {
     if (mode === "list") {
       void reloadList();
@@ -104,10 +128,12 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     currentRows,
     listRows,
     loading,
+    saving,
     error,
     setCurrentRows,
     setListRows,
     reloadCurrent,
     reloadList,
+    saveWebCell,
   };
 }

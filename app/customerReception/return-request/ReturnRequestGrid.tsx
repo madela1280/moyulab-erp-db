@@ -17,6 +17,7 @@ type ReturnRequestGridProps = {
   columns: ReturnRequestColumn[];
   isColumnWidthMode?: boolean;
   onRowsChange?: (rows: ReturnRequestRow[]) => void;
+  onCellCommit?: (row: ReturnRequestRow, colKey: string, value: string) => void;
   onColumnWidthChange?: (key: string, width: number) => void;
 };
 
@@ -47,6 +48,7 @@ export default function ReturnRequestGrid({
   columns,
   isColumnWidthMode,
   onRowsChange,
+  onCellCommit,
   onColumnWidthChange,
 }: ReturnRequestGridProps) {
   const displayRows = useMemo(() => {
@@ -89,6 +91,17 @@ export default function ReturnRequestGrid({
     });
 
     onRowsChange?.(nextRows);
+  }
+
+  function commitCell(rowIndex: number, colKey: string, value: string) {
+    if (mode === "list") return;
+    if (!RETURN_REQUEST_WEB_COLUMN_KEYS.has(colKey)) return;
+
+    const row = displayRows[rowIndex];
+    if (!row) return;
+    if (String(row.id || "").startsWith("empty-")) return;
+
+    onCellCommit?.(row, colKey, value);
   }
 
   function getDraftWidthValue(col: ReturnRequestColumn) {
@@ -219,6 +232,12 @@ export default function ReturnRequestGrid({
                       <input
                         value={value}
                         onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
+                        onBlur={(e) => commitCell(rowIndex, col.key, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
                         className="block h-full min-h-8 w-full border-0 bg-transparent px-1 py-1 text-xs font-normal text-slate-900 outline-none"
                         style={{
                           width: col.width,
