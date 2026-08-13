@@ -45,6 +45,25 @@ function sortKorean(a: string, b: string) {
   return String(a).localeCompare(String(b), "ko");
 }
 
+// ✅ 외부 팝오버 선택값을 현재 화면 input에 즉시 반영
+// - DB 저장은 syncPatch가 담당
+// - 여기서는 현재 탭의 표시 지연만 줄임
+function setVisibleUnifiedCellValue(rowId: number, colKey: string, value: string) {
+  if (typeof document === "undefined") return;
+
+  try {
+    const tr = document.querySelector(`tr[data-unified-id="${rowId}"]`) as HTMLElement | null;
+    const td = tr?.querySelector(`td[data-col-key="${colKey}"]`) as HTMLElement | null;
+    const input = td?.querySelector("input") as HTMLInputElement | null;
+
+    if (input) {
+      input.value = String(value ?? "");
+    }
+  } catch {
+    // ignore
+  }
+}
+
 type SignupSettings = {
   selectedKeys: string[];
   colWidthSteps: Record<string, number>;
@@ -894,7 +913,7 @@ export default function UnifiedMainView() {
         }}
       />
 
-            <UnifiedPathPickerPopover
+    <UnifiedPathPickerPopover
         open={pathPopover.open}
         x={pathPopover.x}
         y={pathPopover.y}
@@ -905,8 +924,18 @@ export default function UnifiedMainView() {
           if (!unifiedId) return;
 
           const next = normalizeName(name);
+
+          // ✅ 현재 화면 즉시 반영
+          setVisibleUnifiedCellValue(unifiedId, "경로", next);
+          setPathPopover((p) => ({
+            ...p,
+            open: false,
+            unifiedId: null,
+            currentValue: next,
+          }));
+
           await syncPatch(unifiedId, "경로", next);
-          setPathPopover((p) => ({ ...p, open: false, unifiedId: null }));
+          syncEmitUnifiedUpdate();
         }}
         onClose={() => setPathPopover((p) => ({ ...p, open: false, unifiedId: null }))}
         onAdd={async (raw) => {
@@ -916,7 +945,16 @@ export default function UnifiedMainView() {
           await pathOptions.add(n);
 
           const unifiedId = pathPopover.unifiedId;
-          if (unifiedId) await syncPatch(unifiedId, "경로", n);
+          if (unifiedId) {
+            // ✅ 현재 화면 즉시 반영
+            setVisibleUnifiedCellValue(unifiedId, "경로", n);
+            setPathPopover((p) => ({
+              ...p,
+              currentValue: n,
+            }));
+
+            await syncPatch(unifiedId, "경로", n);
+          }
 
           syncEmitUnifiedUpdate();
         }}
@@ -928,14 +966,21 @@ export default function UnifiedMainView() {
 
           const unifiedId = pathPopover.unifiedId;
           if (unifiedId && normalizeName(pathPopover.currentValue) === n) {
+            // ✅ 현재 화면 즉시 반영
+            setVisibleUnifiedCellValue(unifiedId, "경로", "");
+            setPathPopover((p) => ({
+              ...p,
+              currentValue: "",
+            }));
+
             await syncPatch(unifiedId, "경로", "");
           }
 
           syncEmitUnifiedUpdate();
         }}
-      />
+      />  
 
-      <UnifiedDeviceStatusPickerPopover
+     <UnifiedDeviceStatusPickerPopover
         open={deviceStatusPopover.open}
         x={deviceStatusPopover.x}
         y={deviceStatusPopover.y}
@@ -946,8 +991,18 @@ export default function UnifiedMainView() {
           if (!unifiedId) return;
 
           const next = normalizeName(name);
+
+          // ✅ 현재 화면 즉시 반영
+          setVisibleUnifiedCellValue(unifiedId, "기기상태", next);
+          setDeviceStatusPopover((p) => ({
+            ...p,
+            open: false,
+            unifiedId: null,
+            currentValue: next,
+          }));
+
           await syncPatch(unifiedId, "기기상태", next);
-          setDeviceStatusPopover((p) => ({ ...p, open: false, unifiedId: null }));
+          syncEmitUnifiedUpdate();
         }}
         onClose={() => setDeviceStatusPopover((p) => ({ ...p, open: false, unifiedId: null }))}
         onAdd={async (raw) => {
@@ -957,7 +1012,16 @@ export default function UnifiedMainView() {
           await deviceStatusOptions.add(n);
 
           const unifiedId = deviceStatusPopover.unifiedId;
-          if (unifiedId) await syncPatch(unifiedId, "기기상태", n);
+          if (unifiedId) {
+            // ✅ 현재 화면 즉시 반영
+            setVisibleUnifiedCellValue(unifiedId, "기기상태", n);
+            setDeviceStatusPopover((p) => ({
+              ...p,
+              currentValue: n,
+            }));
+
+            await syncPatch(unifiedId, "기기상태", n);
+          }
 
           syncEmitUnifiedUpdate();
         }}
@@ -969,6 +1033,13 @@ export default function UnifiedMainView() {
 
           const unifiedId = deviceStatusPopover.unifiedId;
           if (unifiedId && normalizeName(deviceStatusPopover.currentValue) === n) {
+            // ✅ 현재 화면 즉시 반영
+            setVisibleUnifiedCellValue(unifiedId, "기기상태", "");
+            setDeviceStatusPopover((p) => ({
+              ...p,
+              currentValue: "",
+            }));
+
             await syncPatch(unifiedId, "기기상태", "");
           }
 
