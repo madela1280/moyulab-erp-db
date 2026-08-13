@@ -3535,9 +3535,19 @@ closeFilterPopover();
           }
         }}
       >
-          <table
-             className="w-full min-w-[2800px] table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800"
-             style={{ fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif' }}
+ 
+      <table
+             className="table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800"
+             style={{
+               fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif',
+               width: `${Math.max(
+                 2800,
+                 40 + viewColumns.reduce((sum, c) => sum + getWidthPx(c), 0)
+               )}px`,
+               minWidth: "100%",
+             }}
+          >             
+ 
           >
               <colgroup>
                   <col style={{ width: 40 }} />
