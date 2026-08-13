@@ -12,7 +12,11 @@ import { syncEmitUnifiedUpdate, syncListen, syncPatch } from "@/global-sync/sync
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
 import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
 
+import UnifiedPathPickerPopover from "@/unified/path-options/UnifiedPathPickerPopover";
+import { useUnifiedPathOptions } from "@/unified/path-options/useUnifiedPathOptions";
+
 import ExtensionEditPanel from "@/views/unified/extensions/ExtensionEditPanel";
+
 import { computeEndDateFromStartAndTotalDays } from "@/views/unified/extensions/extensionDate";
 import { type ExtensionCellFields } from "@/views/unified/extensions/extensionFormat";
 import { sumExtensionDaysFromRow } from "@/views/unified/extensions/extensionCompute";
@@ -69,6 +73,9 @@ export default function UnifiedMainView() {
   const gridRef = useRef<UnifiedGridHandle | null>(null);
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [isAddTemplateOpen, setIsAddTemplateOpen] = useState(false);
+
+  // ✅ 통합관리 경로 옵션(선택/추가/삭제)
+  const pathOptions = useUnifiedPathOptions();
 
   // ✅ 초기이관모드: ON일 때 붙여넣은 안내분류 원시값을 행 단위로 고정
   const migrationMode = useUnifiedMigrationMode();
@@ -337,7 +344,21 @@ export default function UnifiedMainView() {
   // ---------------------------------------------------------------------------
   // 셀 클릭 캡처: 거래처분류/안내분류/1~7차연장
   // ---------------------------------------------------------------------------
-  const [partnerPopover, setPartnerPopover] = useState<{
+   const [partnerPopover, setPartnerPopover] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    unifiedId: number | null;
+    currentValue: string;
+  }>({
+    open: false,
+    x: 0,
+    y: 0,
+    unifiedId: null,
+    currentValue: "",
+  });
+
+  const [pathPopover, setPathPopover] = useState<{
     open: boolean;
     x: number;
     y: number;
@@ -353,7 +374,15 @@ export default function UnifiedMainView() {
 
     const OPEN_THRESHOLD_PX = 10;
 
-  const partnerDownRef = useRef<{
+    const partnerDownRef = useRef<{
+    pending: boolean;
+    startX: number;
+    startY: number;
+    unifiedId: number;
+    currentValue: string;
+  } | null>(null);
+
+  const pathDownRef = useRef<{
     pending: boolean;
     startX: number;
     startY: number;
@@ -377,12 +406,35 @@ export default function UnifiedMainView() {
     cellValue: string;
   } | null>(null);
 
-   function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
+      function findPartnerCellInfoFromTarget(t: HTMLElement | null) {
     const td = t?.closest("td[data-col-key]") as HTMLElement | null;
     if (!td) return null;
 
     const colKey = String(td.dataset?.colKey ?? "");
     if (colKey !== "거래처분류") return null;
+
+    const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
+    if (!tr) return null;
+
+    const unifiedId = Number(tr.dataset?.unifiedId ?? 0);
+    if (!Number.isFinite(unifiedId) || unifiedId <= 0) return null;
+
+    const input = td.querySelector("input,select,textarea") as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null;
+
+    const currentValue = normalizeName(input?.value ?? td.textContent ?? "");
+    return { unifiedId, currentValue };
+  }
+
+  function findPathCellInfoFromTarget(t: HTMLElement | null) {
+    const td = t?.closest("td[data-col-key]") as HTMLElement | null;
+    if (!td) return null;
+
+    const colKey = String(td.dataset?.colKey ?? "");
+    if (colKey !== "경로") return null;
 
     const tr = td.closest("tr[data-unified-id]") as HTMLElement | null;
     if (!tr) return null;
@@ -449,7 +501,7 @@ export default function UnifiedMainView() {
 
     const t = e.target as HTMLElement | null;
 
-    const partnerInfo = findPartnerCellInfoFromTarget(t);
+      const partnerInfo = findPartnerCellInfoFromTarget(t);
     if (partnerInfo) {
       // ✅ 거래처분류 셀은 클릭/드래그를 mouseup/move로 구분한다.
       //    mousedown 단계에서 막지 않아야 셀 영역 선택이 정상 동작한다.
@@ -463,7 +515,21 @@ export default function UnifiedMainView() {
       return;
     }
 
-    const guideInfo = findGuideCellInfoFromTarget(t);
+    const pathInfo = findPathCellInfoFromTarget(t);
+    if (pathInfo) {
+      // ✅ 경로 셀도 클릭/드래그를 구분해서 팝오버를 연다.
+      //    mousedown 단계에서 막지 않아야 셀 선택/드래그가 깨지지 않는다.
+      pathDownRef.current = {
+        pending: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        unifiedId: pathInfo.unifiedId,
+        currentValue: pathInfo.currentValue,
+      };
+      return;
+    }
+
+    const guideInfo = findGuideCellInfoFromTarget(t); 
     if (guideInfo) {
       guideDownRef.current = {
         pending: true,
@@ -499,6 +565,13 @@ export default function UnifiedMainView() {
       if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) {
         partnerDownRef.current = null;
       }
+    }
+
+    const stPath = pathDownRef.current;
+    if (stPath?.pending) {
+      const dx = Math.abs(e.clientX - stPath.startX);
+      const dy = Math.abs(e.clientY - stPath.startY);
+      if (dx >= OPEN_THRESHOLD_PX || dy >= OPEN_THRESHOLD_PX) pathDownRef.current = null;
     }
 
     const st2 = guideDownRef.current;
@@ -542,6 +615,31 @@ export default function UnifiedMainView() {
       return;
     }
 
+    const stPath = pathDownRef.current;
+    pathDownRef.current = null;
+    if (stPath?.pending) {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && typeof (ae as any).blur === "function") {
+        try {
+          (ae as any).blur();
+        } catch {
+          // ignore
+        }
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      setPathPopover({
+        open: true,
+        x: e.clientX,
+        y: e.clientY,
+        unifiedId: stPath.unifiedId,
+        currentValue: stPath.currentValue,
+      });
+      return;
+    }
+
     const st2 = guideDownRef.current;
     guideDownRef.current = null;
     if (st2?.pending) {
@@ -560,7 +658,7 @@ export default function UnifiedMainView() {
       setGuidePanelInitialPartner(normalizeName(st2.partnerName));
       setIsPartnerGuideOpen(true);
       return;
-    }
+    } 
 
     const st3 = extDownRef.current;
     extDownRef.current = null;
@@ -658,7 +756,7 @@ export default function UnifiedMainView() {
         onDelete={deleteTemplate}
       />
 
-      <PartnerPickerPopover
+            <PartnerPickerPopover
         open={partnerPopover.open}
         x={partnerPopover.x}
         y={partnerPopover.y}
@@ -694,6 +792,47 @@ export default function UnifiedMainView() {
           if (unifiedId && normalizeName(partnerPopover.currentValue) === n) {
             await syncPatch(unifiedId, "거래처분류", "");
           }
+        }}
+      />
+
+      <UnifiedPathPickerPopover
+        open={pathPopover.open}
+        x={pathPopover.x}
+        y={pathPopover.y}
+        options={pathOptions.options}
+        value={pathPopover.currentValue}
+        onSelect={async (name) => {
+          const unifiedId = pathPopover.unifiedId;
+          if (!unifiedId) return;
+
+          const next = normalizeName(name);
+          await syncPatch(unifiedId, "경로", next);
+          setPathPopover((p) => ({ ...p, open: false, unifiedId: null }));
+        }}
+        onClose={() => setPathPopover((p) => ({ ...p, open: false, unifiedId: null }))}
+        onAdd={async (raw) => {
+          const n = normalizeName(raw);
+          if (!n) return;
+
+          await pathOptions.add(n);
+
+          const unifiedId = pathPopover.unifiedId;
+          if (unifiedId) await syncPatch(unifiedId, "경로", n);
+
+          syncEmitUnifiedUpdate();
+        }}
+        onDelete={async (raw) => {
+          const n = normalizeName(raw);
+          if (!n) return;
+
+          await pathOptions.remove(n);
+
+          const unifiedId = pathPopover.unifiedId;
+          if (unifiedId && normalizeName(pathPopover.currentValue) === n) {
+            await syncPatch(unifiedId, "경로", "");
+          }
+
+          syncEmitUnifiedUpdate();
         }}
       />
 
