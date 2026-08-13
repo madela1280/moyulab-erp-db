@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { syncListen } from "@/global-sync/sync-engine";
-import { DEFAULT_COL_WIDTH_UNIT_BY_KEY, unifiedColumns } from "@/unified/columns/unifiedColumns";
+import {
+  DEFAULT_COL_WIDTH_UNIT_BY_KEY,
+  unifiedColumns,
+} from "@/unified/columns/unifiedColumns";
 
 type ColumnConfig = {
   columnOrder: string[];
@@ -15,11 +18,54 @@ function clampUnit(v: any) {
   return Math.max(1, Math.min(200, Math.floor(n)));
 }
 
+function toStringList(input: any): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.map(String).map((v) => v.trim()).filter(Boolean);
+}
+
+function uniqueList(list: string[]) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const k of list) {
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+
+  return out;
+}
+
+function getBaseColumns() {
+  return [...(unifiedColumns as unknown as string[])];
+}
+
+/**
+ * 핵심:
+ * - globalOrder(/api/unified-columns)에 없는 컬럼이라도
+ *   userOrder(/api/unified-grid-settings)에 있으면 버리지 않는다.
+ * - 그래서 6차~15차연장 같은 기존 커스텀 컬럼이 화면에서 사라지지 않는다.
+ */
+function buildEffectiveGlobalOrder(globalOrderInput: any, userOrderInput?: any) {
+  const baseColumns = getBaseColumns();
+  const globalOrder = toStringList(globalOrderInput);
+  const userOrder = toStringList(userOrderInput);
+
+  const seed = globalOrder.length ? globalOrder : baseColumns;
+
+  return uniqueList([
+    ...seed,
+    ...userOrder.filter((k) => !seed.includes(k)),
+  ]);
+}
+
 // 전역 컬럼 목록(기본+커스텀) 기준으로, 유저 순서를 최대한 유지하면서 누락 컬럼을 “삽입 위치에 맞게” 끼워 넣음
 function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
-  const gSet = new Set(globalOrder);
+  const effectiveGlobal = buildEffectiveGlobalOrder(globalOrder, userOrder);
+  const gSet = new Set(effectiveGlobal);
 
-  const base = Array.isArray(userOrder) ? userOrder.map(String) : [];
+  const base = toStringList(userOrder);
   const filtered = base.filter((k) => gSet.has(k));
 
   const result: string[] = [];
@@ -31,15 +77,16 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
     result.push(k);
   }
 
-  // globalOrder를 순회하며 result에 없는 키를 “가까운 위치”에 삽입
-  for (let i = 0; i < globalOrder.length; i++) {
-    const k = globalOrder[i];
+  // effectiveGlobal을 순회하며 result에 없는 키를 “가까운 위치”에 삽입
+  for (let i = 0; i < effectiveGlobal.length; i++) {
+    const k = effectiveGlobal[i];
     if (rSet.has(k)) continue;
 
-    // 1) global에서 이전 키 중 result에 존재하는 가장 가까운 prev 뒤에 삽입
     let inserted = false;
+
+    // 1) global에서 이전 키 중 result에 존재하는 가장 가까운 prev 뒤에 삽입
     for (let j = i - 1; j >= 0; j--) {
-      const prev = globalOrder[j];
+      const prev = effectiveGlobal[j];
       const idx = result.indexOf(prev);
       if (idx >= 0) {
         result.splice(idx + 1, 0, k);
@@ -50,8 +97,8 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
 
     // 2) 없으면 global에서 다음 키 중 result에 존재하는 next 앞에 삽입
     if (!inserted) {
-      for (let j = i + 1; j < globalOrder.length; j++) {
-        const next = globalOrder[j];
+      for (let j = i + 1; j < effectiveGlobal.length; j++) {
+        const next = effectiveGlobal[j];
         const idx = result.indexOf(next);
         if (idx >= 0) {
           result.splice(idx, 0, k);
@@ -70,34 +117,43 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
   return result;
 }
 
-function sanitizeWidths(input: any, globalOrder: string[]) {
+function sanitizeWidths(input: any, globalOrder: string[], userOrder?: any) {
+  const effectiveGlobal = buildEffectiveGlobalOrder(globalOrder, userOrder);
+
   const base: Record<string, number> = {};
 
-  // 기본컬럼은 기본값(20) 세팅
-  for (const k of unifiedColumns as unknown as string[]) {
+  // 기본컬럼은 기본값 세팅
+  for (const k of getBaseColumns()) {
     base[k] = DEFAULT_COL_WIDTH_UNIT_BY_KEY[k] ?? 20;
   }
 
-  // 전역 컬럼에 대해 기본값 확장(커스텀도 20 기본)
-  for (const k of globalOrder) {
+  // 전역/사용자 컬럼에 대해 기본값 확장
+  for (const k of effectiveGlobal) {
     if (!(k in base)) base[k] = 20;
   }
 
   if (!input || typeof input !== "object" || Array.isArray(input)) return base;
 
-  for (const k of globalOrder) {
+  // effectiveGlobal 컬럼 폭 보존
+  for (const k of effectiveGlobal) {
     if (k in input) base[k] = clampUnit((input as any)[k]);
   }
+
+  // 혹시 width에는 있는데 order에 없는 커스텀 컬럼 폭도 보존
+  for (const k of Object.keys(input)) {
+    if (!(k in base)) base[k] = clampUnit((input as any)[k]);
+  }
+
   return base;
 }
 
 export function useUnifiedColumnConfig() {
   const [availableColumns, setAvailableColumns] = useState<string[]>([
-    ...(unifiedColumns as unknown as string[]),
+    ...getBaseColumns(),
   ]);
 
   const [columnOrder, _setColumnOrder] = useState<string[]>([
-    ...(unifiedColumns as unknown as string[]),
+    ...getBaseColumns(),
   ]);
 
   const [colWidthUnitByKey, _setColWidthUnitByKey] = useState<Record<string, number>>({
@@ -108,47 +164,59 @@ export function useUnifiedColumnConfig() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalChangeAtRef = useRef<number>(0);
 
-   // ✅ unified:update는 통합관리 셀 편집에도 매번 발생함 → 컬럼설정 재로드가 폭주하면
+  // ✅ unified:update는 통합관리 셀 편집에도 매번 발생함 → 컬럼설정 재로드가 폭주하면
   //    Grid가 크게 리렌더되어 입력/삭제가 “점멸/복구/50%만 입력”처럼 보일 수 있음
   const lastRemoteReloadAtRef = useRef<number>(0);
-  const REMOTE_RELOAD_MIN_INTERVAL_MS = 20000; // 20초 스로틀(필요하면 10~30초로 조절)
+  const REMOTE_RELOAD_MIN_INTERVAL_MS = 20000;
 
   const canSave = useMemo(() => hydratedRef.current, [hydratedRef.current]);
 
   function setColumnOrder(next: string[]) {
     lastLocalChangeAtRef.current = Date.now();
 
-    // 유저가 드래그/이동한 순서도 전역 컬럼 집합 안에서만 유지
-    const gSet = new Set(availableColumns);
-    const filtered = next.filter((k) => gSet.has(k));
-    _setColumnOrder(mergeUserOrderWithGlobal(filtered, availableColumns));
+    // ✅ availableColumns에 없더라도 기존 columnOrder에 있던 커스텀 컬럼은 버리지 않음
+    const effectiveGlobal = buildEffectiveGlobalOrder(availableColumns, columnOrder);
+    const nextOrder = mergeUserOrderWithGlobal(next, effectiveGlobal);
+
+    _setColumnOrder(nextOrder);
+    setAvailableColumns((prev) => buildEffectiveGlobalOrder(prev, nextOrder));
   }
 
   function setColWidthUnitByKey(next: Record<string, number>) {
     lastLocalChangeAtRef.current = Date.now();
-    _setColWidthUnitByKey(sanitizeWidths(next, availableColumns));
+
+    const effectiveGlobal = buildEffectiveGlobalOrder(availableColumns, columnOrder);
+    _setColWidthUnitByKey(sanitizeWidths(next, effectiveGlobal, columnOrder));
   }
 
   async function loadAvailableColumns() {
     const r = await fetch("/api/unified-columns", { cache: "no-store" });
     if (!r.ok) return;
 
-    const j = await r.json();
+    const j = await r.json().catch(() => null);
     const order = Array.isArray(j?.order) ? j.order.map(String) : [];
 
     // 최소 방어: 전역 컬럼이 비면 기본 컬럼으로 fallback
-    const safe = order.length ? order : ([...(unifiedColumns as unknown as string[])] as string[]);
-    setAvailableColumns(safe);
+    const safe = order.length ? order : getBaseColumns();
+
+    setAvailableColumns((prev) => buildEffectiveGlobalOrder(safe, prev));
     return safe;
   }
 
-  async function loadUserConfig(globalOrder: string[]) {
+  async function loadUserConfig(globalOrderInput: string[]) {
     const r = await fetch("/api/unified-grid-settings", { cache: "no-store" });
     if (!r.ok) return;
 
-    const j = (await r.json()) as Partial<ColumnConfig>;
-    _setColumnOrder(mergeUserOrderWithGlobal(j.columnOrder, globalOrder));
-    _setColWidthUnitByKey(sanitizeWidths(j.colWidthUnitByKey, globalOrder));
+    const j = (await r.json().catch(() => null)) as Partial<ColumnConfig> | null;
+
+    const userOrder = toStringList(j?.columnOrder);
+    const effectiveGlobal = buildEffectiveGlobalOrder(globalOrderInput, userOrder);
+
+    // ✅ grid-settings에 있는 6차~15차연장 같은 컬럼을 availableColumns에도 반영
+    setAvailableColumns(effectiveGlobal);
+
+    _setColumnOrder(mergeUserOrderWithGlobal(userOrder, effectiveGlobal));
+    _setColWidthUnitByKey(sanitizeWidths(j?.colWidthUnitByKey, effectiveGlobal, userOrder));
   }
 
   async function saveNow(cfg: ColumnConfig) {
@@ -160,23 +228,27 @@ export function useUnifiedColumnConfig() {
   }
 
   async function reloadAllColumnState() {
-    const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
-    await loadUserConfig(globalOrder);
+    const loadedGlobal = (await loadAvailableColumns()) ?? availableColumns;
+    await loadUserConfig(loadedGlobal);
+
+    const effectiveGlobal = buildEffectiveGlobalOrder(loadedGlobal, columnOrder);
 
     // 전역 컬럼 변경 시, 현재 state도 전역 기준으로 누락 없이 보정
-    _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
-    _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
+    _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, effectiveGlobal));
+    _setColWidthUnitByKey((prev) => sanitizeWidths(prev, effectiveGlobal, columnOrder));
   }
 
   // 최초 로드
   useEffect(() => {
     (async () => {
-      const globalOrder = (await loadAvailableColumns()) ?? availableColumns;
-      await loadUserConfig(globalOrder);
+      const loadedGlobal = (await loadAvailableColumns()) ?? availableColumns;
+      await loadUserConfig(loadedGlobal);
+
+      const effectiveGlobal = buildEffectiveGlobalOrder(loadedGlobal, columnOrder);
 
       // 안전 보정
-      _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, globalOrder));
-      _setColWidthUnitByKey((prev) => sanitizeWidths(prev, globalOrder));
+      _setColumnOrder((prev) => mergeUserOrderWithGlobal(prev, effectiveGlobal));
+      _setColWidthUnitByKey((prev) => sanitizeWidths(prev, effectiveGlobal, columnOrder));
 
       hydratedRef.current = true;
     })();
@@ -198,7 +270,7 @@ export function useUnifiedColumnConfig() {
     };
   }, [columnOrder, colWidthUnitByKey, canSave]);
 
-    // 전역 변경(양식추가 등) sync 수신 시 재로딩
+  // 전역 변경(양식추가 등) sync 수신 시 재로딩
   useEffect(() => {
     const stop = syncListen(() => {
       const now = Date.now();
@@ -211,7 +283,11 @@ export function useUnifiedColumnConfig() {
       if (now - lastRemoteReloadAtRef.current < REMOTE_RELOAD_MIN_INTERVAL_MS) return;
 
       // 3) ✅ 사용자가 현재 input/textarea 편집 중이면 재로드 금지(입력 튕김 방지)
-      const el = (typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
+      const el =
+        typeof document !== "undefined"
+          ? (document.activeElement as HTMLElement | null)
+          : null;
+
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
 
       lastRemoteReloadAtRef.current = now;
@@ -220,7 +296,7 @@ export function useUnifiedColumnConfig() {
 
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableColumns]);
+  }, [availableColumns, columnOrder]);
 
   return {
     availableColumns,
