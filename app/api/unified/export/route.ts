@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import { unifiedColumns } from "@/unified/columns/unifiedColumns";
 import { countExtensionRounds } from "@/views/unified/extensions/extensionCompute";
+
+const BASE_STEP = 1000;
 
 function csvEscape(v: any) {
   const s = v == null ? "" : String(v);
@@ -11,6 +14,25 @@ function csvEscape(v: any) {
 
 function toText(v: any) {
   return v == null ? "" : String(v);
+}
+
+function toStringList(input: any): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.map(String).map((v) => v.trim()).filter(Boolean);
+}
+
+function uniqueList(list: string[]) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const k of list) {
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+
+  return out;
 }
 
 type ExportFilter = {
@@ -24,12 +46,10 @@ type ExportFilter = {
 function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: ExportFilter) {
   const selectedByKey = filter?.filterState?.selectedByKey ?? {};
 
-  // filter
   let out = rows.filter((r) => {
     for (const [key, arr] of Object.entries(selectedByKey)) {
       if (!arr || arr.length === 0) continue;
 
-      // ✅ "총연장횟수"는 파생값 기준으로 필터링
       if (key === "총연장횟수") {
         const cnt = String(countExtensionRounds(r.data ?? {}));
         if (!arr.includes(cnt)) return false;
@@ -42,7 +62,6 @@ function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: Expo
     return true;
   });
 
-  // sort (text)
   const sortKey = filter?.sortState?.key ?? null;
   const dir = filter?.sortState?.dir === "desc" ? "desc" : "asc";
 
@@ -52,6 +71,7 @@ function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: Expo
         sortKey === "총연장횟수"
           ? String(countExtensionRounds(a.data ?? {}))
           : toText(a.data?.[sortKey]).trim();
+
       const bv =
         sortKey === "총연장횟수"
           ? String(countExtensionRounds(b.data ?? {}))
@@ -65,18 +85,153 @@ function applyFilterAndSort(rows: Array<{ id: number; data: any }>, filter: Expo
   return out;
 }
 
+async function tableExists(tableName: string): Promise<boolean> {
+  const r = await query(`SELECT to_regclass($1) AS reg`, [`public.${tableName}`]);
+  return !!r.rows?.[0]?.reg;
+}
+
+async function getGlobalColumnOrder(): Promise<string[]> {
+  const base = (unifiedColumns as unknown as string[]).map((key, i) => ({
+    key,
+    sort_key: (i + 1) * BASE_STEP,
+  }));
+
+  let custom: Array<{ key: string; sort_key: number }> = [];
+
+  if (await tableExists("unified_custom_columns")) {
+    const r = await query(
+      `
+      SELECT key, sort_key::numeric AS sort_key
+      FROM unified_custom_columns
+      ORDER BY sort_key ASC, key ASC
+      `
+    );
+
+    custom = (r.rows || [])
+      .map((x: any) => ({
+        key: String(x?.key ?? "").trim(),
+        sort_key: Number(x?.sort_key),
+      }))
+      .filter((x) => x.key && Number.isFinite(x.sort_key));
+  }
+
+  const combined = [...base, ...custom].sort((a, b) => a.sort_key - b.sort_key);
+
+  return uniqueList(combined.map((x) => x.key));
+}
+
+function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
+  const global = uniqueList(globalOrder);
+  const gSet = new Set(global);
+
+  const user = toStringList(userOrder);
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const k of user) {
+    if (!gSet.has(k)) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    result.push(k);
+  }
+
+  for (let i = 0; i < global.length; i++) {
+    const k = global[i];
+    if (seen.has(k)) continue;
+
+    let inserted = false;
+
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = global[j];
+      const idx = result.indexOf(prev);
+      if (idx >= 0) {
+        result.splice(idx + 1, 0, k);
+        inserted = true;
+        break;
+      }
+    }
+
+    if (!inserted) {
+      for (let j = i + 1; j < global.length; j++) {
+        const next = global[j];
+        const idx = result.indexOf(next);
+        if (idx >= 0) {
+          result.splice(idx, 0, k);
+          inserted = true;
+          break;
+        }
+      }
+    }
+
+    if (!inserted) result.push(k);
+    seen.add(k);
+  }
+
+  return result;
+}
+
+async function getUserColumnOrderOrGlobal(globalOrder: string[]) {
+  const user = await getSessionUser().catch(() => null);
+
+  if (!user?.username) {
+    return globalOrder;
+  }
+
+  if (!(await tableExists("unified_grid_settings"))) {
+    return globalOrder;
+  }
+
+  const r = await query(
+    `
+    SELECT column_order
+    FROM unified_grid_settings
+    WHERE username = $1
+    `,
+    [user.username]
+  );
+
+  if (!r.rows.length) return globalOrder;
+
+  return mergeUserOrderWithGlobal(r.rows[0]?.column_order, globalOrder);
+}
+
+function buildHeader(args: {
+  rows: Array<{ id: number; data: any }>;
+  orderedColumns: string[];
+}) {
+  const { rows, orderedColumns } = args;
+
+  const header = uniqueList(orderedColumns);
+  const headerSet = new Set(header);
+
+  for (const row of rows) {
+    const data = (row.data ?? {}) as Record<string, any>;
+
+    for (const k of Object.keys(data)) {
+      if (!k) continue;
+      if (k.startsWith("__")) continue;
+      if (headerSet.has(k)) continue;
+
+      headerSet.add(k);
+      header.push(k);
+    }
+  }
+
+  return header;
+}
+
 /**
  * POST /api/unified/export
  * body: { filter?: { filterState, sortState } }
- * - 필터 없으면 전체, 필터 있으면 필터된 것만 CSV로 다운로드
- * - 반환: text/csv (UTF-8 with BOM)
  */
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as any;
     const filter: ExportFilter = (body?.filter ?? {}) as any;
 
-    // unified 전체 로드(정렬은 unified_order 기준)
+    const globalOrder = await getGlobalColumnOrder();
+    const orderedColumns = await getUserColumnOrderOrGlobal(globalOrder);
+
     const r = await query(
       `
       SELECT u.id, u.data, o.sort_key
@@ -88,21 +243,11 @@ export async function POST(req: Request) {
 
     const filtered = applyFilterAndSort(r.rows as any[], filter);
 
-    // CSV 생성(동적 컬럼 포함)
-    // 1) 기본 컬럼 순서(unifiedColumns)를 우선 유지
-    // 2) 데이터에만 존재하는 추가 컬럼(커스텀/6~7차 등)을 뒤에 붙임
-   const baseHeader: string[] = [...unifiedColumns];
-   const extraKeySet = new Set<string>();
+    const header = buildHeader({
+      rows: filtered,
+      orderedColumns,
+    });
 
-   for (const row of filtered) {
-     const data = (row.data ?? {}) as Record<string, any>;
-     for (const k of Object.keys(data)) {
-        if (!baseHeader.includes(k)) extraKeySet.add(k);
-     }
-  }
-
- const extraHeader = Array.from(extraKeySet);
- const header = [...baseHeader, ...extraHeader];
     const lines: string[] = [];
     lines.push(header.map(csvEscape).join(","));
 
@@ -110,11 +255,13 @@ export async function POST(req: Request) {
       const data = (row.data ?? {}) as Record<string, any>;
 
       const line = header.map((k) => {
-        // ✅ 파생 컬럼 처리
-        if (k === "총연장횟수") return csvEscape(String(countExtensionRounds(data)));
+        if (k === "총연장횟수") {
+          return csvEscape(String(countExtensionRounds(data)));
+        }
 
-        // "상태"는 DB에 저장하지 않는 파생 표시 컬럼이므로 export에서는 빈값(또는 raw) 처리
-        if (k === "상태") return csvEscape("");
+        if (k === "상태") {
+          return csvEscape("");
+        }
 
         return csvEscape(data?.[k]);
       });
