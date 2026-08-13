@@ -3536,7 +3536,7 @@ closeFilterPopover();
         }}
       >
  
-      <table
+        <table
              className="table-fixed border-collapse text-[11.6px] font-[350] antialiased text-slate-800"
              style={{
                fontFamily: '"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif',
@@ -3546,8 +3546,6 @@ closeFilterPopover();
                )}px`,
                minWidth: "100%",
              }}
-          >             
- 
           >
               <colgroup>
                   <col style={{ width: 40 }} />
