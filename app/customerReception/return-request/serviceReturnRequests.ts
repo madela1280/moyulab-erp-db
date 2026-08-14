@@ -35,6 +35,22 @@ export type FetchReturnRequestsParams = {
   status?: string;
 };
 
+export type SubmitReturnRequestResult = {
+  ok: boolean;
+  message?: string;
+  successCount?: number;
+  failedRows?: Array<{
+    id?: string;
+    unifiedId?: number | null;
+    receivedAt?: string;
+    phone?: string;
+    renterName?: string;
+    returnModel?: string;
+    message?: string;
+  }>;
+  statusResult?: any;
+};
+
 const WEB_CELL_FIELD_MAP: Record<string, string> = {
   product: "return_model",
   recipientName: "renter_name",
@@ -87,6 +103,10 @@ function getMismatchReasonForView(row: ReturnRequestApiRow, isListMode: boolean)
   }
 
   return normalizeString(row.current_mismatch_reason);
+}
+
+function isRealRow(row: ReturnRequestRow) {
+  return !!row?.id && !String(row.id).startsWith("empty-");
 }
 
 export function mapReturnRequestApiRow(
@@ -215,4 +235,50 @@ export async function updateReturnRequestWebCell(
   }
 
   return j;
+}
+
+export async function submitReturnRequestRows(
+  rows: ReturnRequestRow[]
+): Promise<SubmitReturnRequestResult> {
+  const targetRows = (Array.isArray(rows) ? rows : []).filter(isRealRow);
+
+  if (!targetRows.length) {
+    return {
+      ok: false,
+      message: "전송할 행이 없습니다.",
+      successCount: 0,
+      failedRows: [],
+    };
+  }
+
+  const r = await fetch("/api/customer-reception/return-requests/submit", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      rows: targetRows,
+    }),
+  });
+
+  const j = (await r.json().catch(() => null)) as SubmitReturnRequestResult | null;
+
+  if (!r.ok || j?.ok === false) {
+    return {
+      ok: false,
+      message: j?.message || `FAILED(${r.status})`,
+      successCount: j?.successCount || 0,
+      failedRows: Array.isArray(j?.failedRows) ? j.failedRows : [],
+      statusResult: j?.statusResult,
+    };
+  }
+
+  return {
+    ok: true,
+    message: j?.message || "전송이 완료되었습니다.",
+    successCount: j?.successCount || targetRows.length,
+    failedRows: Array.isArray(j?.failedRows) ? j.failedRows : [],
+    statusResult: j?.statusResult,
+  };
 }

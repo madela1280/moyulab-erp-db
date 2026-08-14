@@ -7,9 +7,10 @@ import type {
 } from "@/customerReception/return-request/types";
 import {
   fetchReturnRequests,
+  submitReturnRequestRows,
   updateReturnRequestWebCell,
 } from "@/customerReception/return-request/serviceReturnRequests";
-import { syncListen } from "@/global-sync/sync-engine";
+import { syncEmitUnifiedUpdate, syncListen } from "@/global-sync/sync-engine";
 
 export function useReturnRequests(mode: ReturnRequestViewMode) {
   const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
@@ -86,6 +87,50 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     [mode, reloadCurrentSilent]
   );
 
+  const submitCheckedRows = useCallback(
+    async (rows: ReturnRequestRow[]) => {
+      if (mode === "list") {
+        return {
+          ok: false,
+          message: "리스트 화면에서는 전송할 수 없습니다.",
+          successCount: 0,
+          failedRows: [],
+        };
+      }
+
+      setSaving(true);
+      setError("");
+
+      try {
+        const result = await submitReturnRequestRows(rows);
+
+        if (result?.ok) {
+          await reloadCurrentSilent();
+          syncEmitUnifiedUpdate();
+          return result;
+        }
+
+        setError(result?.message || "반납접수 전송에 실패했습니다.");
+        await reloadCurrentSilent();
+        return result;
+      } catch (e: any) {
+        const message = e?.message || "반납접수 전송에 실패했습니다.";
+        setError(message);
+        await reloadCurrentSilent();
+
+        return {
+          ok: false,
+          message,
+          successCount: 0,
+          failedRows: [],
+        };
+      } finally {
+        setSaving(false);
+      }
+    },
+    [mode, reloadCurrentSilent]
+  );
+
   useEffect(() => {
     if (mode === "list") {
       void reloadList();
@@ -135,5 +180,6 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     reloadCurrent,
     reloadList,
     saveWebCell,
+    submitCheckedRows,
   };
 }

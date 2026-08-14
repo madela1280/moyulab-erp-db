@@ -37,8 +37,21 @@ function getDisplayWidth(col: ReturnRequestColumn) {
   return normalizeWidth(col.key, col.width);
 }
 
+function isEmptyRow(row: ReturnRequestRow) {
+  return String(row?.id || "").startsWith("empty-");
+}
+
 function isEditableCell(mode: ReturnRequestViewMode, col: ReturnRequestColumn) {
   if (mode === "list") return false;
+
+  /*
+   * 전송 안전 규칙:
+   * - 노란색 웹접수 컬럼만 화면에서 수정 가능
+   * - 불일치사유는 사용자가 직접 지워서 전송하면 안 됨
+   * - 불일치사유는 웹접수 컬럼 수정 저장 후 재조회/재매칭으로만 사라져야 함
+   */
+  if (!RETURN_REQUEST_WEB_COLUMN_KEYS.has(col.key)) return false;
+
   return !!col.editable;
 }
 
@@ -66,8 +79,12 @@ export default function ReturnRequestGrid({
   const [draftWidths, setDraftWidths] = useState<Record<string, string>>({});
 
   function updateChecked(rowIndex: number, checked: boolean) {
+    const targetRow = displayRows[rowIndex];
+    if (!targetRow || isEmptyRow(targetRow)) return;
+
     const nextRows = displayRows.map((row, index) => {
       if (index !== rowIndex) return row;
+
       return {
         ...row,
         checked,
@@ -78,6 +95,9 @@ export default function ReturnRequestGrid({
   }
 
   function updateCell(rowIndex: number, colKey: string, value: string) {
+    const targetRow = displayRows[rowIndex];
+    if (!targetRow || isEmptyRow(targetRow)) return;
+
     const nextRows = displayRows.map((row, index) => {
       if (index !== rowIndex) return row;
 
@@ -98,8 +118,7 @@ export default function ReturnRequestGrid({
     if (!RETURN_REQUEST_WEB_COLUMN_KEYS.has(colKey)) return;
 
     const row = displayRows[rowIndex];
-    if (!row) return;
-    if (String(row.id || "").startsWith("empty-")) return;
+    if (!row || isEmptyRow(row)) return;
 
     onCellCommit?.(row, colKey, value);
   }
@@ -188,6 +207,7 @@ export default function ReturnRequestGrid({
               {displayColumns.map((col) => {
                 const isWebColumn = RETURN_REQUEST_WEB_COLUMN_KEYS.has(col.key);
                 const editable = isEditableCell(mode, col);
+                const emptyRow = isEmptyRow(row);
 
                 if (col.key === "checked") {
                   return (
@@ -204,7 +224,7 @@ export default function ReturnRequestGrid({
                         type="checkbox"
                         checked={!!row.checked}
                         onChange={(e) => updateChecked(rowIndex, e.target.checked)}
-                        disabled={mode === "list"}
+                        disabled={mode === "list" || emptyRow}
                       />
                     </td>
                   );
@@ -228,7 +248,7 @@ export default function ReturnRequestGrid({
                       backgroundColor: isWebColumn ? "#ffff00" : "#ffffff",
                     }}
                   >
-                    {editable ? (
+                    {editable && !emptyRow ? (
                       <input
                         value={value}
                         onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
