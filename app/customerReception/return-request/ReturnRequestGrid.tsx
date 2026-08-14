@@ -44,12 +44,7 @@ function isEmptyRow(row: ReturnRequestRow) {
 function isEditableCell(mode: ReturnRequestViewMode, col: ReturnRequestColumn) {
   if (mode === "list") return false;
 
-  /*
-   * 전송 안전 규칙:
-   * - 노란색 웹접수 컬럼만 화면에서 수정 가능
-   * - 불일치사유는 사용자가 직접 지워서 전송하면 안 됨
-   * - 불일치사유는 웹접수 컬럼 수정 저장 후 재조회/재매칭으로만 사라져야 함
-   */
+  // 노란색 웹접수 컬럼만 수정 가능
   if (!RETURN_REQUEST_WEB_COLUMN_KEYS.has(col.key)) return false;
 
   return !!col.editable;
@@ -113,14 +108,22 @@ export default function ReturnRequestGrid({
     onRowsChange?.(nextRows);
   }
 
-  function commitCell(rowIndex: number, colKey: string, value: string) {
+   function commitCell(rowIndex: number, colKey: string, value: string) {
     if (mode === "list") return;
     if (!RETURN_REQUEST_WEB_COLUMN_KEYS.has(colKey)) return;
 
     const row = displayRows[rowIndex];
     if (!row || isEmptyRow(row)) return;
 
-    onCellCommit?.(row, colKey, value);
+    const commitRow: ReturnRequestRow = {
+      ...row,
+      data: {
+        ...(row.data ?? {}),
+        [colKey]: value,
+      },
+    };
+
+    onCellCommit?.(commitRow, colKey, value);
   }
 
   function getDraftWidthValue(col: ReturnRequestColumn) {

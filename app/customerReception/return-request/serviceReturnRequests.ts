@@ -203,10 +203,32 @@ export async function updateReturnRequestWebCell(
     throw new Error("수정할 수 없는 컬럼입니다.");
   }
 
+  const nextValue = normalizeString(value);
+
+  /*
+   * 행 식별값은 기본적으로 최초 웹접수 원본값(__raw)을 사용한다.
+   * 단, 기존 원본값이 비어 있는 상태에서 해당 식별 컬럼을 처음 입력/수정하는 경우
+   * 현재 입력값(value)까지 fallback으로 사용한다.
+   */
   const receivedAt = normalizeString(row.data?.__receivedAtRaw || row.receivedAt);
-  const phone = normalizeString(row.data?.__phoneRaw || row.data?.phone1);
-  const renterName = normalizeString(row.data?.__renterNameRaw || row.data?.recipientName);
-  const returnModel = normalizeString(row.data?.__returnModelRaw || row.data?.product);
+
+  const phone = normalizeString(
+    row.data?.__phoneRaw ||
+      row.data?.phone1 ||
+      (colKey === "phone1" ? nextValue : "")
+  );
+
+  const renterName = normalizeString(
+    row.data?.__renterNameRaw ||
+      row.data?.recipientName ||
+      (colKey === "recipientName" ? nextValue : "")
+  );
+
+  const returnModel = normalizeString(
+    row.data?.__returnModelRaw ||
+      row.data?.product ||
+      (colKey === "product" ? nextValue : "")
+  );
 
   if (!receivedAt || !phone || !renterName || !returnModel) {
     throw new Error("수정 대상 반납접수 행을 찾을 수 없습니다.");
@@ -224,7 +246,7 @@ export async function updateReturnRequestWebCell(
       renter_name: renterName,
       return_model: returnModel,
       field,
-      value,
+      value: nextValue,
     }),
   });
 

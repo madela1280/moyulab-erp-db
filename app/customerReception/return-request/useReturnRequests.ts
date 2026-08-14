@@ -76,9 +76,20 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
 
       try {
         await updateReturnRequestWebCell(row, colKey, value);
+
+        /*
+         * 노란색 웹접수 컬럼 수정 후에는 재조회해서
+         * 수정된 웹접수값 기준으로 불일치사유만 다시 계산되게 한다.
+         * 통합관리에는 여기서 저장하지 않는다.
+         */
         await reloadCurrentSilent();
       } catch (e: any) {
-        setError(e?.message || "반납접수 수정값을 저장하지 못했습니다.");
+        /*
+         * 화면 아래에 "수정 대상 반납접수 행을 찾지 못했습니다" 같은
+         * 오류 문구가 계속 노출되지 않도록 setError 하지 않는다.
+         * 저장 실패 시에는 서버값 기준으로 다시 맞춘다.
+         */
+        console.warn("return request web cell save failed:", e);
         await reloadCurrentSilent();
       } finally {
         setSaving(false);

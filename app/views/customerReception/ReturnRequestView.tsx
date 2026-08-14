@@ -79,7 +79,6 @@ export default function ReturnRequestView() {
     listRows,
     loading: rowsLoading,
     saving: rowsSaving,
-    error: rowsError,
     setCurrentRows,
     setListRows,
     saveWebCell,
@@ -181,16 +180,10 @@ export default function ReturnRequestView() {
         onDownload={handleDownload}
       />
 
-      {(rowsLoading ||
-        rowsSaving ||
-        rowsError ||
-        columnLoading ||
-        columnSaving ||
-        columnError) && (
+     {(rowsLoading || rowsSaving || columnLoading || columnSaving || columnError) && (
         <div className="flex items-center gap-3 text-xs">
           {rowsLoading && <div className="text-blue-600">반납접수 불러오는 중...</div>}
           {rowsSaving && <div className="text-blue-600">반납접수 저장 중...</div>}
-          {rowsError && <div className="text-red-600">{rowsError}</div>}
           {columnLoading && <div className="text-blue-600">열넓이 불러오는 중...</div>}
           {columnSaving && <div className="text-blue-600">열넓이 저장 중...</div>}
           {columnError && <div className="text-red-600">{columnError}</div>}
