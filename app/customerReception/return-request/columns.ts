@@ -21,7 +21,6 @@ export const RETURN_REQUEST_CURRENT_COLUMNS: ReturnRequestColumn[] = [
 ];
 
 export const RETURN_REQUEST_LIST_COLUMNS: ReturnRequestColumn[] = [
-  { key: "processStatus", label: "처리상태", width: 90, source: "system" },
   { key: "receivedAt", label: "접수일자", width: 150, source: "system" },
   { key: "partnerCategory", label: "거래처분류", width: 120, source: "erp" },
   { key: "deviceNo", label: "기기번호", width: 110, source: "erp" },
