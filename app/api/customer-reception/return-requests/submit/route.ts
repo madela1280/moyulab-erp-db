@@ -5,6 +5,7 @@ const DEFAULT_CS_BASE_URL = "https://return.moulab.kr";
 
 type SubmitItem = {
   clientRowId: string;
+  externalId: string;
   unifiedId: number;
   receivedAt: string;
   phone: string;
@@ -52,9 +53,17 @@ function normalizeNumber(value: unknown) {
 
 function extractSubmitItem(raw: any, index: number): SubmitItem {
   const data = raw?.data && typeof raw.data === "object" ? raw.data : {};
+  const externalId = normalizeString(
+    data.__externalId ||
+      raw?.external_id ||
+      raw?.id ||
+      raw?.request_id ||
+      raw?.return_request_id
+  );
 
   return {
     clientRowId: normalizeString(raw?.id) || `row-${index}`,
+    externalId,
     unifiedId: normalizeNumber(data.unifiedId || raw?.unified_id || raw?.unifiedId),
     receivedAt: normalizeString(data.__receivedAtRaw || raw?.received_at || raw?.receivedAt),
     phone: normalizeString(data.__phoneRaw || data.phone1 || raw?.phone),
@@ -72,6 +81,7 @@ function extractSubmitItem(raw: any, index: number): SubmitItem {
 function buildFailRow(item: SubmitItem, message: string) {
   return {
     id: item.clientRowId,
+    externalId: item.externalId || "",
     unifiedId: item.unifiedId || null,
     receivedAt: item.receivedAt,
     phone: item.phone,
@@ -127,10 +137,15 @@ async function patchUnifiedReturnRequest(item: SubmitItem) {
 
 async function updateCustomerServerStatus(items: SubmitItem[]) {
   const payloadItems = items.map((item) => ({
+    external_id: item.externalId,
+    id: item.externalId,
+    request_id: item.externalId,
+    return_request_id: item.externalId,
     received_at: item.receivedAt,
     phone: item.phone,
     renter_name: item.renterName,
     return_model: item.returnModel,
+    mismatch_reason: item.mismatchReason,
     process_status: "전송",
   }));
 
@@ -151,6 +166,14 @@ async function updateCustomerServerStatus(items: SubmitItem[]) {
 
   if (!response.ok || data?.ok === false) {
     throw new Error(data?.message || `고객접수 서버 전송상태 변경 실패(${response.status})`);
+  }
+
+  const updatedCount = Number(data?.updatedCount || 0);
+
+  if (updatedCount < items.length) {
+    throw new Error(
+      `고객접수 서버 전송상태 변경 일부 실패: 성공 ${updatedCount}건 / 요청 ${items.length}건`
+    );
   }
 
   return data;
@@ -194,7 +217,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      if (!item.receivedAt || !item.phone || !item.renterName || !item.returnModel) {
+      if (!item.externalId && (!item.receivedAt || !item.phone || !item.renterName || !item.returnModel)) {
         failedRows.push(buildFailRow(item, "고객접수 행 식별 정보가 부족합니다."));
         continue;
       }
