@@ -119,7 +119,7 @@ async function fetchUnifiedMap(ids: number[]) {
 async function patchUnifiedReturnRequest(item: SubmitItem) {
   const patch = {
     반납요청일: item.returnRequestDate || null,
-    반납메모: item.returnMemo || null,
+    고객메모: item.returnMemo || null,
   };
 
   const result = await query(
