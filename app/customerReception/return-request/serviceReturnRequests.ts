@@ -1,6 +1,10 @@
 import type { ReturnRequestRow } from "@/customerReception/return-request/types";
 
 export type ReturnRequestApiRow = {
+  id?: number | string;
+  request_id?: number | string;
+  return_request_id?: number | string;
+
   received_at?: string;
   renter_name?: string;
   return_model?: string;
@@ -114,6 +118,7 @@ export function mapReturnRequestApiRow(
   index: number,
   isListMode: boolean
 ): ReturnRequestRow {
+  const externalId = normalizeString(row.id || row.request_id || row.return_request_id);
   const receivedAtRaw = normalizeString(row.received_at);
   const receivedAt = formatDateTime(row.received_at);
   const processStatus = normalizeStatus(row.process_status);
@@ -125,7 +130,9 @@ export function mapReturnRequestApiRow(
   const phone = normalizeString(row.phone);
 
   return {
-    id: `${receivedAtRaw || receivedAt || "row"}-${phone || "phone"}-${index}`,
+    id: externalId
+      ? `return-request-${externalId}`
+      : `${receivedAtRaw || receivedAt || "row"}-${phone || "phone"}-${index}`,
     checked: false,
     processStatus,
     receivedAt,
@@ -156,6 +163,7 @@ export function mapReturnRequestApiRow(
       unifiedId: row.unified_id ? String(row.unified_id) : "",
       currentUnifiedReturnRequestDate: normalizeString(matched.반납요청일),
 
+      __externalId: externalId,
       __receivedAtRaw: receivedAtRaw,
       __phoneRaw: phone,
       __renterNameRaw: renterName,
@@ -206,10 +214,10 @@ export async function updateReturnRequestWebCell(
   const nextValue = normalizeString(value);
 
   /*
-   * 행 식별값은 기본적으로 최초 웹접수 원본값(__raw)을 사용한다.
-   * 단, 기존 원본값이 비어 있는 상태에서 해당 식별 컬럼을 처음 입력/수정하는 경우
-   * 현재 입력값(value)까지 fallback으로 사용한다.
+   * 행 식별값은 외부 서버 id가 있으면 external_id를 우선 사용한다.
+   * external_id가 없을 때만 기존 received_at/phone/renter_name/return_model 조합으로 찾는다.
    */
+  const externalId = normalizeString(row.data?.__externalId);
   const receivedAt = normalizeString(row.data?.__receivedAtRaw || row.receivedAt);
 
   const phone = normalizeString(
@@ -230,7 +238,7 @@ export async function updateReturnRequestWebCell(
       (colKey === "product" ? nextValue : "")
   );
 
-  if (!receivedAt || !phone || !renterName || !returnModel) {
+  if (!externalId && (!receivedAt || !phone || !renterName || !returnModel)) {
     throw new Error("수정 대상 반납접수 행을 찾을 수 없습니다.");
   }
 
@@ -241,6 +249,7 @@ export async function updateReturnRequestWebCell(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      external_id: externalId,
       received_at: receivedAt,
       phone,
       renter_name: renterName,

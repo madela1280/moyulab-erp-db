@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type {
   ReturnRequestColumn,
   ReturnRequestRow,
@@ -71,7 +71,40 @@ export default function ReturnRequestGrid({
     }));
   }, [columns]);
 
-  const [draftWidths, setDraftWidths] = useState<Record<string, string>>({});
+    const [draftWidths, setDraftWidths] = useState<Record<string, string>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  function getCellRefKey(rowIndex: number, colKey: string) {
+    return `${rowIndex}__${colKey}`;
+  }
+
+  function focusEditableCell(rowIndex: number, colKey: string) {
+    const key = getCellRefKey(rowIndex, colKey);
+
+    setTimeout(() => {
+      const el = inputRefs.current[key];
+      if (!el) return;
+
+      el.focus();
+      el.select();
+    }, 0);
+  }
+
+  function findNextEditableColumnIndex(currentColIndex: number, direction: -1 | 1) {
+    let nextIndex = currentColIndex + direction;
+
+    while (nextIndex >= 0 && nextIndex < displayColumns.length) {
+      const nextCol = displayColumns[nextIndex];
+
+      if (nextCol && isEditableCell(mode, nextCol)) {
+        return nextIndex;
+      }
+
+      nextIndex += direction;
+    }
+
+    return currentColIndex;
+  }
 
   function updateChecked(rowIndex: number, checked: boolean) {
     const targetRow = displayRows[rowIndex];
@@ -252,14 +285,68 @@ export default function ReturnRequestGrid({
                     }}
                   >
                     {editable && !emptyRow ? (
-                      <input
+                                           <input
+                        ref={(el) => {
+                          inputRefs.current[getCellRefKey(rowIndex, col.key)] = el;
+                        }}
                         value={value}
                         onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
                         onBlur={(e) => commitCell(rowIndex, col.key, e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.currentTarget.blur();
+                            return;
                           }
+
+                          if (
+                            e.key !== "ArrowUp" &&
+                            e.key !== "ArrowDown" &&
+                            e.key !== "ArrowLeft" &&
+                            e.key !== "ArrowRight"
+                          ) {
+                            return;
+                          }
+
+                          e.preventDefault();
+
+                          const currentValue = e.currentTarget.value;
+                          commitCell(rowIndex, col.key, currentValue);
+
+                          const currentColIndex = displayColumns.findIndex(
+                            (targetCol) => targetCol.key === col.key
+                          );
+
+                          let nextRowIndex = rowIndex;
+                          let nextColIndex = currentColIndex;
+
+                          if (e.key === "ArrowUp") {
+                            nextRowIndex = Math.max(0, rowIndex - 1);
+                          }
+
+                          if (e.key === "ArrowDown") {
+                            nextRowIndex = Math.min(displayRows.length - 1, rowIndex + 1);
+                          }
+
+                          if (e.key === "ArrowLeft") {
+                            nextColIndex = findNextEditableColumnIndex(currentColIndex, -1);
+                          }
+
+                          if (e.key === "ArrowRight") {
+                            nextColIndex = findNextEditableColumnIndex(currentColIndex, 1);
+                          }
+
+                          const nextRow = displayRows[nextRowIndex];
+                          const nextCol = displayColumns[nextColIndex];
+
+                          if (!nextRow || !nextCol || isEmptyRow(nextRow)) {
+                            return;
+                          }
+
+                          if (!isEditableCell(mode, nextCol)) {
+                            return;
+                          }
+
+                          focusEditableCell(nextRowIndex, nextCol.key);
                         }}
                         className="block h-full min-h-8 w-full border-0 bg-transparent px-1 py-1 text-xs font-normal text-slate-900 outline-none"
                         style={{
@@ -267,7 +354,7 @@ export default function ReturnRequestGrid({
                           minWidth: col.width,
                           maxWidth: col.width,
                         }}
-                      />
+                      /> 
                     ) : (
                       <div
                         className="min-h-8 px-1 py-1 whitespace-nowrap overflow-hidden text-ellipsis"

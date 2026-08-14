@@ -300,6 +300,10 @@ async function fetchUnifiedRows() {
 }
 
 async function patchCustomerServerWebCell(payload: {
+  external_id?: string;
+  id?: string;
+  request_id?: string;
+  return_request_id?: string;
   received_at: string;
   phone: string;
   renter_name: string;
@@ -371,6 +375,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
 
+    const externalId = normalizeString(body?.external_id);
     const receivedAt = normalizeString(body?.received_at);
     const phone = normalizeString(body?.phone);
     const renterName = normalizeString(body?.renter_name);
@@ -378,7 +383,7 @@ export async function PATCH(req: NextRequest) {
     const field = normalizeString(body?.field);
     const value = normalizeString(body?.value);
 
-    if (!receivedAt || !phone || !renterName || !returnModel) {
+    if (!externalId && (!receivedAt || !phone || !renterName || !returnModel)) {
       return NextResponse.json(
         {
           ok: false,
@@ -398,7 +403,11 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const result = await patchCustomerServerWebCell({
+   const result = await patchCustomerServerWebCell({
+      external_id: externalId,
+      id: externalId,
+      request_id: externalId,
+      return_request_id: externalId,
       received_at: receivedAt,
       phone,
       renter_name: renterName,
