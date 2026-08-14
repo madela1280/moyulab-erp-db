@@ -159,13 +159,15 @@ async function updateCustomerServerStatus(items: SubmitItem[]) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
-    const rawRows = Array.isArray(body?.rows)
+    const rawRows: any[] = Array.isArray(body?.rows)
       ? body.rows
       : Array.isArray(body?.items)
         ? body.items
         : [];
 
-    const items = rawRows.map((row: any, index: number) => extractSubmitItem(row, index));
+    const items: SubmitItem[] = rawRows.map((row: any, index: number) =>
+      extractSubmitItem(row, index)
+    );
 
     if (!items.length) {
       return NextResponse.json(
