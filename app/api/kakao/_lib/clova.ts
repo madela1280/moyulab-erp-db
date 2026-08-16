@@ -1,0 +1,166 @@
+// app/api/kakao/_lib/clova.ts
+//
+// CLOVA Studio (HCX-005) 연동
+// - 키워드로 못 잡은 발화만 여기로 넘어온다 (하이브리드)
+// - 카카오 5초 제한이 있으므로 타임아웃을 짧게 잡고, 실패하면 키워드 결과를 그대로 쓴다
+//
+// 환경변수: CLOVA_API_KEY  (ecosystem.config.cjs 의 env 에 등록)
+
+const CLOVA_URL = "https://clovastudio.stream.ntruss.com/v3/chat-completions/HCX-005";
+
+/** 카카오 5초 제한 대비. 이 시간을 넘기면 포기하고 키워드 결과를 쓴다. */
+const TIMEOUT_MS = 3500;
+
+export type ClovaIntent =
+  | "RETURN" | "EXTEND" | "OVERDUE" | "TROUBLE" | "DELIVERY"
+  | "PARTS" | "CHANGE" | "MANUAL" | "AGENT" | "LOOKUP"
+  | "GREET" | "OPEN" | "UNKNOWN";
+
+export type ClassifyResult = {
+  intent: ClovaIntent;
+  confidence: number;
+  /** 호출 성공 여부. false 면 키워드 결과를 그대로 써야 한다. */
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+};
+
+const SYSTEM_PROMPT = `당신은 유축기 대여 업체의 고객 문의 분류기입니다.
+고객 발화를 아래 의도 중 정확히 하나로 분류하고 JSON만 출력하세요.
+
+의도 목록:
+- RETURN: 반납, 회수, 수거, 그만 쓰겠다
+- EXTEND: 연장, 더 쓰고 싶다, 기간 늘리기
+- OVERDUE: 연체, 기간이 지났다
+- TROUBLE: 기기 사용법, 세척, 소독, 부품 결합, 작동 문제, 압력, 소음, 역류
+- DELIVERY: 배송, 택배 언제 오는지, 송장
+- PARTS: 부품 추가 구매, 깔때기 구매, 포장재 구매
+- CHANGE: 기종 변경, 다른 기기로 바꾸기
+- MANUAL: 제품 설명서, 사용 안내서
+- AGENT: 상담원 연결 요청
+- LOOKUP: 만기일, 남은 기간, 내 대여 정보 확인
+- GREET: 인사말
+- OPEN: 다른 것을 물어보고 싶다는 표현
+- UNKNOWN: 위 어디에도 해당하지 않음
+
+규칙:
+- JSON 외에는 아무것도 출력하지 마세요. 설명, 마크다운, 코드블록 금지.
+- 확신이 없으면 UNKNOWN 으로 하고 confidence 를 낮게 주세요.
+- 의료나 건강 관련 내용이면 UNKNOWN 으로 분류하세요.
+
+출력 형식:
+{"intent":"RETURN","confidence":0.9}`;
+
+/**
+ * 발화를 의도로 분류한다.
+ * 실패하거나 느리면 ok:false 로 돌려주고, 호출한 쪽에서 키워드 결과를 쓴다.
+ */
+export async function classifyIntent(utterance: string): Promise<ClassifyResult> {
+  const started = Date.now();
+  const apiKey = process.env.CLOVA_API_KEY;
+
+  if (!apiKey) {
+    return { intent: "UNKNOWN", confidence: 0, ok: false, latencyMs: 0, error: "no api key" };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const res = await fetch(CLOVA_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        // 스트리밍이 아니라 통째로 받아야 하므로 반드시 json
+        Accept: "application/json",
+        "X-NCP-CLOVASTUDIO-REQUEST-ID": crypto.randomUUID().replace(/-/g, ""),
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: [{ type: "text", text: SYSTEM_PROMPT }] },
+          { role: "user", content: [{ type: "text", text: utterance.slice(0, 500) }] },
+        ],
+        topP: 0.8,
+        topK: 0,
+        maxTokens: 100,
+        temperature: 0.1,
+        repetitionPenalty: 1.1,
+        includeAiFilters: true,
+      }),
+    });
+
+    const latencyMs = Date.now() - started;
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return {
+        intent: "UNKNOWN", confidence: 0, ok: false, latencyMs,
+        error: `HTTP ${res.status} ${body.slice(0, 200)}`,
+      };
+    }
+
+    const json: any = await res.json();
+    const raw = extractText(json);
+    const parsed = parseJson(raw);
+
+    if (!parsed) {
+      return { intent: "UNKNOWN", confidence: 0, ok: false, latencyMs, error: `parse fail: ${raw.slice(0, 200)}` };
+    }
+
+    return { intent: parsed.intent, confidence: parsed.confidence, ok: true, latencyMs };
+  } catch (e: any) {
+    const latencyMs = Date.now() - started;
+    const error = e?.name === "AbortError" ? `timeout ${TIMEOUT_MS}ms` : String(e?.message ?? e);
+    return { intent: "UNKNOWN", confidence: 0, ok: false, latencyMs, error };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 응답 파싱                                                            */
+/* ------------------------------------------------------------------ */
+
+/** HCX v3 응답에서 텍스트만 뽑는다. content 가 문자열일 수도, 배열일 수도 있다. */
+function extractText(json: any): string {
+  const content = json?.result?.message?.content;
+
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((c: any) => (typeof c === "string" ? c : c?.text ?? ""))
+      .join("")
+      .trim();
+  }
+
+  return "";
+}
+
+const VALID = new Set<ClovaIntent>([
+  "RETURN", "EXTEND", "OVERDUE", "TROUBLE", "DELIVERY",
+  "PARTS", "CHANGE", "MANUAL", "AGENT", "LOOKUP",
+  "GREET", "OPEN", "UNKNOWN",
+]);
+
+/** 모델이 코드블록이나 설명을 섞어 보내도 JSON만 건져낸다. */
+function parseJson(raw: string): { intent: ClovaIntent; confidence: number } | null {
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  const m = cleaned.match(/\{[\s\S]*?\}/);
+  if (!m) return null;
+
+  try {
+    const obj = JSON.parse(m[0]);
+    const intent = String(obj?.intent ?? "").toUpperCase() as ClovaIntent;
+    if (!VALID.has(intent)) return null;
+
+    const conf = Number(obj?.confidence);
+    return { intent, confidence: Number.isFinite(conf) ? conf : 0.5 };
+  } catch {
+    return null;
+  }
+}
