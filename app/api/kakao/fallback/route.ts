@@ -1,7 +1,6 @@
 // app/api/kakao/fallback/route.ts
 //
 // [블록] 폴백 블록 — 챗봇의 정문
-// 고객이 무슨 말을 하든 여기로 들어온다.
 //
 // 스킬 URL: https://moulab.kr/api/kakao/fallback
 //
@@ -10,47 +9,28 @@
 //   ① 발화에 전화번호가 있으면 → 인증
 //   ② 인증 안 된 상태 → 인사말 + 번호 요청
 //   ③ 위험 질문(의료·사고) → 즉시 상담원
-//   ④ 의도 판단 후 안내
-//   ⑤ 못 알아들으면 → 되묻기 (카드 반복 금지)
-//
-// 지금은 키워드로 의도를 판단한다. CLOVA 연동은 detectIntent만 교체하면 된다.
+//   ④ 의도 판단: 키워드 우선 → 못 잡으면 CLOVA
+//   ⑤ 의도별 안내
 
 import { NextRequest } from "next/server";
 import {
-  extractPhone,
-  getClientExtra,
-  getUserKey,
-  getUtterance,
-  itemCard,
-  listCard,
-  maskAddress,
-  maskName,
-  maskPhone,
-  operatorButton,
-  simpleText,
-  textCard,
-  type QuickReply,
+  extractPhone, getClientExtra, getUserKey, getUtterance,
+  itemCard, listCard, maskAddress, maskName, maskPhone,
+  operatorButton, simpleText, textCard, type QuickReply,
 } from "@/api/kakao/_lib/kakao";
 import { getSession, setSession, sweepExpired } from "@/api/kakao/_lib/session";
 import {
-  findById,
-  findByPhone,
-  overdueFee,
-  statusLabel,
-  text,
-  ymd,
-  type Rental,
+  findById, findByPhone, overdueFee, statusLabel, text, ymd, type Rental,
 } from "@/api/kakao/_lib/rental";
 import {
-  agentHoursNote,
-  checkRisk,
-  escalateMessage,
-  findFaq,
-  FAQ_MENU,
-  medicalMessage,
+  agentHoursNote, checkRisk, escalateMessage, findFaq, FAQ_MENU,
+  isSimile, LINKS, medicalMessage, SIMILE_LINKS,
 } from "@/api/kakao/_lib/faq";
+import { classifyIntent, type ClovaIntent } from "@/api/kakao/_lib/clova";
 
 export const dynamic = "force-dynamic";
+
+type Intent = ClovaIntent;
 
 const GREETING =
   "안녕하세요, 모유랩입니다 🍼\n\n" +
@@ -85,7 +65,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ① 발화에 번호가 있으면 인증 시도
+    // ① 전화번호 인증
     const phone = extractPhone(body);
     if (phone) return await authenticate(userKey, phone);
 
@@ -115,10 +95,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ④ 의도 판단 후 안내
-    const intent = detectIntent(utterance);
-    await setSession(userKey, { intent });
+    // ④ 키워드 우선, 못 잡으면 CLOVA
+    let intent = detectByKeyword(utterance);
 
+    if (intent === "UNKNOWN" && utterance.length > 0) {
+      const r = await classifyIntent(utterance);
+      console.log("[CLOVA]", JSON.stringify({ q: utterance.slice(0, 40), ...r }));
+      // 확신이 낮으면 억지로 분류하지 않는다
+      if (r.ok && r.confidence >= 0.5) intent = r.intent;
+    }
+
+    await setSession(userKey, { intent });
     return respond(intent, rental, utterance);
   } catch (e) {
     console.error("[KAKAO_FALLBACK]", e);
@@ -148,7 +135,7 @@ async function authenticate(userKey: string, phone: string) {
   const phoneTail = phone.slice(-4);
 
   if (rows.length > 1) {
-    await setSession(userKey, { phoneTail, intent: "PICK" });
+    await setSession(userKey, { phoneTail, intent: "LOOKUP" });
     return listCard({
       headerTitle: `대여 내역이 ${rows.length}건 있어요. 어느 건인가요?`,
       items: rows.map((r) => ({
@@ -167,24 +154,25 @@ async function authenticate(userKey: string, phone: string) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 의도 판단 (지금은 키워드. 다음 단계에서 CLOVA로 교체)                 */
+/* 의도 판단 — 키워드 (빠른 경로)                                        */
 /* ------------------------------------------------------------------ */
 
-type Intent =
-  | "RETURN" | "EXTEND" | "OVERDUE" | "TROUBLE"
-  | "DELIVERY" | "AGENT" | "LOOKUP" | "UNKNOWN";
-
 const RULES: [Intent, RegExp][] = [
-  ["AGENT", /상담원|사람|직원|통화|전화\s*(주|해)/],
+  ["GREET", /^(안녕|하이|헬로|여보세요|안뇽)/],
+  ["OPEN", /다른\s*(걸|것|거|문의|질문)|물어보고\s*싶|궁금한\s*(게|것)/],
+  ["AGENT", /상담원|직원|통화|전화\s*(주|해)/],
   ["OVERDUE", /연체|늦었|지났|기간\s*넘/],
   ["RETURN", /반납|회수|수거|가져가|돌려|그만\s*(쓰|사용)|다\s*썼/],
   ["EXTEND", /연장|더\s*쓰|더쓰|늘리|기간\s*추가/],
+  ["PARTS", /부품.*(구매|사|추가)|깔대기.*(구매|사)|깔때기.*(구매|사)|포장재.*(구매|사)|더\s*사고/],
+  ["CHANGE", /기종\s*변경|기기\s*(변경|바꾸)|다른\s*(기기|기종)|교체해/],
+  ["MANUAL", /설명서|매뉴얼|사용\s*안내서/],
   ["DELIVERY", /배송|택배|송장|언제\s*와|도착|발송/],
   ["LOOKUP", /내\s*정보|대여\s*정보|만기|언제까지|남은\s*기간|조회|확인/],
   ["TROUBLE", /사용법|어떻게\s*(써|쓰|사용)|세척|소독|부품|깔대기|깔때기|튜브|호스|압력|흡입|모드|소리|소음|역류|작동|배터리|충전|건전지|무선/],
 ];
 
-function detectIntent(utterance: string): Intent {
+function detectByKeyword(utterance: string): Intent {
   for (const [intent, re] of RULES) {
     if (re.test(utterance)) return intent;
   }
@@ -196,11 +184,25 @@ function detectIntent(utterance: string): Intent {
 /* ------------------------------------------------------------------ */
 
 function respond(intent: Intent, r: Rental, utterance: string) {
+  const simile = isSimile(String(r.data["제품"] ?? ""));
+
   switch (intent) {
+    case "GREET":
+      return simpleText("네, 안녕하세요! 무엇을 도와드릴까요?", { quickReplies: quickFor(r) });
+
+    case "OPEN":
+      return simpleText(
+        "네, 편하게 말씀해 주세요.\n\n" +
+        "기기 사용, 반납, 연장, 부품 구매, 기종 변경 등\n" +
+        "어떤 것이든 물어보시면 확인해 드릴게요.",
+        { quickReplies: quickFor(r) }
+      );
+
     case "AGENT":
       return textCard({
         title: "상담원을 연결해 드릴게요",
-        description: "아래 버튼을 눌러주세요." + (agentHoursNote() || "\n\n운영시간은 평일 09:00~18:00 입니다."),
+        description: "아래 버튼을 눌러주세요." +
+          (agentHoursNote() || "\n\n운영시간은 평일 09:00~18:00 입니다."),
         buttons: [operatorButton()],
       });
 
@@ -221,8 +223,7 @@ function respond(intent: Intent, r: Rental, utterance: string) {
           { title: "일단가", description: `${fee.daily.toLocaleString()}원` },
         ],
         summary: { title: "연체료", description: `${fee.amount.toLocaleString()}원` },
-        description:
-          "연체료는 자정마다 하루치씩 올라갑니다.\n반납 접수 전에 결제가 필요해요.",
+        description: "연체료는 자정마다 하루치씩 올라갑니다.\n반납 접수 전에 결제가 필요해요.",
         buttons: [operatorButton()],
       });
     }
@@ -245,7 +246,10 @@ function respond(intent: Intent, r: Rental, utterance: string) {
           "· 당일 수거는 불가하며 다음 영업일부터 가능해요\n" +
           "· 공휴일은 수거하지 않아요\n\n" +
           "곧 접수 화면을 연결해 드릴 예정입니다.",
-        buttons: [operatorButton()],
+        buttons: [
+          { label: "반납 안내 보기", action: "webLink", webLinkUrl: LINKS.returnGuide },
+          operatorButton(),
+        ],
       });
 
     case "EXTEND":
@@ -253,9 +257,56 @@ function respond(intent: Intent, r: Rental, utterance: string) {
         title: "연장을 도와드릴게요",
         description:
           `현재 만기일은 ${ymd(r.data["종료일"])} 입니다.\n\n` +
-          "연장 금액은 기종과 기간에 따라 달라요.\n" +
-          "곧 자동 안내를 준비하고 있습니다.",
+          "연장 금액은 기종과 대여처에 따라 달라요.\n" +
+          "정확한 금액은 상담원이 안내해 드릴게요.",
         buttons: [operatorButton()],
+      });
+
+    case "PARTS":
+      return textCard({
+        title: "부품 구매 안내",
+        description:
+          simile
+            ? "시밀레 부품은 27mm 단일 사이즈입니다.\n" +
+              "구매는 상담원을 통해 안내해 드릴게요."
+            : "부품은 스마트스토어에서 구매하실 수 있어요.\n\n" +
+              "· 깔때기는 키트 단위로 판매됩니다\n" +
+              "· 양쪽 유축을 하시려면 2세트가 필요해요\n" +
+              "· 튜브는 심포니용과 스윙용이 호환되지 않습니다\n\n" +
+              "어떤 부품이 필요하신지 알려주시면 확인해 드릴게요.",
+        buttons: simile
+          ? [operatorButton()]
+          : [
+              { label: "스마트스토어", action: "webLink", webLinkUrl: LINKS.parts },
+              operatorButton(),
+            ],
+      });
+
+    case "CHANGE":
+      return textCard({
+        title: "기종 변경 안내",
+        description:
+          `현재 ${text(r.data["제품"])} 사용 중이세요.\n\n` +
+          "기종을 바꾸실 때는 변경 비용을 먼저 결제하셔야\n" +
+          "새 기기가 발송되고 기존 기기 수거가 접수됩니다.\n\n" +
+          "· 부품이 호환되지 않으면 부품도 함께 준비하셔야 해요\n" +
+          "· 발송 일정은 결제 시점에 따라 달라집니다\n\n" +
+          "정확한 금액과 일정은 상담원이 안내해 드릴게요.",
+        buttons: [operatorButton()],
+      });
+
+    case "MANUAL":
+      return textCard({
+        title: "제품 설명서",
+        description: `${text(r.data["제품"])} 설명서를 확인하실 수 있어요.`,
+        buttons: [
+          {
+            label: "설명서 보기",
+            action: "webLink",
+            webLinkUrl: simile ? SIMILE_LINKS.manual : LINKS.returnGuide,
+          },
+          operatorButton(),
+        ],
       });
 
     case "DELIVERY":
@@ -267,17 +318,32 @@ function respond(intent: Intent, r: Rental, utterance: string) {
       );
 
     case "TROUBLE": {
-      const faq = findFaq(utterance);
-      if (!faq) {
-        return simpleText(FAQ_MENU, { quickReplies: troubleQuick() });
+      // 시밀레는 메델라와 구조가 달라 자체 자료로만 안내한다
+      if (simile) {
+        return textCard({
+          title: "시밀레 문제 해결",
+          description:
+            "시밀레는 아래 자료에서 대처법을 확인하실 수 있어요.\n\n" +
+            "해결이 안 되면 상담원을 연결해 드릴게요.",
+          buttons: [
+            { label: "문제 대처법", action: "webLink", webLinkUrl: SIMILE_LINKS.trouble },
+            { label: "설명서", action: "webLink", webLinkUrl: SIMILE_LINKS.manual },
+            operatorButton(),
+          ],
+        });
       }
-      return textCard({
-        title: faq.title,
-        description:
-          faq.body +
-          (faq.offerAgent ? "\n\n해결이 안 되면 상담원을 연결해 드릴게요." : ""),
-        buttons: faq.offerAgent ? [operatorButton()] : undefined,
-      }, { quickReplies: troubleQuick() });
+
+      const faq = findFaq(utterance);
+      if (!faq) return simpleText(FAQ_MENU, { quickReplies: troubleQuick() });
+
+      return textCard(
+        {
+          title: faq.title,
+          description: faq.body + (faq.offerAgent ? "\n\n해결이 안 되면 상담원을 연결해 드릴게요." : ""),
+          buttons: faq.offerAgent ? [operatorButton()] : undefined,
+        },
+        { quickReplies: troubleQuick() }
+      );
     }
 
     case "UNKNOWN":
@@ -351,6 +417,7 @@ function quickFor(r: Rental): QuickReply[] {
   out.push({ label: "반납할게요", action: "message", messageText: "반납하고 싶어요" });
   out.push({ label: "연장할게요", action: "message", messageText: "연장하고 싶어요" });
   out.push({ label: "사용법 보기", action: "message", messageText: "사용법 알려주세요" });
+  out.push({ label: "부품 구매", action: "message", messageText: "부품 구매하고 싶어요" });
   out.push({ label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" });
   return out;
 }
@@ -360,6 +427,7 @@ function troubleQuick(): QuickReply[] {
     { label: "세척 방법", action: "message", messageText: "세척 어떻게 해요" },
     { label: "작동 안 될 때", action: "message", messageText: "기기가 작동하지 않아요" },
     { label: "압력이 약해요", action: "message", messageText: "흡입력이 약해요" },
+    { label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" },
     { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
   ];
 }

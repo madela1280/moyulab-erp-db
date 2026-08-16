@@ -2,13 +2,13 @@
 //
 // CLOVA Studio (HCX-005) 연동
 // - 키워드로 못 잡은 발화만 여기로 넘어온다 (하이브리드)
-// - 카카오 5초 제한이 있으므로 타임아웃을 짧게 잡고, 실패하면 키워드 결과를 그대로 쓴다
+// - 실측 평균 응답 약 0.6초. 카카오 5초 제한에 여유가 있어 동기 호출로 처리한다.
+// - 실패하거나 느리면 ok:false 로 돌려주고, 호출한 쪽에서 키워드 결과를 쓴다.
 //
 // 환경변수: CLOVA_API_KEY  (ecosystem.config.cjs 의 env 에 등록)
 
 const CLOVA_URL = "https://clovastudio.stream.ntruss.com/v3/chat-completions/HCX-005";
 
-/** 카카오 5초 제한 대비. 이 시간을 넘기면 포기하고 키워드 결과를 쓴다. */
 const TIMEOUT_MS = 3500;
 
 export type ClovaIntent =
@@ -19,20 +19,19 @@ export type ClovaIntent =
 export type ClassifyResult = {
   intent: ClovaIntent;
   confidence: number;
-  /** 호출 성공 여부. false 면 키워드 결과를 그대로 써야 한다. */
   ok: boolean;
   latencyMs: number;
   error?: string;
 };
 
 const SYSTEM_PROMPT = `당신은 유축기 대여 업체의 고객 문의 분류기입니다.
-고객 발화를 아래 의도 중 정확히 하나로 분류하고 JSON만 출력하세요.
+고객 발화를 아래 의도 중 정확히 하나로 분류합니다.
 
 의도 목록:
 - RETURN: 반납, 회수, 수거, 그만 쓰겠다
 - EXTEND: 연장, 더 쓰고 싶다, 기간 늘리기
 - OVERDUE: 연체, 기간이 지났다
-- TROUBLE: 기기 사용법, 세척, 소독, 부품 결합, 작동 문제, 압력, 소음, 역류
+- TROUBLE: 기기 사용법, 세척, 소독, 부품 결합, 작동 문제, 압력, 소음, 역류, 사용이 불편함
 - DELIVERY: 배송, 택배 언제 오는지, 송장
 - PARTS: 부품 추가 구매, 깔때기 구매, 포장재 구매
 - CHANGE: 기종 변경, 다른 기기로 바꾸기
@@ -41,20 +40,26 @@ const SYSTEM_PROMPT = `당신은 유축기 대여 업체의 고객 문의 분류
 - LOOKUP: 만기일, 남은 기간, 내 대여 정보 확인
 - GREET: 인사말
 - OPEN: 다른 것을 물어보고 싶다는 표현
-- UNKNOWN: 위 어디에도 해당하지 않음
+- UNKNOWN: 위 어디에도 해당하지 않음. 의료나 건강 관련도 UNKNOWN.
 
-규칙:
-- JSON 외에는 아무것도 출력하지 마세요. 설명, 마크다운, 코드블록 금지.
-- 확신이 없으면 UNKNOWN 으로 하고 confidence 를 낮게 주세요.
-- 의료나 건강 관련 내용이면 UNKNOWN 으로 분류하세요.
+출력 규칙 (반드시 지킬 것):
+- 아래 형식의 JSON 한 개만 출력합니다.
+- 여러 의도의 확률을 나열하지 마세요. 가장 가능성 높은 하나만 고릅니다.
+- 설명, 마크다운, 코드블록을 붙이지 마세요.
 
-출력 형식:
-{"intent":"RETURN","confidence":0.9}`;
+형식:
+{"intent":"의도이름","confidence":0.0~1.0}
 
-/**
- * 발화를 의도로 분류한다.
- * 실패하거나 느리면 ok:false 로 돌려주고, 호출한 쪽에서 키워드 결과를 쓴다.
- */
+예시:
+입력: 이제 그만 쓸래요
+출력: {"intent":"RETURN","confidence":0.9}
+
+입력: 유축기 사용이 불편해요
+출력: {"intent":"TROUBLE","confidence":0.8}
+
+입력: 아기가 백일이에요
+출력: {"intent":"UNKNOWN","confidence":0.2}`;
+
 export async function classifyIntent(utterance: string): Promise<ClassifyResult> {
   const started = Date.now();
   const apiKey = process.env.CLOVA_API_KEY;
@@ -73,7 +78,6 @@ export async function classifyIntent(utterance: string): Promise<ClassifyResult>
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        // 스트리밍이 아니라 통째로 받아야 하므로 반드시 json
         Accept: "application/json",
         "X-NCP-CLOVASTUDIO-REQUEST-ID": crypto.randomUUID().replace(/-/g, ""),
       },
@@ -103,10 +107,13 @@ export async function classifyIntent(utterance: string): Promise<ClassifyResult>
 
     const json: any = await res.json();
     const raw = extractText(json);
-    const parsed = parseJson(raw);
+    const parsed = parseAnswer(raw);
 
     if (!parsed) {
-      return { intent: "UNKNOWN", confidence: 0, ok: false, latencyMs, error: `parse fail: ${raw.slice(0, 200)}` };
+      return {
+        intent: "UNKNOWN", confidence: 0, ok: false, latencyMs,
+        error: `parse fail: ${raw.slice(0, 200)}`,
+      };
     }
 
     return { intent: parsed.intent, confidence: parsed.confidence, ok: true, latencyMs };
@@ -126,41 +133,66 @@ export async function classifyIntent(utterance: string): Promise<ClassifyResult>
 /** HCX v3 응답에서 텍스트만 뽑는다. content 가 문자열일 수도, 배열일 수도 있다. */
 function extractText(json: any): string {
   const content = json?.result?.message?.content;
-
   if (typeof content === "string") return content;
-
   if (Array.isArray(content)) {
-    return content
-      .map((c: any) => (typeof c === "string" ? c : c?.text ?? ""))
-      .join("")
-      .trim();
+    return content.map((c: any) => (typeof c === "string" ? c : c?.text ?? "")).join("").trim();
   }
-
   return "";
 }
 
-const VALID = new Set<ClovaIntent>([
+const VALID: ClovaIntent[] = [
   "RETURN", "EXTEND", "OVERDUE", "TROUBLE", "DELIVERY",
   "PARTS", "CHANGE", "MANUAL", "AGENT", "LOOKUP",
   "GREET", "OPEN", "UNKNOWN",
-]);
+];
+const VALID_SET = new Set<string>(VALID);
 
-/** 모델이 코드블록이나 설명을 섞어 보내도 JSON만 건져낸다. */
-function parseJson(raw: string): { intent: ClovaIntent; confidence: number } | null {
+/**
+ * 모델이 형식을 안 지켜도 최대한 건져낸다. 실제로 관찰된 형태들:
+ *   {"intent":"RETURN","confidence":0.9}     정상
+ *   {TROUBLE: 0.8, UNKNOWN: 0.2}             확률 분포로 답한 경우
+ *   ```json { ... } ```                       코드블록으로 감싼 경우
+ *   RETURN                                    의도 이름만 답한 경우
+ */
+function parseAnswer(raw: string): { intent: ClovaIntent; confidence: number } | null {
   if (!raw) return null;
 
   const cleaned = raw.replace(/```json|```/g, "").trim();
-  const m = cleaned.match(/\{[\s\S]*?\}/);
-  if (!m) return null;
 
-  try {
-    const obj = JSON.parse(m[0]);
-    const intent = String(obj?.intent ?? "").toUpperCase() as ClovaIntent;
-    if (!VALID.has(intent)) return null;
-
-    const conf = Number(obj?.confidence);
-    return { intent, confidence: Number.isFinite(conf) ? conf : 0.5 };
-  } catch {
-    return null;
+  // ① 정상 형식
+  const block = cleaned.match(/\{[\s\S]*?\}/);
+  if (block) {
+    try {
+      const obj = JSON.parse(block[0]);
+      const intent = String(obj?.intent ?? "").toUpperCase();
+      if (VALID_SET.has(intent)) {
+        const conf = Number(obj?.confidence);
+        return { intent: intent as ClovaIntent, confidence: Number.isFinite(conf) ? conf : 0.5 };
+      }
+    } catch {
+      /* ② 로 넘어감 */
+    }
   }
+
+  // ② 확률 분포 형태 — 가장 높은 값을 고른다
+  const pairs = [...cleaned.matchAll(/([A-Z_]{3,12})\s*[":]+\s*([0-9]*\.?[0-9]+)/g)];
+  const scored = pairs
+    .map((m) => ({ intent: m[1].toUpperCase(), score: Number(m[2]) }))
+    .filter((p) => VALID_SET.has(p.intent) && Number.isFinite(p.score));
+
+  if (scored.length > 0) {
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    return { intent: top.intent as ClovaIntent, confidence: top.score };
+  }
+
+  // ③ 의도 이름만 답한 경우
+  const upper = cleaned.toUpperCase();
+  for (const intent of VALID) {
+    if (new RegExp(`\\b${intent}\\b`).test(upper)) {
+      return { intent, confidence: 0.5 };
+    }
+  }
+
+  return null;
 }
