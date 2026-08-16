@@ -6,12 +6,14 @@
 // 스킬 URL: https://moulab.kr/api/kakao/fallback
 //
 // 처리 순서
-//   ① 발화에 전화번호가 있으면 → 인증 시도
+//   ⓪ 리스트카드 선택
+//   ① 발화에 전화번호가 있으면 → 인증
 //   ② 인증 안 된 상태 → 인사말 + 번호 요청
-//   ③ 인증된 상태 → 의도 판단 후 안내
+//   ③ 위험 질문(의료·사고) → 즉시 상담원
+//   ④ 의도 판단 후 안내
+//   ⑤ 못 알아들으면 → 되묻기 (카드 반복 금지)
 //
-// 지금은 키워드로 의도를 판단한다. CLOVA 연동은 다음 단계에서 이 파일의
-// detectIntent 함수만 교체하면 된다.
+// 지금은 키워드로 의도를 판단한다. CLOVA 연동은 detectIntent만 교체하면 된다.
 
 import { NextRequest } from "next/server";
 import {
@@ -39,17 +41,22 @@ import {
   ymd,
   type Rental,
 } from "@/api/kakao/_lib/rental";
+import {
+  agentHoursNote,
+  checkRisk,
+  escalateMessage,
+  findFaq,
+  FAQ_MENU,
+  medicalMessage,
+} from "@/api/kakao/_lib/faq";
 
 export const dynamic = "force-dynamic";
 
 const GREETING =
   "안녕하세요, 모유랩입니다 🍼\n\n" +
-  "여기서 이런 것들을 확인하실 수 있어요.\n\n" +
-  "· 대여 기간, 만기일 확인\n" +
-  "· 반납 접수\n" +
-  "· 연장 신청\n" +
-  "· 연체료 · 환불금 조회\n" +
-  "· 사용법, 세척 방법 안내\n\n" +
+  "반납, 연장, 사용법은 물론이고\n" +
+  "유축이 잘 안 되거나 물품이 잘못 왔을 때도\n" +
+  "편하게 말씀해 주세요.\n\n" +
   "먼저 본인 확인이 필요합니다.\n" +
   "대여하실 때 등록하신 휴대폰 번호를 알려주세요.\n\n" +
   "예) 010-1234-5678";
@@ -89,11 +96,30 @@ export async function POST(req: NextRequest) {
     const rental = await findById(session.unifiedId);
     if (!rental) return simpleText(GREETING);
 
-    // ③ 의도 판단 후 안내
+    // ③ 위험 질문은 답변을 시도하지 않고 바로 상담원
+    const risk = checkRisk(utterance);
+    if (risk === "medical") {
+      await setSession(userKey, { intent: "MEDICAL" });
+      return textCard({
+        title: "상담원이 확인해 드릴게요",
+        description: medicalMessage(),
+        buttons: [operatorButton()],
+      });
+    }
+    if (risk === "escalate") {
+      await setSession(userKey, { intent: "ESCALATE" });
+      return textCard({
+        title: "상담원을 연결해 드릴게요",
+        description: escalateMessage(),
+        buttons: [operatorButton()],
+      });
+    }
+
+    // ④ 의도 판단 후 안내
     const intent = detectIntent(utterance);
     await setSession(userKey, { intent });
 
-    return respond(intent, rental);
+    return respond(intent, rental, utterance);
   } catch (e) {
     console.error("[KAKAO_FALLBACK]", e);
     return simpleText(
@@ -121,7 +147,6 @@ async function authenticate(userKey: string, phone: string) {
 
   const phoneTail = phone.slice(-4);
 
-  // 여러 건이면 고르게 한다 (기본기기 + 업그레이드기기 등)
   if (rows.length > 1) {
     await setSession(userKey, { phoneTail, intent: "PICK" });
     return listCard({
@@ -147,44 +172,45 @@ async function authenticate(userKey: string, phone: string) {
 
 type Intent =
   | "RETURN" | "EXTEND" | "OVERDUE" | "TROUBLE"
-  | "DELIVERY" | "AGENT" | "LOOKUP";
+  | "DELIVERY" | "AGENT" | "LOOKUP" | "UNKNOWN";
 
 const RULES: [Intent, RegExp][] = [
-  // 긴급·불만은 무조건 상담원 우선
-  ["AGENT", /역류|물\s*들어|고장|파손|깨졌|잘못\s*왔|오배송|분실|환불해|화가|짜증|상담원|사람/],
+  ["AGENT", /상담원|사람|직원|통화|전화\s*(주|해)/],
   ["OVERDUE", /연체|늦었|지났|기간\s*넘/],
-  ["RETURN", /반납|회수|수거|가져가|돌려/],
+  ["RETURN", /반납|회수|수거|가져가|돌려|그만\s*(쓰|사용)|다\s*썼/],
   ["EXTEND", /연장|더\s*쓰|더쓰|늘리|기간\s*추가/],
   ["DELIVERY", /배송|택배|송장|언제\s*와|도착|발송/],
-  ["TROUBLE", /사용법|어떻게\s*써|세척|소독|부품|깔때기|튜브|흡입|소리/],
+  ["LOOKUP", /내\s*정보|대여\s*정보|만기|언제까지|남은\s*기간|조회|확인/],
+  ["TROUBLE", /사용법|어떻게\s*(써|쓰|사용)|세척|소독|부품|깔대기|깔때기|튜브|호스|압력|흡입|모드|소리|소음|역류|작동|배터리|충전|건전지|무선/],
 ];
 
 function detectIntent(utterance: string): Intent {
   for (const [intent, re] of RULES) {
     if (re.test(utterance)) return intent;
   }
-  return "LOOKUP";
+  return "UNKNOWN";
 }
 
 /* ------------------------------------------------------------------ */
 /* 의도별 응답                                                          */
 /* ------------------------------------------------------------------ */
 
-function respond(intent: Intent, r: Rental) {
+function respond(intent: Intent, r: Rental, utterance: string) {
   switch (intent) {
     case "AGENT":
       return textCard({
         title: "상담원을 연결해 드릴게요",
-        description: "아래 버튼을 눌러주세요.\n운영시간은 평일 09:00~18:00 입니다.",
+        description: "아래 버튼을 눌러주세요." + (agentHoursNote() || "\n\n운영시간은 평일 09:00~18:00 입니다."),
         buttons: [operatorButton()],
       });
 
     case "OVERDUE": {
       const fee = overdueFee(r);
       if (fee.days === 0) {
-        return simpleText("연체된 상태가 아니에요.\n만기일은 " + ymd(r.data["종료일"]) + " 입니다.", {
-          quickReplies: quickFor(r),
-        });
+        return simpleText(
+          `연체된 상태가 아니에요.\n만기일은 ${ymd(r.data["종료일"])} 입니다.`,
+          { quickReplies: quickFor(r) }
+        );
       }
       return itemCard({
         headTitle: "연체료 안내",
@@ -195,19 +221,20 @@ function respond(intent: Intent, r: Rental) {
           { title: "일단가", description: `${fee.daily.toLocaleString()}원` },
         ],
         summary: { title: "연체료", description: `${fee.amount.toLocaleString()}원` },
-        description: "연체료는 자정마다 하루치씩 올라갑니다.\n반납 접수 전에 결제가 필요해요.",
+        description:
+          "연체료는 자정마다 하루치씩 올라갑니다.\n반납 접수 전에 결제가 필요해요.",
         buttons: [operatorButton()],
       });
     }
 
     case "RETURN":
       if (r.recovered) {
-        return simpleText("이미 회수가 완료된 건이에요.\n회수일 " + ymd(r.data["반납완료일"]));
+        return simpleText(`이미 회수가 완료된 건이에요.\n회수일 ${ymd(r.data["반납완료일"])}`);
       }
       if (r.pickupRequested) {
         return simpleText(
-          "이미 반납 접수가 완료되었어요.\n수거 예정일 " + ymd(r.data["반납요청일"]) +
-          "\n\n일정 변경은 어렵고, 취소는 상담원을 통해서만 가능해요."
+          `이미 반납 접수가 완료되었어요.\n수거 예정일 ${ymd(r.data["반납요청일"])}\n\n` +
+          "일정 변경은 어렵고, 취소는 상담원을 통해서만 가능해요."
         );
       }
       return textCard({
@@ -239,17 +266,27 @@ function respond(intent: Intent, r: Rental) {
         { quickReplies: quickFor(r) }
       );
 
-    case "TROUBLE":
+    case "TROUBLE": {
+      const faq = findFaq(utterance);
+      if (!faq) {
+        return simpleText(FAQ_MENU, { quickReplies: troubleQuick() });
+      }
       return textCard({
-        title: "사용법 안내",
+        title: faq.title,
         description:
-          "자주 묻는 내용을 정리해 두었어요.\n\n" +
-          "· 흡입력이 약할 때: 밸브와 멤브레인 확인\n" +
-          "· 소리가 클 때: 튜브 연결 상태 확인\n" +
-          "· 세척: 깔때기와 밸브만 분리 세척\n\n" +
-          "해결이 안 되면 상담원을 연결해 드릴게요.",
-        buttons: [operatorButton()],
-      });
+          faq.body +
+          (faq.offerAgent ? "\n\n해결이 안 되면 상담원을 연결해 드릴게요." : ""),
+        buttons: faq.offerAgent ? [operatorButton()] : undefined,
+      }, { quickReplies: troubleQuick() });
+    }
+
+    case "UNKNOWN":
+      return simpleText(
+        "말씀하신 내용을 정확히 이해하지 못했어요.\n" +
+        "조금 더 자세히 알려주시면 도움이 될 것 같아요.\n\n" +
+        "혹시 아래 중 하나인가요?",
+        { quickReplies: quickFor(r) }
+      );
 
     default:
       return renderRental(r);
@@ -285,6 +322,7 @@ function renderRental(r: Rental) {
       summary: fee.days > 0
         ? { title: "연체료", description: `${fee.amount.toLocaleString()}원` }
         : undefined,
+      description: "궁금하신 점은 무엇이든 편하게 물어보세요.",
       buttons: [operatorButton()],
     },
     { quickReplies: quickFor(r) }
@@ -293,10 +331,17 @@ function renderRental(r: Rental) {
 
 function quickFor(r: Rental): QuickReply[] {
   if (r.recovered) {
-    return [{ label: "다시 대여하기", action: "message", messageText: "재대여 하고 싶어요" }];
+    return [
+      { label: "다시 대여하기", action: "message", messageText: "재대여 하고 싶어요" },
+      { label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" },
+    ];
   }
   if (r.pickupRequested) {
-    return [{ label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" }];
+    return [
+      { label: "수거일 확인", action: "message", messageText: "수거 언제 오나요" },
+      { label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" },
+      { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
+    ];
   }
 
   const out: QuickReply[] = [];
@@ -306,5 +351,15 @@ function quickFor(r: Rental): QuickReply[] {
   out.push({ label: "반납할게요", action: "message", messageText: "반납하고 싶어요" });
   out.push({ label: "연장할게요", action: "message", messageText: "연장하고 싶어요" });
   out.push({ label: "사용법 보기", action: "message", messageText: "사용법 알려주세요" });
+  out.push({ label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" });
   return out;
+}
+
+function troubleQuick(): QuickReply[] {
+  return [
+    { label: "세척 방법", action: "message", messageText: "세척 어떻게 해요" },
+    { label: "작동 안 될 때", action: "message", messageText: "기기가 작동하지 않아요" },
+    { label: "압력이 약해요", action: "message", messageText: "흡입력이 약해요" },
+    { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
+  ];
 }
