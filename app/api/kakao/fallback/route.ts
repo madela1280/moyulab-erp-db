@@ -16,6 +16,7 @@
 import { NextRequest } from "next/server";
 import {
   extractPhone,
+  getClientExtra,
   getUserKey,
   getUtterance,
   itemCard,
@@ -66,6 +67,16 @@ export async function POST(req: NextRequest) {
     const utterance = getUtterance(body);
 
     void sweepExpired();
+
+    // ⓪ 리스트카드에서 특정 대여건을 고른 경우
+    const pickedId = Number(getClientExtra(body)?.unifiedId);
+    if (Number.isFinite(pickedId) && pickedId > 0) {
+      const picked = await findById(pickedId);
+      if (picked) {
+        await setSession(userKey, { unifiedId: picked.id, intent: "LOOKUP" });
+        return renderRental(picked);
+      }
+    }
 
     // ① 발화에 번호가 있으면 인증 시도
     const phone = extractPhone(body);
