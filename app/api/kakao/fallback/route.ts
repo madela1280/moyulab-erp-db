@@ -9,8 +9,10 @@
 //   ① 발화에 전화번호가 있으면 → 인증
 //   ② 인증 안 된 상태 → 인사말 + 번호 요청
 //   ③ 위험 질문(의료·사고) → 즉시 상담원
-//   ④ 의도 판단: 키워드 우선 → 못 잡으면 CLOVA
-//   ⑤ 의도별 안내
+//   ④ 정보 불일치 감지 → 상담원 (조회된 기종과 다른 기종을 말할 때)
+//   ⑤ 미해결 감지 → 상담원 (안내를 보고도 안 된다고 할 때)
+//   ⑥ 의도 판단: 키워드 우선 → 못 잡으면 CLOVA
+//   ⑦ 의도별 안내
 
 import { NextRequest } from "next/server";
 import {
@@ -76,6 +78,8 @@ export async function POST(req: NextRequest) {
     const rental = await findById(session.unifiedId);
     if (!rental) return simpleText(GREETING);
 
+    const prevIntent = session.intent ?? "";
+
     // ③ 위험 질문은 답변을 시도하지 않고 바로 상담원
     const risk = checkRisk(utterance);
     if (risk === "medical") {
@@ -95,14 +99,35 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ④ 키워드 우선, 못 잡으면 CLOVA
+    // ④ 조회된 정보와 다른 기종을 말하는 경우 → 상담원
+    if (detectWrongInfo(utterance, rental)) {
+      await setSession(userKey, { intent: "WRONG_INFO" });
+      return renderWrongInfo(rental);
+    }
+
+    // ⑤ 안내를 보고도 해결이 안 됐다고 하는 경우 → 상담원
+    if (detectUnresolved(utterance, prevIntent)) {
+      await setSession(userKey, { intent: "UNRESOLVED" });
+      return renderUnresolved();
+    }
+
+    // ⑥ 키워드 우선, 못 잡으면 CLOVA
     let intent = detectByKeyword(utterance);
 
     if (intent === "UNKNOWN" && utterance.length > 0) {
       const r = await classifyIntent(utterance);
       console.log("[CLOVA]", JSON.stringify({ q: utterance.slice(0, 40), ...r }));
-      // 확신이 낮으면 억지로 분류하지 않는다
       if (r.ok && r.confidence >= 0.5) intent = r.intent;
+    }
+
+    // CLOVA 가 판정한 경우도 ④⑤ 로 흘려보낸다
+    if (intent === "WRONG_INFO") {
+      await setSession(userKey, { intent });
+      return renderWrongInfo(rental);
+    }
+    if (intent === "UNRESOLVED") {
+      await setSession(userKey, { intent });
+      return renderUnresolved();
     }
 
     await setSession(userKey, { intent });
@@ -154,6 +179,96 @@ async function authenticate(userKey: string, phone: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 정보 불일치 감지                                                     */
+/* ------------------------------------------------------------------ */
+
+const MODELS = ["심포니", "락티나", "스윙맥시", "스윙", "프리스타일", "각시밀", "시밀레"];
+
+/** 발화에서 언급된 기종 이름을 찾는다. 긴 이름부터 검사해야 스윙맥시가 스윙에 먹히지 않는다. */
+function mentionedModel(utterance: string): string | null {
+  for (const m of MODELS) {
+    if (utterance.includes(m)) return m;
+  }
+  return null;
+}
+
+/**
+ * "내가 빌린 건 이게 아니다" 를 감지한다.
+ *
+ * ① 조회된 기종과 다른 기종을 언급하면서 소유·대여를 말할 때
+ * ② 정보가 틀렸다고 명시적으로 말할 때
+ *
+ * 단순히 "다른 기기로 바꾸고 싶다"(CHANGE)와 구분하기 위해
+ * 변경 의사 표현이 있으면 불일치로 보지 않는다.
+ */
+function detectWrongInfo(utterance: string, r: Rental): boolean {
+  // 변경 의사가 명확하면 CHANGE 로 넘긴다
+  if (/변경|바꾸|바꿔|교체/.test(utterance)) return false;
+
+  // ② 명시적 정정
+  if (/정보가?\s*(틀|다르|잘못|안\s*맞)|잘못\s*(나와|나온|되어|됐|표시)|내\s*게\s*아니|제\s*게\s*아니/.test(utterance)) {
+    return true;
+  }
+
+  // ① 다른 기종 + 소유·대여 표현
+  const said = mentionedModel(utterance);
+  if (!said) return false;
+
+  const mine = String(r.data["제품"] ?? "").trim();
+  if (!mine || said === mine) return false;
+  // 각시밀/시밀레는 표기 차이일 수 있어 같은 계열로 본다
+  if (isSimile(said) && isSimile(mine)) return false;
+
+  return /빌렸|빌린|대여했|대여한|쓰고\s*있|사용\s*중|받았|인데|아닌데|아니라/.test(utterance);
+}
+
+function renderWrongInfo(r: Rental) {
+  return textCard({
+    title: "정보를 다시 확인해 드릴게요",
+    description:
+      `조회된 내용은 ${text(r.data["제품"])} · ${text(r.data["거래처분류"])} 입니다.\n\n` +
+      "말씀하신 내용과 다르다면\n" +
+      "· 다른 번호로 접수되었거나\n" +
+      "· 여러 건 중 다른 건일 수 있어요\n\n" +
+      "상담원이 정확히 확인해 드릴게요." +
+      agentHoursNote(),
+    buttons: [
+      { label: "다른 번호로 조회", action: "message", messageText: "다른 번호로 조회할게요" },
+      operatorButton(),
+    ],
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 미해결 감지                                                          */
+/* ------------------------------------------------------------------ */
+
+const UNRESOLVED_RE =
+  /그래도|여전히|계속\s*(안|그|같)|아직도|소용\s*없|안\s*(되|돼|됩니다|되네|되는데)|안돼|해\s*봤|해봤|했는데도|다\s*했는데|똑같/;
+
+/**
+ * 직전에 기기 안내를 받은 상태에서 "그래도 안 된다"고 하면 상담원으로 승격한다.
+ * 같은 FAQ 메뉴를 반복해서 보여주지 않기 위한 장치.
+ */
+function detectUnresolved(utterance: string, prevIntent: string): boolean {
+  if (prevIntent !== "TROUBLE" && prevIntent !== "UNRESOLVED") return false;
+  return UNRESOLVED_RE.test(utterance);
+}
+
+function renderUnresolved() {
+  return textCard({
+    title: "상담원이 도와드릴게요",
+    description:
+      "안내드린 방법으로도 해결되지 않으셨군요.\n" +
+      "기기 상태를 직접 확인해야 할 것 같습니다.\n\n" +
+      "부품 교체나 기기 교환이 필요할 수 있어\n" +
+      "상담원이 확인 후 안내해 드릴게요." +
+      agentHoursNote(),
+    buttons: [operatorButton()],
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* 의도 판단 — 키워드 (빠른 경로)                                        */
 /* ------------------------------------------------------------------ */
 
@@ -164,8 +279,9 @@ const RULES: [Intent, RegExp][] = [
   ["OVERDUE", /연체|늦었|지났|기간\s*넘/],
   ["RETURN", /반납|회수|수거|가져가|돌려|그만\s*(쓰|사용)|다\s*썼/],
   ["EXTEND", /연장|더\s*쓰|더쓰|늘리|기간\s*추가/],
-  ["PARTS", /부품.*(구매|사|추가)|깔대기.*(구매|사)|깔때기.*(구매|사)|포장재.*(구매|사)|더\s*사고/],
-  ["CHANGE", /기종\s*변경|기기\s*(변경|바꾸)|다른\s*(기기|기종)|교체해/],
+  ["PARTS", /부품.*(구매|사고|주문|추가)|깔대기.*(구매|사고|주문)|깔때기.*(구매|사고|주문)|포장재.*(구매|사고|주문)|더\s*사고/],
+  // CHANGE 는 변경 의사가 분명할 때만 (정보 정정과 구분)
+  ["CHANGE", /기종\s*변경|기기\s*(변경|바꾸|바꿔)|다른\s*(기기|기종).*(변경|바꾸|바꿔|교체)|교체해\s*(주|줄)/],
   ["MANUAL", /설명서|매뉴얼|사용\s*안내서/],
   ["DELIVERY", /배송|택배|송장|언제\s*와|도착|발송/],
   ["LOOKUP", /내\s*정보|대여\s*정보|만기|언제까지|남은\s*기간|조회|확인/],
@@ -265,21 +381,16 @@ function respond(intent: Intent, r: Rental, utterance: string) {
     case "PARTS":
       return textCard({
         title: "부품 구매 안내",
-        description:
-          simile
-            ? "시밀레 부품은 27mm 단일 사이즈입니다.\n" +
-              "구매는 상담원을 통해 안내해 드릴게요."
-            : "부품은 스마트스토어에서 구매하실 수 있어요.\n\n" +
-              "· 깔때기는 키트 단위로 판매됩니다\n" +
-              "· 양쪽 유축을 하시려면 2세트가 필요해요\n" +
-              "· 튜브는 심포니용과 스윙용이 호환되지 않습니다\n\n" +
-              "어떤 부품이 필요하신지 알려주시면 확인해 드릴게요.",
+        description: simile
+          ? "시밀레 부품은 27mm 단일 사이즈입니다.\n구매는 상담원을 통해 안내해 드릴게요."
+          : "부품은 스마트스토어에서 구매하실 수 있어요.\n\n" +
+            "· 깔때기는 키트 단위로 판매됩니다\n" +
+            "· 양쪽 유축을 하시려면 2세트가 필요해요\n" +
+            "· 튜브는 심포니용과 스윙용이 호환되지 않습니다\n\n" +
+            "어떤 부품이 필요하신지 알려주시면 확인해 드릴게요.",
         buttons: simile
           ? [operatorButton()]
-          : [
-              { label: "스마트스토어", action: "webLink", webLinkUrl: LINKS.parts },
-              operatorButton(),
-            ],
+          : [{ label: "스마트스토어", action: "webLink", webLinkUrl: LINKS.parts }, operatorButton()],
       });
 
     case "CHANGE":
@@ -318,7 +429,6 @@ function respond(intent: Intent, r: Rental, utterance: string) {
       );
 
     case "TROUBLE": {
-      // 시밀레는 메델라와 구조가 달라 자체 자료로만 안내한다
       if (simile) {
         return textCard({
           title: "시밀레 문제 해결",
@@ -339,8 +449,8 @@ function respond(intent: Intent, r: Rental, utterance: string) {
       return textCard(
         {
           title: faq.title,
-          description: faq.body + (faq.offerAgent ? "\n\n해결이 안 되면 상담원을 연결해 드릴게요." : ""),
-          buttons: faq.offerAgent ? [operatorButton()] : undefined,
+          description: faq.body + "\n\n해보셔도 해결되지 않으면 말씀해 주세요. 상담원을 연결해 드릴게요.",
+          buttons: [operatorButton()],
         },
         { quickReplies: troubleQuick() }
       );
@@ -424,10 +534,10 @@ function quickFor(r: Rental): QuickReply[] {
 
 function troubleQuick(): QuickReply[] {
   return [
+    { label: "해봐도 안 돼요", action: "message", messageText: "그래도 안 되는데요" },
     { label: "세척 방법", action: "message", messageText: "세척 어떻게 해요" },
     { label: "작동 안 될 때", action: "message", messageText: "기기가 작동하지 않아요" },
     { label: "압력이 약해요", action: "message", messageText: "흡입력이 약해요" },
-    { label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" },
     { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
   ];
 }

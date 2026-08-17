@@ -14,7 +14,7 @@ const TIMEOUT_MS = 3500;
 export type ClovaIntent =
   | "RETURN" | "EXTEND" | "OVERDUE" | "TROUBLE" | "DELIVERY"
   | "PARTS" | "CHANGE" | "MANUAL" | "AGENT" | "LOOKUP"
-  | "GREET" | "OPEN" | "UNKNOWN";
+  | "GREET" | "OPEN" | "WRONG_INFO" | "UNRESOLVED" | "UNKNOWN";
 
 export type ClassifyResult = {
   intent: ClovaIntent;
@@ -32,15 +32,24 @@ const SYSTEM_PROMPT = `당신은 유축기 대여 업체의 고객 문의 분류
 - EXTEND: 연장, 더 쓰고 싶다, 기간 늘리기
 - OVERDUE: 연체, 기간이 지났다
 - TROUBLE: 기기 사용법, 세척, 소독, 부품 결합, 작동 문제, 압력, 소음, 역류, 사용이 불편함
+- UNRESOLVED: 안내받은 방법을 해봤는데도 해결되지 않았다는 표현
 - DELIVERY: 배송, 택배 언제 오는지, 송장
-- PARTS: 부품 추가 구매, 깔때기 구매, 포장재 구매
-- CHANGE: 기종 변경, 다른 기기로 바꾸기
+- PARTS: 부품을 추가로 사고 싶다, 깔때기 구매, 포장재 구매
+- CHANGE: 지금 기기를 다른 기종으로 바꾸고 싶다
+- WRONG_INFO: 조회된 내 정보가 틀렸다, 내가 빌린 건 이게 아니다
 - MANUAL: 제품 설명서, 사용 안내서
 - AGENT: 상담원 연결 요청
 - LOOKUP: 만기일, 남은 기간, 내 대여 정보 확인
 - GREET: 인사말
 - OPEN: 다른 것을 물어보고 싶다는 표현
 - UNKNOWN: 위 어디에도 해당하지 않음. 의료나 건강 관련도 UNKNOWN.
+
+주의:
+- CHANGE 와 WRONG_INFO 를 구분하세요.
+  "다른 기기로 바꾸고 싶어요" = CHANGE (변경 의사)
+  "제가 빌린 건 시밀레인데요" = WRONG_INFO (정보 정정)
+- PARTS 는 구매 의사가 있을 때만입니다.
+  "퍼스널핏 쓰고 있어요" 는 사실 진술이므로 PARTS 가 아닙니다.
 
 출력 규칙 (반드시 지킬 것):
 - 아래 형식의 JSON 한 개만 출력합니다.
@@ -56,6 +65,12 @@ const SYSTEM_PROMPT = `당신은 유축기 대여 업체의 고객 문의 분류
 
 입력: 유축기 사용이 불편해요
 출력: {"intent":"TROUBLE","confidence":0.8}
+
+입력: 알려주신 대로 했는데 그래도 안 되네요
+출력: {"intent":"UNRESOLVED","confidence":0.9}
+
+입력: 나는 시밀레 빌렸는데요
+출력: {"intent":"WRONG_INFO","confidence":0.85}
 
 입력: 아기가 백일이에요
 출력: {"intent":"UNKNOWN","confidence":0.2}`;
@@ -130,7 +145,6 @@ export async function classifyIntent(utterance: string): Promise<ClassifyResult>
 /* 응답 파싱                                                            */
 /* ------------------------------------------------------------------ */
 
-/** HCX v3 응답에서 텍스트만 뽑는다. content 가 문자열일 수도, 배열일 수도 있다. */
 function extractText(json: any): string {
   const content = json?.result?.message?.content;
   if (typeof content === "string") return content;
@@ -143,7 +157,7 @@ function extractText(json: any): string {
 const VALID: ClovaIntent[] = [
   "RETURN", "EXTEND", "OVERDUE", "TROUBLE", "DELIVERY",
   "PARTS", "CHANGE", "MANUAL", "AGENT", "LOOKUP",
-  "GREET", "OPEN", "UNKNOWN",
+  "GREET", "OPEN", "WRONG_INFO", "UNRESOLVED", "UNKNOWN",
 ];
 const VALID_SET = new Set<string>(VALID);
 
