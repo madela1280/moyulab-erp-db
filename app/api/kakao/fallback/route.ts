@@ -9,10 +9,11 @@
 //   ① 발화에 전화번호가 있으면 → 인증
 //   ② 인증 안 된 상태 → 인사말 + 번호 요청
 //   ③ 위험 질문(의료·사고) → 즉시 상담원
-//   ④ 정보 불일치 감지 → 상담원 (조회된 기종과 다른 기종을 말할 때)
-//   ⑤ 미해결 감지 → 상담원 (안내를 보고도 안 된다고 할 때)
-//   ⑥ 의도 판단: 키워드 우선 → 못 잡으면 CLOVA
-//   ⑦ 의도별 안내
+//   ④ 증상 선택지 클릭(clientExtra) → CLOVA 건너뛰고 바로 카드
+//   ⑤ 진행 중인 대화 처리 — VERIFY(예/아니오) · ASK_SYMPTOM(증상 답)
+//   ⑥ 정보 불일치 감지 → 상담원
+//   ⑦ 의도 판단: 키워드 우선 → 못 잡으면 CLOVA → 그래도 모르면 직전 의도로 재해석
+//   ⑧ 의도별 안내 (TROUBLE 은 되묻기 트리로)
 
 import { NextRequest } from "next/server";
 import {
@@ -29,6 +30,15 @@ import {
   isSimile, LINKS, medicalMessage, SIMILE_LINKS,
 } from "@/api/kakao/_lib/faq";
 import { classifyIntent, type ClovaIntent } from "@/api/kakao/_lib/clova";
+import {
+  askSymptom, attemptsExceeded, bumpAttempts, enterCard, escalate, guidedSummary,
+  inDialog, isEscalated, nextStep, resetDialog, waitVerify,
+  type Dialog, type EscalateReason, type Symptom,
+} from "@/api/kakao/_lib/slots";
+import {
+  detectSymptom, detectYesNo, getCard, getPage, isLastPage, isPersonalFit,
+  modelGroup, PERSONALFIT_EXTRA, resolveCard, SYMPTOM_CHOICES,
+} from "@/api/kakao/_lib/symptom";
 
 export const dynamic = "force-dynamic";
 
@@ -54,11 +64,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const userKey = getUserKey(body);
     const utterance = getUtterance(body);
+    const extra = getClientExtra(body);
 
     void sweepExpired();
 
     // ⓪ 리스트카드에서 특정 대여건을 고른 경우
-    const pickedId = Number(getClientExtra(body)?.unifiedId);
+    const pickedId = Number(extra?.unifiedId);
     if (Number.isFinite(pickedId) && pickedId > 0) {
       const picked = await findById(pickedId);
       if (picked) {
@@ -80,38 +91,48 @@ export async function POST(req: NextRequest) {
 
     const prevIntent = session.intent ?? "";
 
+    // 이관 상태에서 발화가 들어왔다 = 고객이 [상담 종료]를 눌러 봇으로 돌아왔다.
+    // 대화를 초기화하고 평소처럼 응대한다.
+    let dialog: Dialog = isEscalated(session.dialog)
+      ? resetDialog(session.dialog)
+      : session.dialog;
+
     // ③ 위험 질문은 답변을 시도하지 않고 바로 상담원
     const risk = checkRisk(utterance);
     if (risk === "medical") {
-      await setSession(userKey, { intent: "MEDICAL" });
-      return textCard({
+      return await toAgent(userKey, dialog, "RISK", {
         title: "상담원이 확인해 드릴게요",
         description: medicalMessage(),
-        buttons: [operatorButton()],
       });
     }
     if (risk === "escalate") {
-      await setSession(userKey, { intent: "ESCALATE" });
-      return textCard({
+      return await toAgent(userKey, dialog, "RISK", {
         title: "상담원을 연결해 드릴게요",
         description: escalateMessage(),
-        buttons: [operatorButton()],
       });
     }
 
-    // ④ 조회된 정보와 다른 기종을 말하는 경우 → 상담원
+    // ④ 증상 선택지 클릭 — CLOVA 건너뛰고 바로 카드 (약 0.6초 절약)
+    const clicked = pickSymptom(extra?.symptom);
+    if (clicked) {
+      return await startCard(userKey, dialog, rental, clicked);
+    }
+
+    // ⑤ 진행 중인 대화 먼저 처리
+    if (inDialog(dialog)) {
+      const handled = await continueDialog(userKey, dialog, rental, utterance);
+      if (handled) return handled;
+      // 다른 화제로 넘어간 경우 — 대화를 접고 통상 흐름으로
+      dialog = resetDialog(dialog);
+    }
+
+    // ⑥ 조회된 정보와 다른 기종을 말하는 경우 → 상담원
     if (detectWrongInfo(utterance, rental)) {
-      await setSession(userKey, { intent: "WRONG_INFO" });
+      await setSession(userKey, { intent: "WRONG_INFO", dialog });
       return renderWrongInfo(rental);
     }
 
-    // ⑤ 안내를 보고도 해결이 안 됐다고 하는 경우 → 상담원
-    if (detectUnresolved(utterance, prevIntent)) {
-      await setSession(userKey, { intent: "UNRESOLVED" });
-      return renderUnresolved();
-    }
-
-    // ⑥ 키워드 우선, 못 잡으면 CLOVA
+    // ⑦ 키워드 우선, 못 잡으면 CLOVA, 그래도 모르면 직전 의도로 재해석
     let intent = detectByKeyword(utterance);
 
     if (intent === "UNKNOWN" && utterance.length > 0) {
@@ -120,17 +141,33 @@ export async function POST(req: NextRequest) {
       if (r.ok && r.confidence >= 0.5) intent = r.intent;
     }
 
-    // CLOVA 가 판정한 경우도 ④⑤ 로 흘려보낸다
-    if (intent === "WRONG_INFO") {
-      await setSession(userKey, { intent });
-      return renderWrongInfo(rental);
-    }
-    if (intent === "UNRESOLVED") {
-      await setSession(userKey, { intent });
-      return renderUnresolved();
+    if (intent === "UNKNOWN") {
+      const carried = carryOverIntent(utterance, prevIntent);
+      if (carried) {
+        console.log("[CARRY]", JSON.stringify({ q: utterance.slice(0, 40), prevIntent }));
+        intent = carried;
+      }
     }
 
-    await setSession(userKey, { intent });
+    if (intent === "WRONG_INFO") {
+      await setSession(userKey, { intent, dialog });
+      return renderWrongInfo(rental);
+    }
+
+    // "그래도 안 돼요" — 카드 밖 경로에서 들어온 경우
+    if (intent === "UNRESOLVED") {
+      return await toAgent(userKey, dialog, "UNRESOLVED", {
+        title: "상담원이 도와드릴게요",
+        description: unresolvedText(dialog),
+      });
+    }
+
+    // ⑧ 기기문제는 되묻기 트리로
+    if (intent === "TROUBLE") {
+      return await handleTrouble(userKey, dialog, rental, utterance);
+    }
+
+    await setSession(userKey, { intent, dialog });
     return respond(intent, rental, utterance);
   } catch (e) {
     console.error("[KAKAO_FALLBACK]", e);
@@ -153,7 +190,10 @@ async function authenticate(userKey: string, phone: string) {
 
   if (rows.length === 0) {
     return simpleText(NOT_FOUND, {
-      quickReplies: [{ label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" }],
+      quickReplies: [
+        { label: "다른 번호로", action: "message", messageText: "다른 번호로 조회할게요" },
+        { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
+      ],
     });
   }
 
@@ -179,12 +219,268 @@ async function authenticate(userKey: string, phone: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 되묻기 트리 — 기기문제                                                */
+/* ------------------------------------------------------------------ */
+
+/** 선택지 클릭으로 넘어온 증상값을 검증한다 */
+function pickSymptom(v: unknown): Symptom | null {
+  const s = String(v ?? "");
+  const hit = SYMPTOM_CHOICES.find((c) => c.symptom === s);
+  return hit ? hit.symptom : null;
+}
+
+/**
+ * TROUBLE 진입.
+ * 발화에 증상이 이미 있으면 되묻지 않고 바로 카드로 간다.
+ *   "기기에 문제가 있어" → 증상 없음 → 되묻기
+ *   "압력이 안 느껴져"   → PRESSURE  → 카드 A 또는 B
+ * 이 두 줄이 v4 버그 ① 의 해결점이다.
+ */
+async function handleTrouble(userKey: string, dialog: Dialog, r: Rental, utterance: string) {
+  // 시밀레는 자체 자료로 분기 (기존 동작 유지)
+  if (isSimile(String(r.data["제품"] ?? ""))) {
+    await setSession(userKey, { intent: "TROUBLE", dialog: resetDialog(dialog) });
+    return textCard({
+      title: "시밀레 문제 해결",
+      description:
+        "시밀레는 아래 자료에서 대처법을 확인하실 수 있어요.\n\n" +
+        "해결이 안 되면 상담원을 연결해 드릴게요.",
+      buttons: [
+        { label: "문제 대처법", action: "webLink", webLinkUrl: SIMILE_LINKS.trouble },
+        { label: "설명서", action: "webLink", webLinkUrl: SIMILE_LINKS.manual },
+        operatorButton(),
+      ],
+    });
+  }
+
+  const symptom = detectSymptom(utterance);
+  if (symptom) return await startCard(userKey, dialog, r, symptom);
+
+  // 증상 카드가 없는 주제(세척·소독·모드 등)는 기존 FAQ 로
+  const faq = findFaq(utterance);
+  if (faq) {
+    await setSession(userKey, { intent: "TROUBLE", dialog: resetDialog(dialog) });
+    return textCard(
+      {
+        title: faq.title,
+        description: faq.body,
+        buttons: [operatorButton()],
+      },
+      { quickReplies: [...symptomQuick(), UNRESOLVED_QUICK] }
+    );
+  }
+
+  // 증상을 되묻는다
+  await setSession(userKey, { intent: "TROUBLE", dialog: askSymptom(dialog) });
+  return simpleText(
+    "어떤 증상인지 알려주시면 기종에 맞는 방법을 안내해 드릴게요.\n\n" +
+      "아래에서 골라주시거나, 직접 말씀해 주셔도 됩니다.",
+    { quickReplies: symptomQuick() }
+  );
+}
+
+/** 증상 확정 → 카드 진입 → 첫 페이지 출력 */
+async function startCard(userKey: string, dialog: Dialog, r: Rental, symptom: Symptom) {
+  const group = modelGroup(r.data["제품"]);
+  const cardId = resolveCard(symptom, group);
+
+  if (!cardId) {
+    // 기종 불명(v4 버그 ⑨) · 시밀레 · 미구현 카드
+    const why =
+      group === null
+        ? "대여 기종이 확인되지 않아 정확한 안내가 어려워요."
+        : "이 증상은 기기 상태를 직접 확인해야 할 것 같아요.";
+    return await toAgent(userKey, dialog, "NO_CARD", {
+      title: "상담원이 확인해 드릴게요",
+      description: `${why}\n\n상담원이 바로 도와드릴게요.` + agentHoursNote(),
+    });
+  }
+
+  return await showPage(userKey, enterCard(dialog, symptom, cardId), r);
+}
+
+/** 카드의 현재 페이지를 출력하고 VERIFY 로 넘어간다 */
+async function showPage(userKey: string, dialog: Dialog, r: Rental) {
+  const card = getCard(dialog.cardId);
+  const page = getPage(dialog.cardId, dialog.stepIdx);
+
+  if (!card || !page) {
+    return await toAgent(userKey, dialog, "NO_CARD", {
+      title: "상담원이 도와드릴게요",
+      description: "안내를 이어가기 어려워 상담원을 연결해 드릴게요." + agentHoursNote(),
+    });
+  }
+
+  let bodyText = page.text;
+  if (
+    dialog.cardId === "B" &&
+    dialog.stepIdx === 1 &&
+    isPersonalFit(r.data["제품"], r.data["거래처분류"])
+  ) {
+    bodyText += PERSONALFIT_EXTRA;
+  }
+
+  const total = card.pages.length;
+  const title = `${card.title} (${dialog.stepIdx + 1}/${total})`;
+
+  await setSession(userKey, { intent: "TROUBLE", dialog: waitVerify(dialog) });
+
+  return textCard(
+    {
+      title,
+      description: `${bodyText}\n\n▶ ${page.verify}`,
+      buttons: [operatorButton()],
+    },
+    {
+      quickReplies: [
+        { label: "네, 됐어요", action: "message", messageText: "네 됐어요" },
+        { label: "아니요, 안 돼요", action: "message", messageText: "아니요 안 돼요" },
+      ],
+    }
+  );
+}
+
+/**
+ * 진행 중인 대화를 이어받는다.
+ * 응답을 만들면 그것을 돌려주고, 화제가 바뀌었으면 null 을 돌려준다.
+ */
+async function continueDialog(
+  userKey: string,
+  dialog: Dialog,
+  r: Rental,
+  utterance: string
+): Promise<Response | null> {
+  // 증상 되묻기에 대한 답
+  if (dialog.stage === "ASK_SYMPTOM") {
+    const symptom = detectSymptom(utterance);
+    if (symptom) return await startCard(userKey, dialog, r, symptom);
+
+    // 명확히 다른 의도면 대화를 접는다
+    if (detectByKeyword(utterance) !== "UNKNOWN") return null;
+
+    const bumped = bumpAttempts(dialog);
+    if (attemptsExceeded(bumped)) {
+      return await toAgent(userKey, bumped, "NO_MATCH", {
+        title: "상담원이 도와드릴게요",
+        description:
+          "증상을 정확히 파악하지 못했어요.\n" +
+          "상담원이 직접 확인하고 안내해 드릴게요." +
+          agentHoursNote(),
+      });
+    }
+
+    await setSession(userKey, { intent: "TROUBLE", dialog: bumped });
+    return simpleText(
+      "죄송해요, 조금 더 구체적으로 알려주실 수 있을까요?\n\n" +
+        "아래에서 가장 가까운 것을 골라주셔도 됩니다.",
+      { quickReplies: symptomQuick() }
+    );
+  }
+
+  // 절차 안내 후 결과 확인
+  if (dialog.stage === "VERIFY") {
+    const yn = detectYesNo(utterance);
+
+    if (yn === "YES") {
+      // 마지막 페이지에서 해결 → 종결. 중간이면 다음 단계로
+      if (isLastPage(dialog.cardId, dialog.stepIdx)) {
+        await setSession(userKey, { intent: "TROUBLE", dialog: resetDialog(dialog) });
+        return simpleText(
+          "다행이에요! 잘 해결되어 기쁩니다 🙂\n\n" +
+            "사용하시면서 또 궁금한 점이 있으면 편하게 말씀해 주세요.",
+          { quickReplies: quickFor(r) }
+        );
+      }
+      return await showPage(userKey, nextStep(dialog), r);
+    }
+
+    if (yn === "NO") {
+      // 아직 남은 절차가 있으면 계속, 마지막이면 판정 후 이관
+      if (!isLastPage(dialog.cardId, dialog.stepIdx)) {
+        return await showPage(userKey, nextStep(dialog), r);
+      }
+      const card = getCard(dialog.cardId);
+      return await toAgent(userKey, dialog, "UNRESOLVED", {
+        title: "상담원이 도와드릴게요",
+        description:
+          (card?.unresolved ?? "상담원이 확인해 드릴게요.") + agentHoursNote(),
+      });
+    }
+
+    // 예·아니오가 아닌 답
+    if (detectByKeyword(utterance) !== "UNKNOWN") return null;
+
+    const bumped = bumpAttempts(dialog);
+    if (attemptsExceeded(bumped)) {
+      return await toAgent(userKey, bumped, "UNRESOLVED", {
+        title: "상담원이 도와드릴게요",
+        description: unresolvedText(bumped) + agentHoursNote(),
+      });
+    }
+
+    const page = getPage(dialog.cardId, dialog.stepIdx);
+    await setSession(userKey, { intent: "TROUBLE", dialog: bumped });
+    return simpleText(`${page?.verify ?? "해결되셨나요?"}\n\n네 / 아니요 로 알려주세요.`, {
+      quickReplies: [
+        { label: "네, 됐어요", action: "message", messageText: "네 됐어요" },
+        { label: "아니요, 안 돼요", action: "message", messageText: "아니요 안 돼요" },
+        { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
+      ],
+    });
+  }
+
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 상담원 이관                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 이관 처리. 세션에 사유와 안내 내역을 남긴다.
+ * ⚠️ 고객이 하단 [상담 종료]를 누르지 않으면 봇으로 돌아오지 않는다.
+ *    따라서 자동 이관은 최소화하고, 버튼 제시로 고객이 고르게 한다.
+ */
+async function toAgent(
+  userKey: string,
+  dialog: Dialog,
+  reason: EscalateReason,
+  card: { title: string; description: string }
+) {
+  const next = escalate(dialog, reason);
+  await setSession(userKey, { intent: "AGENT", dialog: next });
+
+  console.log(
+    "[ESCALATE]",
+    JSON.stringify({ reason, summary: guidedSummary(next), symptom: next.symptom })
+  );
+
+  return textCard({
+    title: card.title,
+    description: card.description,
+    buttons: [operatorButton()],
+  });
+}
+
+function unresolvedText(dialog: Dialog): string {
+  const done = dialog.guided.length > 0 ? `\n\n(${guidedSummary(dialog)})` : "";
+  return (
+    "안내드린 방법으로도 해결되지 않으셨군요.\n" +
+    "기기 상태를 직접 확인해야 할 것 같습니다.\n\n" +
+    "부품 교체나 기기 교환이 필요할 수 있어\n" +
+    "상담원이 확인 후 안내해 드릴게요." +
+    done
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 정보 불일치 감지                                                     */
 /* ------------------------------------------------------------------ */
 
-const MODELS = ["심포니", "락티나", "스윙맥시", "스윙", "프리스타일", "각시밀", "시밀레"];
+// 각시밀은 사용 중단된 기종이라 목록에서 제외 (2026-08 대표 확인)
+const MODELS = ["심포니", "락티나", "스윙맥시", "스윙", "프리스타일", "시밀레"];
 
-/** 발화에서 언급된 기종 이름을 찾는다. 긴 이름부터 검사해야 스윙맥시가 스윙에 먹히지 않는다. */
+/** 긴 이름부터 검사해야 스윙맥시가 스윙에 먹히지 않는다 */
 function mentionedModel(utterance: string): string | null {
   for (const m of MODELS) {
     if (utterance.includes(m)) return m;
@@ -192,31 +488,26 @@ function mentionedModel(utterance: string): string | null {
   return null;
 }
 
-/**
- * "내가 빌린 건 이게 아니다" 를 감지한다.
- *
- * ① 조회된 기종과 다른 기종을 언급하면서 소유·대여를 말할 때
- * ② 정보가 틀렸다고 명시적으로 말할 때
- *
- * 단순히 "다른 기기로 바꾸고 싶다"(CHANGE)와 구분하기 위해
- * 변경 의사 표현이 있으면 불일치로 보지 않는다.
- */
 function detectWrongInfo(utterance: string, r: Rental): boolean {
   // 변경 의사가 명확하면 CHANGE 로 넘긴다
   if (/변경|바꾸|바꿔|교체/.test(utterance)) return false;
 
-  // ② 명시적 정정
-  if (/정보가?\s*(틀|다르|잘못|안\s*맞)|잘못\s*(나와|나온|되어|됐|표시)|내\s*게\s*아니|제\s*게\s*아니/.test(utterance)) {
+  // 명시적 정정
+  if (
+    /정보가?\s*(틀|다르|잘못|안\s*맞)|잘못\s*(나와|나온|되어|됐|표시)|내\s*게\s*아니|제\s*게\s*아니/.test(
+      utterance
+    )
+  ) {
     return true;
   }
 
-  // ① 다른 기종 + 소유·대여 표현
+  // 다른 기종 + 소유·대여 표현
   const said = mentionedModel(utterance);
   if (!said) return false;
 
   const mine = String(r.data["제품"] ?? "").trim();
-  if (!mine || said === mine) return false;
-  // 각시밀/시밀레는 표기 차이일 수 있어 같은 계열로 본다
+  if (!mine || mine === "-") return false;
+  if (mine.includes(said)) return false;
   if (isSimile(said) && isSimile(mine)) return false;
 
   return /빌렸|빌린|대여했|대여한|쓰고\s*있|사용\s*중|받았|인데|아닌데|아니라/.test(utterance);
@@ -240,35 +531,6 @@ function renderWrongInfo(r: Rental) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 미해결 감지                                                          */
-/* ------------------------------------------------------------------ */
-
-const UNRESOLVED_RE =
-  /그래도|여전히|계속\s*(안|그|같)|아직도|소용\s*없|안\s*(되|돼|됩니다|되네|되는데)|안돼|해\s*봤|해봤|했는데도|다\s*했는데|똑같/;
-
-/**
- * 직전에 기기 안내를 받은 상태에서 "그래도 안 된다"고 하면 상담원으로 승격한다.
- * 같은 FAQ 메뉴를 반복해서 보여주지 않기 위한 장치.
- */
-function detectUnresolved(utterance: string, prevIntent: string): boolean {
-  if (prevIntent !== "TROUBLE" && prevIntent !== "UNRESOLVED") return false;
-  return UNRESOLVED_RE.test(utterance);
-}
-
-function renderUnresolved() {
-  return textCard({
-    title: "상담원이 도와드릴게요",
-    description:
-      "안내드린 방법으로도 해결되지 않으셨군요.\n" +
-      "기기 상태를 직접 확인해야 할 것 같습니다.\n\n" +
-      "부품 교체나 기기 교환이 필요할 수 있어\n" +
-      "상담원이 확인 후 안내해 드릴게요." +
-      agentHoursNote(),
-    buttons: [operatorButton()],
-  });
-}
-
-/* ------------------------------------------------------------------ */
 /* 의도 판단 — 키워드 (빠른 경로)                                        */
 /* ------------------------------------------------------------------ */
 
@@ -285,7 +547,7 @@ const RULES: [Intent, RegExp][] = [
   ["MANUAL", /설명서|매뉴얼|사용\s*안내서/],
   ["DELIVERY", /배송|택배|송장|언제\s*와|도착|발송/],
   ["LOOKUP", /내\s*정보|대여\s*정보|만기|언제까지|남은\s*기간|조회|확인/],
-  ["TROUBLE", /사용법|어떻게\s*(써|쓰|사용)|세척|소독|부품|깔대기|깔때기|튜브|호스|압력|흡입|모드|소리|소음|역류|작동|배터리|충전|건전지|무선/],
+  ["TROUBLE", /사용법|어떻게\s*(써|쓰|사용)|세척|소독|부품|깔대기|깔때기|튜브|호스|압력|흡입|모드|소리|소음|역류|작동|배터리|충전|건전지|무선|고장|문제|안\s*켜|안\s*빨|약해|에러|아파/],
 ];
 
 function detectByKeyword(utterance: string): Intent {
@@ -293,6 +555,34 @@ function detectByKeyword(utterance: string): Intent {
     if (re.test(utterance)) return intent;
   }
   return "UNKNOWN";
+}
+
+/* ------------------------------------------------------------------ */
+/* 직전 의도로 재해석                                                    */
+/* ------------------------------------------------------------------ */
+
+/** 주어가 생략된 짧은 되물음. "얼마에요?" "언제요?" */
+const ELLIPSIS_RE = /얼마|비용|가격|금액|몇\s*원|무료|언제|며칠|기간|어디|어떻게|방법/;
+
+/** 직전 의도를 물려받을 수 있는 의도들 */
+const CARRYABLE: Intent[] = [
+  "EXTEND", "RETURN", "OVERDUE", "PARTS", "CHANGE", "DELIVERY", "MANUAL", "LOOKUP",
+];
+
+/**
+ * v4 버그 ②' 해결.
+ *   "연장하고 싶어" → EXTEND 인식
+ *   "얼마에요?"     → 지금까지 폴백 → 직전 EXTEND 로 해석
+ *
+ * 직전 1턴만 유효하다. session.intent 는 매 턴 덮어써지므로
+ * 다른 의도가 한 번이라도 잡히면 자동으로 무효화된다.
+ * 긴 문장은 새 질문으로 보고 물려받지 않는다.
+ */
+function carryOverIntent(utterance: string, prevIntent: string): Intent | null {
+  if (!prevIntent) return null;
+  if (utterance.length > 25) return null;
+  if (!ELLIPSIS_RE.test(utterance)) return null;
+  return CARRYABLE.includes(prevIntent as Intent) ? (prevIntent as Intent) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -309,15 +599,16 @@ function respond(intent: Intent, r: Rental, utterance: string) {
     case "OPEN":
       return simpleText(
         "네, 편하게 말씀해 주세요.\n\n" +
-        "기기 사용, 반납, 연장, 부품 구매, 기종 변경 등\n" +
-        "어떤 것이든 물어보시면 확인해 드릴게요.",
+          "기기 사용, 반납, 연장, 부품 구매, 기종 변경 등\n" +
+          "어떤 것이든 물어보시면 확인해 드릴게요.",
         { quickReplies: quickFor(r) }
       );
 
     case "AGENT":
       return textCard({
         title: "상담원을 연결해 드릴게요",
-        description: "아래 버튼을 눌러주세요." +
+        description:
+          "아래 버튼을 눌러주세요." +
           (agentHoursNote() || "\n\n운영시간은 평일 09:00~18:00 입니다."),
         buttons: [operatorButton()],
       });
@@ -351,16 +642,16 @@ function respond(intent: Intent, r: Rental, utterance: string) {
       if (r.pickupRequested) {
         return simpleText(
           `이미 반납 접수가 완료되었어요.\n수거 예정일 ${ymd(r.data["반납요청일"])}\n\n` +
-          "일정 변경은 어렵고, 취소는 상담원을 통해서만 가능해요."
+            "일정 변경은 어렵고, 취소는 상담원을 통해서만 가능해요."
         );
       }
       return textCard({
         title: "반납 접수를 도와드릴게요",
         description:
           "받으셨던 전용 상자와 에어캡이 모두 있어야 접수가 가능해요.\n\n" +
-          "· 접수 마감 평일 오후 5시\n" +
+          "· 접수 마감 월~토 오후 5시\n" +
           "· 당일 수거는 불가하며 다음 영업일부터 가능해요\n" +
-          "· 공휴일은 수거하지 않아요\n\n" +
+          "· 공휴일은 접수·수거하지 않아요\n\n" +
           "곧 접수 화면을 연결해 드릴 예정입니다.",
         buttons: [
           { label: "반납 안내 보기", action: "webLink", webLinkUrl: LINKS.returnGuide },
@@ -390,7 +681,10 @@ function respond(intent: Intent, r: Rental, utterance: string) {
             "어떤 부품이 필요하신지 알려주시면 확인해 드릴게요.",
         buttons: simile
           ? [operatorButton()]
-          : [{ label: "스마트스토어", action: "webLink", webLinkUrl: LINKS.parts }, operatorButton()],
+          : [
+              { label: "스마트스토어", action: "webLink", webLinkUrl: LINKS.parts },
+              operatorButton(),
+            ],
       });
 
     case "CHANGE":
@@ -423,44 +717,20 @@ function respond(intent: Intent, r: Rental, utterance: string) {
     case "DELIVERY":
       return simpleText(
         `택배 발송일은 ${ymd(r.data["택배발송일"])} 입니다.\n` +
-        "발송 후 보통 1~2일이면 도착해요.\n\n" +
-        "3일이 지나도 안 오면 상담원을 연결해 드릴게요.",
+          "발송 후 보통 1~2일이면 도착해요.\n\n" +
+          "3일이 지나도 안 오면 상담원을 연결해 드릴게요.",
         { quickReplies: quickFor(r) }
       );
 
-    case "TROUBLE": {
-      if (simile) {
-        return textCard({
-          title: "시밀레 문제 해결",
-          description:
-            "시밀레는 아래 자료에서 대처법을 확인하실 수 있어요.\n\n" +
-            "해결이 안 되면 상담원을 연결해 드릴게요.",
-          buttons: [
-            { label: "문제 대처법", action: "webLink", webLinkUrl: SIMILE_LINKS.trouble },
-            { label: "설명서", action: "webLink", webLinkUrl: SIMILE_LINKS.manual },
-            operatorButton(),
-          ],
-        });
-      }
-
-      const faq = findFaq(utterance);
-      if (!faq) return simpleText(FAQ_MENU, { quickReplies: troubleQuick() });
-
-      return textCard(
-        {
-          title: faq.title,
-          description: faq.body + "\n\n해보셔도 해결되지 않으면 말씀해 주세요. 상담원을 연결해 드릴게요.",
-          buttons: [operatorButton()],
-        },
-        { quickReplies: troubleQuick() }
-      );
-    }
+    case "TROUBLE":
+      // handleTrouble 에서 처리되므로 여기까지 오지 않는다 (안전망)
+      return simpleText(FAQ_MENU, { quickReplies: symptomQuick() });
 
     case "UNKNOWN":
       return simpleText(
         "말씀하신 내용을 정확히 이해하지 못했어요.\n" +
-        "조금 더 자세히 알려주시면 도움이 될 것 같아요.\n\n" +
-        "혹시 아래 중 하나인가요?",
+          "조금 더 자세히 알려주시면 도움이 될 것 같아요.\n\n" +
+          "혹시 아래 중 하나인가요?",
         { quickReplies: quickFor(r) }
       );
 
@@ -488,21 +758,48 @@ function renderRental(r: Rental) {
   ];
 
   if (fee.days > 0) {
-    itemList.push({ title: "연체", description: `${fee.days}일 · ${fee.amount.toLocaleString()}원` });
+    itemList.push({
+      title: "연체",
+      description: `${fee.days}일 · ${fee.amount.toLocaleString()}원`,
+    });
   }
 
   return itemCard(
     {
       headTitle: "대여 정보",
       itemList,
-      summary: fee.days > 0
-        ? { title: "연체료", description: `${fee.amount.toLocaleString()}원` }
-        : undefined,
+      summary:
+        fee.days > 0
+          ? { title: "연체료", description: `${fee.amount.toLocaleString()}원` }
+          : undefined,
       description: "궁금하신 점은 무엇이든 편하게 물어보세요.",
       buttons: [operatorButton()],
     },
     { quickReplies: quickFor(r) }
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* 빠른 응답                                                            */
+/* ------------------------------------------------------------------ */
+
+const UNRESOLVED_QUICK: QuickReply = {
+  label: "해봐도 안 돼요",
+  action: "message",
+  messageText: "그래도 안 되는데요",
+};
+
+/** 증상 선택지. extra 로 symptom 을 넘겨 CLOVA 를 건너뛴다 */
+function symptomQuick(): QuickReply[] {
+  return [
+    ...SYMPTOM_CHOICES.map((c) => ({
+      label: c.label,
+      action: "message" as const,
+      messageText: c.say,
+      extra: { symptom: c.symptom },
+    })),
+    { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
+  ];
 }
 
 function quickFor(r: Rental): QuickReply[] {
@@ -526,18 +823,8 @@ function quickFor(r: Rental): QuickReply[] {
   }
   out.push({ label: "반납할게요", action: "message", messageText: "반납하고 싶어요" });
   out.push({ label: "연장할게요", action: "message", messageText: "연장하고 싶어요" });
-  out.push({ label: "사용법 보기", action: "message", messageText: "사용법 알려주세요" });
+  out.push({ label: "기기 문제", action: "message", messageText: "기기에 문제가 있어요" });
   out.push({ label: "부품 구매", action: "message", messageText: "부품 구매하고 싶어요" });
   out.push({ label: "다른 문의", action: "message", messageText: "다른 걸 물어보고 싶어요" });
   return out;
-}
-
-function troubleQuick(): QuickReply[] {
-  return [
-    { label: "해봐도 안 돼요", action: "message", messageText: "그래도 안 되는데요" },
-    { label: "세척 방법", action: "message", messageText: "세척 어떻게 해요" },
-    { label: "작동 안 될 때", action: "message", messageText: "기기가 작동하지 않아요" },
-    { label: "압력이 약해요", action: "message", messageText: "흡입력이 약해요" },
-    { label: "상담원 연결", action: "message", messageText: "상담원 연결해주세요" },
-  ];
 }

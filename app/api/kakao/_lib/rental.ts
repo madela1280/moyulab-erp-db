@@ -124,13 +124,20 @@ export function statusLabel(r: Rental): string {
   return "대여중";
 }
 
-/** 연체료 단가 (약관 7조). 환불 계산용 단가와는 다른 값이므로 섞지 말 것. */
+/**
+ * 연체료 단가 (약관 7조).
+ * ⚠️ 환불 계산용 "할인전 1일가"와는 다른 값이다. 절대 합치지 말 것.
+ *    (예: 심포니 연체 6,000 / 환불계산용 5,140)
+ *
+ * 2026-08-17 대표 확정: 스윙류는 1,500원. (v3 문서의 1,400원은 폐기)
+ */
 const OVERDUE_FEE: Record<string, number> = {
   심포니: 6000,
   락티나: 3000,
   스윙맥시: 1500,
-  스윙: 1400,
+  스윙: 1500,
   프리스타일: 1700,
+  시밀레: 1500,
 };
 
 export function overdueFee(r: Rental): { days: number; daily: number; amount: number } {
@@ -138,7 +145,7 @@ export function overdueFee(r: Rental): { days: number; daily: number; amount: nu
 
   let daily = 0;
   // 스윙맥시가 스윙보다 먼저 걸리도록 긴 이름부터 검사
-  for (const model of ["스윙맥시", "심포니", "락티나", "프리스타일", "스윙"]) {
+  for (const model of ["스윙맥시", "심포니", "락티나", "프리스타일", "시밀레", "스윙"]) {
     if (product.includes(model)) {
       daily = OVERDUE_FEE[model];
       break;
