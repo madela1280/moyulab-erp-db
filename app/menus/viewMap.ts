@@ -34,6 +34,7 @@ export const VIEW_MAP: Record<string, any> = {
   // 데이터업로드
   "데이터업로드>신규가입": dynamic(() => import("@/views/dataUpload/SignupView")),
   "데이터업로드>반납회수": dynamic(() => import("@/views/dataUpload/ReturnRecoveryView")),
+  "데이터업로드>특정일자출고": dynamic(() => import("@/views/dataUpload/SpecificDateShipmentView")),
 
   // ✅ 회수완료
   "회수완료>회수1": dynamic(() => import("@/views/recoveryComplete/Recovery1View")),
