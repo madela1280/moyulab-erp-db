@@ -104,7 +104,11 @@ export function mapUnifiedToSpecificDateShipmentRows(
     mapped.phone1 = text(data["연락처1"]);
     mapped.phone2 = text(data["연락처2"]);
     mapped.contractAddress = text(data["계약자주소"]);
-    mapped.itemName = text(data["제품"]);
+
+    // ✅ 품목명 = "거래처분류/대여" (예: 상록 → "상록/대여"). "대여"는 모든 행에 동일하게 표시.
+    const partnerCategory = text(data["거래처분류"]);
+    mapped.itemName = partnerCategory ? `${partnerCategory}/대여` : "대여";
+
     mapped.startDate = text(data["시작일"]);
     mapped.shipmentDate = computeShipmentDate(data["시작일"]);
     mapped.boxCount = "";
