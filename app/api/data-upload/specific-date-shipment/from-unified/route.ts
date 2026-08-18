@@ -6,7 +6,9 @@ type UnifiedRow = {
   data: Record<string, any> | null;
 };
 
-// ✅ 특정일자출고 대상: 택배발송일 / 반납요청일 / 반납완료일이 전부 비어 있는 통합관리 행
+// ✅ 특정일자출고 대상: 택배발송일 / 반납요청일 / 반납완료일이 전부 비어 있고,
+// 시작일이 있는(=출고일자 계산이 가능한) 통합관리 행만 조회한다.
+// (시작일이 없는 완전 공백 행까지 걸리면 화면 위쪽이 빈 행으로 채워지는 문제가 있었음)
 export async function GET(_req: NextRequest) {
   try {
     const result = await query(
@@ -16,6 +18,7 @@ export async function GET(_req: NextRequest) {
       WHERE TRIM(COALESCE(data->>'택배발송일', '')) = ''
         AND TRIM(COALESCE(data->>'반납요청일', '')) = ''
         AND TRIM(COALESCE(data->>'반납완료일', '')) = ''
+        AND TRIM(COALESCE(data->>'시작일', '')) <> ''
       ORDER BY id ASC
       `
     );

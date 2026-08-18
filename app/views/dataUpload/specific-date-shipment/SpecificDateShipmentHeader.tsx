@@ -11,18 +11,21 @@ function HeaderButton({
   icon,
   label,
   onClick,
+  variant = "default",
 }: {
   icon: string;
   label: string;
   onClick?: () => void;
+  variant?: "default" | "primary";
 }) {
+  const className =
+    variant === "primary"
+      ? "inline-flex items-center gap-1.5 rounded-md border border-blue-600 bg-blue-600 px-3 py-[6px] text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      : "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60";
+
   return (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60"
-      onClick={onClick}
-    >
-      <span className="text-slate-500">{icon}</span>
+    <button type="button" className={className} onClick={onClick}>
+      <span className={variant === "primary" ? "text-white" : "text-slate-500"}>{icon}</span>
       <span>{label}</span>
     </button>
   );
@@ -39,7 +42,7 @@ export default function SpecificDateShipmentHeader({
       <div className="flex items-center gap-3">
         <div className="text-base font-semibold text-slate-800">특정일자출고</div>
 
-        <HeaderButton icon="✓" label="확인" onClick={onConfirm} />
+        <HeaderButton icon="✓" label="확인" variant="primary" onClick={onConfirm} />
       </div>
 
       <div className="flex items-center gap-2">

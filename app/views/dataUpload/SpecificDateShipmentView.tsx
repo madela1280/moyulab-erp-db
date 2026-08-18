@@ -13,8 +13,6 @@ import type { SpecificDateShipmentRow } from "@/views/dataUpload/specific-date-s
 export default function SpecificDateShipmentView() {
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [sourceCount, setSourceCount] = useState(0);
   const [rows, setRows] = useState<SpecificDateShipmentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -41,9 +39,7 @@ export default function SpecificDateShipmentView() {
       const nextSourceRows = Array.isArray(result.rows) ? result.rows : [];
       const nextRows = mapUnifiedToSpecificDateShipmentRows(nextSourceRows);
 
-      setSourceCount(nextSourceRows.length);
       setRows(nextRows);
-      setHasLoaded(true);
     } catch (e: any) {
       setError(e?.message || "특정일자출고 데이터를 불러오지 못했습니다.");
     } finally {
@@ -72,17 +68,9 @@ export default function SpecificDateShipmentView() {
         onAddTemplate={() => setTemplateModalOpen(true)}
       />
 
-      {(hasLoaded || loading || error || columnError) && (
+      {(loading || error || columnError) && (
         <div className="flex items-center gap-3 text-xs">
           {loading && <div className="text-blue-600">불러오는 중...</div>}
-
-          {!loading && hasLoaded && !error && (
-            <div className="text-slate-600">
-              통합관리 조회 결과: <span className="font-semibold text-slate-800">{sourceCount}</span>건 / 특정일자출고 표시:{" "}
-              <span className="font-semibold text-slate-800">{rows.length}</span>건
-            </div>
-          )}
-
           {error && <div className="text-red-600">{error}</div>}
           {columnError && <div className="text-red-600">{columnError}</div>}
         </div>
