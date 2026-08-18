@@ -55,6 +55,20 @@ export type SubmitReturnRequestResult = {
   statusResult?: any;
 };
 
+export type DeleteReturnRequestResult = {
+  ok: boolean;
+  message?: string;
+  successCount?: number;
+  failedRows?: Array<{
+    id?: string;
+    receivedAt?: string;
+    phone?: string;
+    renterName?: string;
+    returnModel?: string;
+    message?: string;
+  }>;
+};
+
 const WEB_CELL_FIELD_MAP: Record<string, string> = {
   product: "return_model",
   recipientName: "renter_name",
@@ -311,5 +325,53 @@ export async function submitReturnRequestRows(
     successCount: j?.successCount || targetRows.length,
     failedRows: Array.isArray(j?.failedRows) ? j.failedRows : [],
     statusResult: j?.statusResult,
+  };
+}
+
+/*
+ * 실제 DB 삭제가 아니라, 외부 고객접수 서버의 process_status만 "삭제"로 변경한다.
+ * (리스트 화면 전체 이력에는 계속 남고, 반납접수(접수중) 화면에서만 사라진다.)
+ */
+export async function deleteReturnRequestRows(
+  rows: ReturnRequestRow[]
+): Promise<DeleteReturnRequestResult> {
+  const targetRows = (Array.isArray(rows) ? rows : []).filter(isRealRow);
+
+  if (!targetRows.length) {
+    return {
+      ok: false,
+      message: "삭제할 행이 없습니다.",
+      successCount: 0,
+      failedRows: [],
+    };
+  }
+
+  const r = await fetch("/api/customer-reception/return-requests/status", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      rows: targetRows,
+    }),
+  });
+
+  const j = (await r.json().catch(() => null)) as DeleteReturnRequestResult | null;
+
+  if (!r.ok || j?.ok === false) {
+    return {
+      ok: false,
+      message: j?.message || `FAILED(${r.status})`,
+      successCount: j?.successCount || 0,
+      failedRows: Array.isArray(j?.failedRows) ? j.failedRows : [],
+    };
+  }
+
+  return {
+    ok: true,
+    message: j?.message || "삭제 처리가 완료되었습니다.",
+    successCount: j?.successCount || targetRows.length,
+    failedRows: Array.isArray(j?.failedRows) ? j.failedRows : [],
   };
 }

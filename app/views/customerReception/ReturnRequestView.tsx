@@ -81,6 +81,7 @@ export default function ReturnRequestView() {
     setListRows,
     saveWebCell,
     submitCheckedRows,
+    deleteCheckedRows,
   } = useReturnRequests(mode);
 
   const {
@@ -158,8 +159,43 @@ export default function ReturnRequestView() {
     }
   }
 
-  function handleDelete() {
-    alert("삭제 기능은 다음 단계에서 연결합니다.");
+  async function handleDelete() {
+    if (mode === "list") {
+      return;
+    }
+
+    const checkedRows = getCheckedRows(currentRows);
+
+    if (!checkedRows.length) {
+      alert("삭제할 행을 체크해 주세요.");
+      return;
+    }
+
+    const ok = confirm(
+      `체크된 ${checkedRows.length}건을 반납접수 화면에서 삭제할까요?\n\n실제 데이터는 삭제되지 않고, 리스트에는 계속 남습니다.`
+    );
+
+    if (!ok) {
+      return;
+    }
+
+    try {
+      const result = await deleteCheckedRows(checkedRows);
+
+      if (result?.ok) {
+        alert(`삭제 처리가 완료되었습니다.\n성공: ${result.successCount || checkedRows.length}건`);
+        return;
+      }
+
+      const failedMessage = buildFailedRowsMessage(result?.failedRows || []);
+      alert(
+        [result?.message || "삭제 처리하지 못했습니다.", failedMessage]
+          .filter(Boolean)
+          .join("\n")
+      );
+    } catch (e: any) {
+      alert(e?.message || "삭제 처리 중 오류가 발생했습니다.");
+    }
   }
 
   function handleDownload() {

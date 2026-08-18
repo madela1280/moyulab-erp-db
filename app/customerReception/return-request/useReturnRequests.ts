@@ -6,6 +6,7 @@ import type {
   ReturnRequestViewMode,
 } from "@/customerReception/return-request/types";
 import {
+  deleteReturnRequestRows,
   fetchReturnRequests,
   submitReturnRequestRows,
   updateReturnRequestWebCell,
@@ -142,6 +143,50 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     [mode, reloadCurrentSilent]
   );
 
+  const deleteCheckedRows = useCallback(
+    async (rows: ReturnRequestRow[]) => {
+      if (mode === "list") {
+        return {
+          ok: false,
+          message: "리스트 화면에서는 삭제할 수 없습니다.",
+          successCount: 0,
+          failedRows: [],
+        };
+      }
+
+      setSaving(true);
+      setError("");
+
+      try {
+        const result = await deleteReturnRequestRows(rows);
+
+        if (result?.ok) {
+          await reloadCurrentSilent();
+          syncEmitUnifiedUpdate();
+          return result;
+        }
+
+        setError(result?.message || "반납접수 삭제에 실패했습니다.");
+        await reloadCurrentSilent();
+        return result;
+      } catch (e: any) {
+        const message = e?.message || "반납접수 삭제에 실패했습니다.";
+        setError(message);
+        await reloadCurrentSilent();
+
+        return {
+          ok: false,
+          message,
+          successCount: 0,
+          failedRows: [],
+        };
+      } finally {
+        setSaving(false);
+      }
+    },
+    [mode, reloadCurrentSilent]
+  );
+
   useEffect(() => {
     if (mode === "list") {
       void reloadList();
@@ -192,5 +237,6 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     reloadList,
     saveWebCell,
     submitCheckedRows,
+    deleteCheckedRows,
   };
 }
