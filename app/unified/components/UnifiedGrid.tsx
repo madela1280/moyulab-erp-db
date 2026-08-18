@@ -181,6 +181,19 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
     //    → ref를 “즉시 source of truth”로 사용해서 입력 사라짐 방지
     const myRowLocksRef = useRef<Record<number, boolean>>({});
 
+    // ✅ 같은 행에서 방향키로 셀을 빠르게 연속 이동하면 onBlur(async: 락확인→저장→검증)들이
+    //    서로 겹쳐 실행되면서 "방금 지운 값이 되살아남 / 방금 입력한 값이 사라짐"이 간헐적으로 발생했음.
+    //    → 행(row.id) 단위로 onBlur의 저장 로직을 순서대로만 실행되게 줄 세운다(값 캡처는 그대로 즉시,
+    //      실제 저장 실행 순서만 직렬화). sync-engine/lock-engine/socket 코어는 건드리지 않음.
+    const rowSaveQueueRef = useRef<Record<number, Promise<void>>>({});
+
+    function runQueuedForRow(rowId: number, task: () => Promise<void>): Promise<void> {
+      const prev = rowSaveQueueRef.current[rowId] ?? Promise.resolve();
+      const next = prev.catch(() => {}).then(task);
+      rowSaveQueueRef.current[rowId] = next;
+      return next;
+    }
+
     // ✅ 다른 사용자가 락을 잡은 행은 계속 입력 차단
     // - 기존 문제: locked_by_other alert가 한 번 뜬 뒤 같은 행 다른 셀은 계속 입력 가능했음
     // - 해결: 락 실패 rowId를 blocked 상태로 저장하고, 해당 행 input을 readOnly 처리
@@ -3848,6 +3861,11 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             }
           }
 
+          // ✅ 같은 행에서 셀을 빠르게 연속 이동할 때 onBlur들의 실제 저장 로직이
+          // 서로 겹치지 않도록, 지금부터 finally까지를 행(row.id) 단위로 순서대로 실행한다.
+          // (v/v0 값은 이미 위에서 캡처했으므로 대기 중에도 값 유실 없음)
+          await runQueuedForRow(row.id, async () => {
+
           // ✅ 저장 성공 여부(try 밖에서 관리 → finally에서 참조 가능)
           let savedOk = false;
 
@@ -4003,7 +4021,8 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
               unfreezeDisplayRows();
             }
           }
-        }}              
+          }); // runQueuedForRow 종료
+        }}
         onKeyDown={(e) => handleCellKeyDown(e, rowIndex, colIndex)}
                />
     </td>
