@@ -78,13 +78,22 @@ function isSamePhone(a: unknown, b: unknown) {
   return aa === bb;
 }
 
-function buildMismatchReason(requestRow: any, unifiedData: Record<string, any>) {
+function buildMismatchReason(
+  requestRow: any,
+  unifiedData: Record<string, any>,
+  opts?: { includeAlreadyProcessed?: boolean }
+) {
+  const includeAlreadyProcessed = opts?.includeAlreadyProcessed ?? true;
+
   const returnRequestDate = normalizeString(unifiedData["반납요청일"]);
   const returnCompleteDate = normalizeString(unifiedData["반납완료일"]);
 
   const reasons: string[] = [];
 
-  if (returnRequestDate || returnCompleteDate) {
+  // ✅ "반납완료일 접수 확인"은 전송(제출) 자체가 통합관리 반납요청일을 채우면서
+  // 매번 새로 생기는 문구라, 리스트의 "불일치 수정여부" 비교에는 포함하지 않는다.
+  // (접수중 화면에서 전송 전 경고로 보여주는 용도는 유지)
+  if (includeAlreadyProcessed && (returnRequestDate || returnCompleteDate)) {
     reasons.push("반납완료일 접수 확인");
   }
 
@@ -183,6 +192,12 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
   const data = matched.data && typeof matched.data === "object" ? matched.data : {};
   const currentMismatchReason = buildMismatchReason(requestRow, data);
 
+  // ✅ "불일치 수정여부" 비교 전용: 전송으로 인해 채워진 반납요청일/반납완료일은
+  // 실제 고객데이터 불일치가 아니므로 제외하고 비교한다.
+  const currentMismatchReasonForResolvedNote = buildMismatchReason(requestRow, data, {
+    includeAlreadyProcessed: false,
+  });
+
   return {
     ...requestRow,
     unified_id: matched.id,
@@ -203,7 +218,7 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
     original_mismatch_reason: initialMismatchReason,
     current_mismatch_reason: currentMismatchReason,
     mismatch_resolved_note: isListMode
-      ? buildMismatchResolvedNote(initialMismatchReason, currentMismatchReason)
+      ? buildMismatchResolvedNote(initialMismatchReason, currentMismatchReasonForResolvedNote)
       : "",
   };
 }
