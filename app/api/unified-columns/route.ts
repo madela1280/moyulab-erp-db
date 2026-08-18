@@ -1,176 +1,71 @@
-// app/api/unified-grid-settings/route.ts
-
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import {
-  DEFAULT_COL_WIDTH_UNIT_BY_KEY,
-  unifiedColumns,
-} from "@/unified/columns/unifiedColumns";
+import { unifiedColumns } from "@/unified/columns/unifiedColumns";
 
 /**
- * unified_grid_settings:
- * - 사용자별 통합관리 열 순서/열폭 저장
- * - 기본 컬럼이 새로 추가되면 기존 사용자 설정에도 globalOrder 위치 기준으로 자동 삽입
+ * 필요 DB 테이블(1회 생성):
+ *
+ * CREATE TABLE IF NOT EXISTS unified_custom_columns (
+ *   key text PRIMARY KEY,
+ *   sort_key numeric NOT NULL,
+ *   created_by text,
+ *   created_at timestamptz NOT NULL DEFAULT now()
+ * );
  */
 
 const BASE_STEP = 1000;
 
-function clampUnit(v: any) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 20;
-  return Math.max(1, Math.min(200, Math.floor(n)));
-}
-
-async function tableExists(tableName: string): Promise<boolean> {
-  const r = await query(`SELECT to_regclass($1) AS reg`, [`public.${tableName}`]);
-  return !!r.rows?.[0]?.reg;
-}
-
-async function getGlobalOrder(): Promise<string[]> {
-  const base = (unifiedColumns as unknown as string[]).map((key, i) => ({
-    key,
+async function getGlobalOrder(): Promise<Array<{ key: string; sort_key: number }>> {
+  const base = (unifiedColumns as unknown as string[]).map((k, i) => ({
+    key: k,
     sort_key: (i + 1) * BASE_STEP,
   }));
 
-  let custom: Array<{ key: string; sort_key: number }> = [];
+  // 커스텀 컬럼
+  const r = await query(
+    `SELECT key, sort_key::numeric AS sort_key, created_by, created_at
+     FROM unified_custom_columns
+     ORDER BY sort_key ASC, key ASC`
+  );
 
-  if (await tableExists("unified_custom_columns")) {
-    const r = await query(
-      `
-      SELECT key, sort_key::numeric AS sort_key
-      FROM unified_custom_columns
-      ORDER BY sort_key ASC, key ASC
-      `
-    );
+  const custom = r.rows.map((x: any) => ({
+    key: String(x.key),
+    sort_key: Number(x.sort_key),
+    created_by: x.created_by ?? null,
+    created_at: x.created_at ?? null,
+  }));
 
-    custom = (r.rows || [])
-      .map((x: any) => ({
-        key: String(x?.key ?? "").trim(),
-        sort_key: Number(x?.sort_key),
-      }))
-      .filter((x) => x.key && Number.isFinite(x.sort_key));
-  }
-
-  const combined = [...base, ...custom].sort((a, b) => a.sort_key - b.sort_key);
+  // 합치기(커스텀에 기본 키가 들어오는 경우 기본 우선)
+  const combined = [...base, ...custom.map((x) => ({ key: x.key, sort_key: x.sort_key }))].sort(
+    (a, b) => a.sort_key - b.sort_key
+  );
 
   const seen = new Set<string>();
-  const out: string[] = [];
-
+  const dedup: Array<{ key: string; sort_key: number }> = [];
   for (const c of combined) {
-    if (!c.key) continue;
     if (seen.has(c.key)) continue;
     seen.add(c.key);
-    out.push(c.key);
+    dedup.push(c);
   }
 
-  return out.length ? out : [...(unifiedColumns as unknown as string[])];
-}
-
-function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
-  const gSet = new Set(globalOrder);
-
-  const base = Array.isArray(userOrder) ? userOrder.map(String) : [];
-  const filtered = base.filter((k) => gSet.has(k));
-
-  const result: string[] = [];
-  const rSet = new Set<string>();
-
-  for (const k of filtered) {
-    if (rSet.has(k)) continue;
-    rSet.add(k);
-    result.push(k);
-  }
-
-  // ✅ 기존 사용자 설정에 없는 새 기본 컬럼은 globalOrder 기준 위치에 삽입
-  for (let i = 0; i < globalOrder.length; i++) {
-    const k = globalOrder[i];
-    if (rSet.has(k)) continue;
-
-    let inserted = false;
-
-    // 1) globalOrder상 바로 앞쪽에 있는 컬럼 뒤에 삽입
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = globalOrder[j];
-      const idx = result.indexOf(prev);
-      if (idx >= 0) {
-        result.splice(idx + 1, 0, k);
-        inserted = true;
-        break;
-      }
-    }
-
-    // 2) 앞 기준을 못 찾으면 뒤쪽 컬럼 앞에 삽입
-    if (!inserted) {
-      for (let j = i + 1; j < globalOrder.length; j++) {
-        const next = globalOrder[j];
-        const idx = result.indexOf(next);
-        if (idx >= 0) {
-          result.splice(idx, 0, k);
-          inserted = true;
-          break;
-        }
-      }
-    }
-
-    // 3) 그래도 없으면 맨 뒤
-    if (!inserted) result.push(k);
-
-    rSet.add(k);
-  }
-
-  return result;
-}
-
-function sanitizeWidths(input: any, globalOrder: string[]): Record<string, number> {
-  const base: Record<string, number> = {};
-
-  for (const k of unifiedColumns as unknown as string[]) {
-    base[k] = DEFAULT_COL_WIDTH_UNIT_BY_KEY[k] ?? 20;
-  }
-
-  for (const k of globalOrder) {
-    if (!(k in base)) base[k] = 20;
-  }
-
-  if (!input || typeof input !== "object" || Array.isArray(input)) return base;
-
-  for (const k of globalOrder) {
-    if (k in input) base[k] = clampUnit((input as any)[k]);
-  }
-
-  return base;
+  return dedup.sort((a, b) => a.sort_key - b.sort_key);
 }
 
 export async function GET() {
-  const user = await getSessionUser();
-  if (!user?.username) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
+  // GET은 로그인 없이도 동작 가능(컬럼 목록 제공)하게 유지
+  // (필요하면 추후 권한 정책으로 제한 가능)
+  const order = await getGlobalOrder();
 
-  const globalOrder = await getGlobalOrder();
-
-  const r = await query(
-    `
-    SELECT column_order, col_width_unit_by_key
-    FROM unified_grid_settings
-    WHERE username = $1
-    `,
-    [user.username]
+  const customR = await query(
+    `SELECT key, created_by, created_at
+     FROM unified_custom_columns
+     ORDER BY created_at DESC, key ASC`
   );
 
-  if (!r.rows.length) {
-    return NextResponse.json({
-      columnOrder: mergeUserOrderWithGlobal(null, globalOrder),
-      colWidthUnitByKey: sanitizeWidths(null, globalOrder),
-    });
-  }
-
-  const row = r.rows[0];
-
   return NextResponse.json({
-    columnOrder: mergeUserOrderWithGlobal(row.column_order, globalOrder),
-    colWidthUnitByKey: sanitizeWidths(row.col_width_unit_by_key, globalOrder),
+    order: order.map((x) => x.key),
+    custom: customR.rows,
   });
 }
 
@@ -180,28 +75,75 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const globalOrder = await getGlobalOrder();
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  const name = String(body?.name ?? "").trim();
+  const referenceKey = String(body?.referenceKey ?? "").trim();
+  const position = (String(body?.position ?? "after") as "after" | "before") === "before" ? "before" : "after";
 
-  const columnOrder = mergeUserOrderWithGlobal(body?.columnOrder, globalOrder);
-  const colWidthUnitByKey = sanitizeWidths(body?.colWidthUnitByKey, globalOrder);
+  if (!name) return NextResponse.json({ error: "INVALID_NAME" }, { status: 400 });
+  if (name.length > 60) return NextResponse.json({ error: "NAME_TOO_LONG" }, { status: 400 });
 
-  const upsert = await query(
-    `
-    INSERT INTO unified_grid_settings (username, column_order, col_width_unit_by_key, updated_at)
-    VALUES ($1, $2::jsonb, $3::jsonb, now())
-    ON CONFLICT (username)
-    DO UPDATE SET
-      column_order = EXCLUDED.column_order,
-      col_width_unit_by_key = EXCLUDED.col_width_unit_by_key,
-      updated_at = now()
-    RETURNING username
-    `,
-    [user.username, JSON.stringify(columnOrder), JSON.stringify(colWidthUnitByKey)]
+  // 기본 컬럼과 동일 이름 금지
+  if ((unifiedColumns as unknown as string[]).includes(name)) {
+    return NextResponse.json({ error: "DUPLICATE_WITH_BASE" }, { status: 409 });
+  }
+
+  // 기준 컬럼 유효성
+  const global = await getGlobalOrder();
+  const ref = global.find((x) => x.key === referenceKey);
+  if (!ref) return NextResponse.json({ error: "INVALID_REFERENCE_KEY" }, { status: 400 });
+
+  // 이미 존재하는 커스텀 키 중복 방지
+  const exists = await query(`SELECT 1 FROM unified_custom_columns WHERE key=$1`, [name]);
+  if (exists.rows.length) return NextResponse.json({ error: "DUPLICATE_CUSTOM_KEY" }, { status: 409 });
+
+  // 새 sort_key 계산(열 삽입)
+  const sorted = global.slice().sort((a, b) => a.sort_key - b.sort_key);
+  const refIndex = sorted.findIndex((x) => x.key === referenceKey);
+
+  let prevSort: number | null = null;
+  let nextSort: number | null = null;
+
+  if (position === "after") {
+    prevSort = sorted[refIndex]?.sort_key ?? null;
+    nextSort = sorted[refIndex + 1]?.sort_key ?? null;
+  } else {
+    nextSort = sorted[refIndex]?.sort_key ?? null;
+    prevSort = sorted[refIndex - 1]?.sort_key ?? null;
+  }
+
+  let newSort: number;
+  if (prevSort != null && nextSort != null) newSort = (prevSort + nextSort) / 2;
+  else if (prevSort != null) newSort = prevSort + BASE_STEP;
+  else if (nextSort != null) newSort = nextSort - BASE_STEP / 2;
+  else newSort = BASE_STEP / 2;
+
+  await query(
+    `INSERT INTO unified_custom_columns (key, sort_key, created_by) VALUES ($1, $2::numeric, $3)`,
+    [name, newSort, user.username]
   );
 
-  return NextResponse.json({
-    ok: true,
-    username: upsert.rows[0]?.username ?? user.username,
-  });
+  return NextResponse.json({ ok: true, key: name, sort_key: newSort });
+}
+
+export async function DELETE(req: Request) {
+  const user = await getSessionUser();
+  if (!user?.username) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const key = String(body?.key ?? "").trim();
+
+  if (!key) return NextResponse.json({ error: "INVALID_KEY" }, { status: 400 });
+
+  // 기본 컬럼 삭제 금지
+  if ((unifiedColumns as unknown as string[]).includes(key)) {
+    return NextResponse.json({ error: "CANNOT_DELETE_BASE_COLUMN" }, { status: 400 });
+  }
+
+  // 삭제(존재하지 않아도 ok 처리)
+  await query(`DELETE FROM unified_custom_columns WHERE key=$1`, [key]);
+
+  return NextResponse.json({ ok: true });
 }
