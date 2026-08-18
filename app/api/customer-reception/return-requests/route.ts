@@ -131,6 +131,26 @@ function getFixedInitialMismatchReason(requestRow: any) {
   return normalizeString(requestRow?.initial_mismatch_reason);
 }
 
+function normalizeProcessStatus(value: unknown) {
+  const s = normalizeString(value);
+  if (s === "전송" || s === "삭제") return s;
+  return "접수중";
+}
+
+/*
+ * ✅ 리스트 화면 "불일치사유" 표시 규칙:
+ * - 수정 후 전송된 건: "사유 수정후 전송"으로 표시
+ *   (전송은 현재 불일치사유가 없어야 성공하므로, 전송 성공 + 최초 불일치사유가 있었다면
+ *    반드시 전송 전에 값을 고친 것이다.)
+ * - 삭제된 건 / 접수중인 건: 최초 불일치사유를 그대로 표시
+ */
+function getListMismatchReasonDisplay(processStatus: string, initialMismatchReason: string) {
+  if (processStatus === "전송" && initialMismatchReason) {
+    return "사유 수정후 전송";
+  }
+  return initialMismatchReason;
+}
+
 function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
   const requestPhone = requestRow?.phone;
   const requestName = requestRow?.renter_name;
@@ -171,6 +191,7 @@ function findBestUnifiedMatch(requestRow: any, unifiedRows: any[]) {
 function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: boolean) {
   const matched = findBestUnifiedMatch(requestRow, unifiedRows);
   const initialMismatchReason = getFixedInitialMismatchReason(requestRow);
+  const processStatus = normalizeProcessStatus(requestRow?.process_status);
 
   if (!matched) {
     const currentMismatchReason = "통합관리 매칭 없음";
@@ -180,7 +201,9 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
       unified_id: null,
       matched_unified: null,
 
-      mismatch_reason: isListMode ? initialMismatchReason : currentMismatchReason,
+      mismatch_reason: isListMode
+        ? getListMismatchReasonDisplay(processStatus, initialMismatchReason)
+        : currentMismatchReason,
       original_mismatch_reason: initialMismatchReason,
       current_mismatch_reason: currentMismatchReason,
       mismatch_resolved_note: isListMode
@@ -214,7 +237,9 @@ function mapWithUnifiedMatch(requestRow: any, unifiedRows: any[], isListMode: bo
       반납완료일: normalizeString(data["반납완료일"]),
     },
 
-    mismatch_reason: isListMode ? initialMismatchReason : currentMismatchReason,
+    mismatch_reason: isListMode
+      ? getListMismatchReasonDisplay(processStatus, initialMismatchReason)
+      : currentMismatchReason,
     original_mismatch_reason: initialMismatchReason,
     current_mismatch_reason: currentMismatchReason,
     mismatch_resolved_note: isListMode

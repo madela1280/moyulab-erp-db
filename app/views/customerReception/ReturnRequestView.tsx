@@ -5,6 +5,7 @@ import ReturnRequestHeader from "@/customerReception/return-request/ReturnReques
 import ReturnRequestGrid from "@/customerReception/return-request/ReturnRequestGrid";
 import { useReturnRequestColumnConfig } from "@/customerReception/return-request/column-config/useReturnRequestColumnConfig";
 import { useReturnRequests } from "@/customerReception/return-request/useReturnRequests";
+import { downloadReturnRequestCsv } from "@/customerReception/return-request/serviceReturnRequestExport";
 import type {
   ReturnRequestRow,
   ReturnRequestViewMode,
@@ -199,7 +200,11 @@ export default function ReturnRequestView() {
   }
 
   function handleDownload() {
-    alert("다운로드 기능은 다음 단계에서 연결합니다.");
+    if (mode !== "list") {
+      return;
+    }
+
+    downloadReturnRequestCsv(listRows, listColumns);
   }
 
   return (

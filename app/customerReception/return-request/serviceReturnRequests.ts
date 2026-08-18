@@ -116,8 +116,10 @@ function formatDate(value: unknown) {
 }
 
 function getMismatchReasonForView(row: ReturnRequestApiRow, isListMode: boolean) {
+  // ✅ 서버(mapWithUnifiedMatch)가 이미 모드에 맞춰 계산해서 내려주는 값을 그대로 사용한다.
+  // 리스트 모드의 "수정 후 전송된 건 → 사유 수정후 전송" 라벨링도 서버에서 처리된다.
   if (isListMode) {
-    return normalizeString(row.original_mismatch_reason);
+    return normalizeString(row.mismatch_reason);
   }
 
   return normalizeString(row.current_mismatch_reason);
