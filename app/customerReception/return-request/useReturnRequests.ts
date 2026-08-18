@@ -13,6 +13,23 @@ import {
 } from "@/customerReception/return-request/serviceReturnRequests";
 import { syncEmitUnifiedUpdate, syncListen } from "@/global-sync/sync-engine";
 
+/*
+ * ✅ checked(확인)는 서버에 저장되지 않는 화면 전용 상태라, 재조회(fetchReturnRequests)로
+ * 새로 받아온 행은 항상 checked:false로 시작한다.
+ * 재조회 직전에 체크돼 있던 행(id 기준)은 체크 상태를 그대로 유지한다.
+ */
+function applyPreservedChecked(
+  prevRows: ReturnRequestRow[],
+  freshRows: ReturnRequestRow[]
+): ReturnRequestRow[] {
+  const checkedMap = new Map(prevRows.map((row) => [row.id, row.checked]));
+
+  return freshRows.map((row) => ({
+    ...row,
+    checked: checkedMap.get(row.id) ?? false,
+  }));
+}
+
 export function useReturnRequests(mode: ReturnRequestViewMode) {
   const [currentRows, setCurrentRows] = useState<ReturnRequestRow[]>([]);
   const [listRows, setListRows] = useState<ReturnRequestRow[]>([]);
@@ -26,7 +43,7 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
 
     try {
       const rows = await fetchReturnRequests({ status: "접수중" });
-      setCurrentRows(rows);
+      setCurrentRows((prev) => applyPreservedChecked(prev, rows));
     } catch (e: any) {
       setError(e?.message || "반납접수 목록을 불러오지 못했습니다.");
       setCurrentRows([]);
@@ -53,7 +70,7 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
   const reloadCurrentSilent = useCallback(async () => {
     try {
       const rows = await fetchReturnRequests({ status: "접수중" });
-      setCurrentRows(rows);
+      setCurrentRows((prev) => applyPreservedChecked(prev, rows));
     } catch (e: any) {
       setError(e?.message || "반납접수 목록을 다시 불러오지 못했습니다.");
     }
