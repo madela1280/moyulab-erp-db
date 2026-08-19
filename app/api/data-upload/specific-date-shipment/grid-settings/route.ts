@@ -4,11 +4,13 @@ import { query } from "@/lib/db";
 const SETTING_ID = "specific_date_shipment_default";
 
 const DEFAULT_COLUMNS = [
+  { key: "checked", width: 60 },
   { key: "recipientName", width: 120 },
   { key: "phone1", width: 160 },
   { key: "phone2", width: 160 },
   { key: "contractAddress", width: 360 },
   { key: "itemName", width: 260 },
+  { key: "shippingDate", width: 130 },
   { key: "startDate", width: 130 },
   { key: "shipmentDate", width: 130 },
   { key: "boxCount", width: 90 },
@@ -21,6 +23,42 @@ const DEFAULT_COLUMNS = [
 ];
 
 const DEFAULT_COLUMN_KEYS = DEFAULT_COLUMNS.map((col) => col.key);
+
+// ✅ 저장된 순서에 없는(새로 추가된) 기본 컬럼을, DEFAULT_COLUMNS상 제자리 근처에 끼워 넣는다.
+function insertMissingAtDefaultPosition(currentOrder: string[], defaultOrder: string[]): string[] {
+  const result = [...currentOrder];
+
+  for (let i = 0; i < defaultOrder.length; i++) {
+    const key = defaultOrder[i];
+    if (result.includes(key)) continue;
+
+    let inserted = false;
+
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = result.indexOf(defaultOrder[j]);
+      if (idx >= 0) {
+        result.splice(idx + 1, 0, key);
+        inserted = true;
+        break;
+      }
+    }
+
+    if (!inserted) {
+      for (let j = i + 1; j < defaultOrder.length; j++) {
+        const idx = result.indexOf(defaultOrder[j]);
+        if (idx >= 0) {
+          result.splice(idx, 0, key);
+          inserted = true;
+          break;
+        }
+      }
+    }
+
+    if (!inserted) result.push(key);
+  }
+
+  return result;
+}
 
 async function ensureSettingsTable() {
   await query(`
@@ -85,9 +123,8 @@ function normalizeColumnOrder(value: unknown, allowedColumnKeys: string[]) {
   const unique = Array.from(new Set(input.map((v) => String(v || "").trim()).filter(Boolean)));
 
   const filtered = unique.filter((key) => allowed.has(key));
-  const missing = allowedColumnKeys.filter((key) => !filtered.includes(key));
 
-  return [...filtered, ...missing];
+  return insertMissingAtDefaultPosition(filtered, allowedColumnKeys);
 }
 
 function normalizeColumnWidths(value: unknown, allowedColumnKeys: string[]) {

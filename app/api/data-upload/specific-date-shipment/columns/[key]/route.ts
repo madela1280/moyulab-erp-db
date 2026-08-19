@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
 const DEFAULT_COLUMN_KEYS = new Set([
+  "checked",
   "recipientName",
   "phone1",
   "phone2",
   "contractAddress",
   "itemName",
+  "shippingDate",
   "startDate",
   "shipmentDate",
   "boxCount",

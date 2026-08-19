@@ -49,6 +49,43 @@ function buildAllColumns(customColumns: SpecificDateShipmentColumn[], columnWidt
   }));
 }
 
+// ✅ 저장된 순서에 없는(새로 추가된) 기본 컬럼을, allKeys(기본 정의 순서)상 제자리 근처에 끼워 넣는다.
+// (그냥 맨 뒤에 붙이면 "확인"/"택배발송일"처럼 앞쪽에 있어야 하는 컬럼이 맨 뒤로 밀려버림)
+function insertMissingAtDefaultPosition(currentOrder: string[], defaultOrder: string[]): string[] {
+  const result = [...currentOrder];
+
+  for (let i = 0; i < defaultOrder.length; i++) {
+    const key = defaultOrder[i];
+    if (result.includes(key)) continue;
+
+    let inserted = false;
+
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = result.indexOf(defaultOrder[j]);
+      if (idx >= 0) {
+        result.splice(idx + 1, 0, key);
+        inserted = true;
+        break;
+      }
+    }
+
+    if (!inserted) {
+      for (let j = i + 1; j < defaultOrder.length; j++) {
+        const idx = result.indexOf(defaultOrder[j]);
+        if (idx >= 0) {
+          result.splice(idx, 0, key);
+          inserted = true;
+          break;
+        }
+      }
+    }
+
+    if (!inserted) result.push(key);
+  }
+
+  return result;
+}
+
 function normalizeColumnOrder(columnOrder: string[], allColumns: SpecificDateShipmentColumn[]) {
   const allKeys = allColumns.map((col) => col.key);
   const allowed = new Set(allKeys);
@@ -57,9 +94,8 @@ function normalizeColumnOrder(columnOrder: string[], allColumns: SpecificDateShi
   );
 
   const filtered = unique.filter((key) => allowed.has(key));
-  const missing = allKeys.filter((key) => !filtered.includes(key));
 
-  return [...filtered, ...missing];
+  return insertMissingAtDefaultPosition(filtered, allKeys);
 }
 
 function normalizeColumnWidths(columnWidths: Record<string, number>, allColumns: SpecificDateShipmentColumn[]) {

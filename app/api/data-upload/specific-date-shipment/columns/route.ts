@@ -5,11 +5,13 @@ import { query } from "@/lib/db";
 const DEFAULT_WIDTH = 140;
 
 const DEFAULT_COLUMNS = [
+  "checked",
   "recipientName",
   "phone1",
   "phone2",
   "contractAddress",
   "itemName",
+  "shippingDate",
   "startDate",
   "shipmentDate",
   "boxCount",
@@ -20,6 +22,43 @@ const DEFAULT_COLUMNS = [
   "memo",
   "originalInvoiceNo",
 ];
+
+// ✅ 저장된 순서에 없는(새로 추가된) 기본 컬럼을, DEFAULT_COLUMNS상 제자리 근처에 끼워 넣는다.
+// (그냥 맨 뒤에 붙이면 "확인"/"택배발송일"처럼 앞쪽에 있어야 하는 컬럼이 맨 뒤로 밀려버림)
+function insertMissingAtDefaultPosition(currentOrder: string[], defaultOrder: string[]): string[] {
+  const result = [...currentOrder];
+
+  for (let i = 0; i < defaultOrder.length; i++) {
+    const key = defaultOrder[i];
+    if (result.includes(key)) continue;
+
+    let inserted = false;
+
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = result.indexOf(defaultOrder[j]);
+      if (idx >= 0) {
+        result.splice(idx + 1, 0, key);
+        inserted = true;
+        break;
+      }
+    }
+
+    if (!inserted) {
+      for (let j = i + 1; j < defaultOrder.length; j++) {
+        const idx = result.indexOf(defaultOrder[j]);
+        if (idx >= 0) {
+          result.splice(idx, 0, key);
+          inserted = true;
+          break;
+        }
+      }
+    }
+
+    if (!inserted) result.push(key);
+  }
+
+  return result;
+}
 
 type SpecificDateShipmentCustomColumn = {
   key: string;
@@ -117,9 +156,8 @@ async function loadCurrentColumnOrder() {
     new Set<string>(rawOrder.map((v: string) => String(v || "").trim()).filter((v: string) => Boolean(v)))
   );
   const filtered: string[] = unique.filter((key: string) => allowed.has(key));
-  const missing: string[] = allowedKeys.filter((key: string) => !filtered.includes(key));
 
-  return [...filtered, ...missing];
+  return insertMissingAtDefaultPosition(filtered, allowedKeys);
 }
 
 async function saveColumnOrder(columnOrder: string[]) {
