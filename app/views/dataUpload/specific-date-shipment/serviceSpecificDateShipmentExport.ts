@@ -10,8 +10,9 @@ function formatCsvCell(value: unknown) {
 }
 
 function getExportColumns(columns?: SpecificDateShipmentColumn[]) {
-  if (Array.isArray(columns) && columns.length > 0) return columns;
-  return SPECIFIC_DATE_SHIPMENT_COLUMNS;
+  const base = Array.isArray(columns) && columns.length > 0 ? columns : SPECIFIC_DATE_SHIPMENT_COLUMNS;
+  // ✅ 확인(체크박스) 컬럼은 다운로드 대상에서 제외
+  return base.filter((col) => col.key !== "checked");
 }
 
 function makeCsvText(rows: SpecificDateShipmentRow[], columns?: SpecificDateShipmentColumn[]) {

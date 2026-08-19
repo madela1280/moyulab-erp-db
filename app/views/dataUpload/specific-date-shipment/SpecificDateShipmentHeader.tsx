@@ -2,6 +2,7 @@
 
 type SpecificDateShipmentHeaderProps = {
   onConfirm?: () => void;
+  onSubmit?: () => void;
   onDownloadExcel?: () => void;
   onMoveColumns?: () => void;
   onAddTemplate?: () => void;
@@ -16,16 +17,18 @@ function HeaderButton({
   icon: string;
   label: string;
   onClick?: () => void;
-  variant?: "default" | "primary";
+  variant?: "default" | "primary" | "danger";
 }) {
   const className =
     variant === "primary"
       ? "inline-flex items-center gap-1.5 rounded-md border border-blue-600 bg-blue-600 px-3 py-[6px] text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-      : "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60";
+      : variant === "danger"
+        ? "inline-flex items-center gap-1.5 rounded-md border border-red-600 bg-red-600 px-3 py-[6px] text-xs font-medium text-white shadow-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        : "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-[6px] text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60";
 
   return (
     <button type="button" className={className} onClick={onClick}>
-      <span className={variant === "primary" ? "text-white" : "text-slate-500"}>{icon}</span>
+      <span className={variant === "primary" || variant === "danger" ? "text-white" : "text-slate-500"}>{icon}</span>
       <span>{label}</span>
     </button>
   );
@@ -33,6 +36,7 @@ function HeaderButton({
 
 export default function SpecificDateShipmentHeader({
   onConfirm,
+  onSubmit,
   onDownloadExcel,
   onMoveColumns,
   onAddTemplate,
@@ -46,6 +50,7 @@ export default function SpecificDateShipmentHeader({
       </div>
 
       <div className="flex items-center gap-2">
+        <HeaderButton icon="↑" label="전송" variant="danger" onClick={onSubmit} />
         <HeaderButton icon="↓" label="다운로드" onClick={onDownloadExcel} />
         <HeaderButton icon="↔" label="열이동" onClick={onMoveColumns} />
         <HeaderButton icon="＋" label="양식추가" onClick={onAddTemplate} />

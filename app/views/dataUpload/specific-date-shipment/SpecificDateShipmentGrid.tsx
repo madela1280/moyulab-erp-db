@@ -27,6 +27,9 @@ type SpecificDateShipmentGridProps = {
 // ✅ 정렬 삼각형 아이콘을 지원하는 컬럼(시작일/출고일자만)
 const SORTABLE_COLUMN_KEYS = new Set(["startDate", "shipmentDate"]);
 
+// ✅ 수기 입력 시 날짜 형식 자동변환 대상 컬럼(택배발송일)
+const DATE_INPUT_COLUMN_KEYS = new Set(["shippingDate"]);
+
 function isMultiCellRange(range: SpecificDateShipmentCellRange | null) {
   if (!range) return false;
   return range.startRow !== range.endRow || range.startCol !== range.endCol;
@@ -34,6 +37,26 @@ function isMultiCellRange(range: SpecificDateShipmentCellRange | null) {
 
 function normalizeWidth(width: number) {
   return Math.max(60, Math.min(800, Math.round(width)));
+}
+
+// ✅ 20260101 -> 2026-01-01, 2026.1.1 / 2026/1/1 -> 2026-01-01 로 정규화(이미 2026-01-01이면 그대로)
+function normalizeDateInput(raw: string) {
+  const s = String(raw ?? "").trim();
+  if (!s) return s;
+
+  if (/^\d{8}$/.test(s)) {
+    return s.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  }
+
+  const m = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+  if (m) {
+    const y = m[1];
+    const mo = String(m[2]).padStart(2, "0");
+    const d = String(m[3]).padStart(2, "0");
+    return `${y}-${mo}-${d}`;
+  }
+
+  return s;
 }
 
 export default function SpecificDateShipmentGrid({
@@ -134,6 +157,26 @@ export default function SpecificDateShipmentGrid({
     const row = sortedRows[rowIndex];
     if (!row) return;
     updateCellByRowId(row.id, colKey, value);
+  }
+
+  function commitDateCell(rowIndex: number, colKey: string, value: string) {
+    if (!DATE_INPUT_COLUMN_KEYS.has(colKey)) return;
+
+    const normalized = normalizeDateInput(value);
+    if (normalized === value) return;
+
+    updateCell(rowIndex, colKey, normalized);
+  }
+
+  function updateCheckedByRowId(rowId: string, checked: boolean) {
+    const nextRows = displayRows.map((row) => (row.id === rowId ? { ...row, checked } : row));
+    onRowsChange?.(nextRows);
+  }
+
+  function updateChecked(rowIndex: number, checked: boolean) {
+    const row = sortedRows[rowIndex];
+    if (!row) return;
+    updateCheckedByRowId(row.id, checked);
   }
 
   function clearSelectedCells() {
@@ -366,6 +409,25 @@ export default function SpecificDateShipmentGrid({
                 const selected = isSpecificDateShipmentCellInRange(rowIndex, colIndex, selectedRange);
                 const multiSelected = selected && isMultiCellRange(selectedRange);
 
+                if (col.key === "checked") {
+                  return (
+                    <td
+                      key={`${row.id}-${col.key}`}
+                      className="border border-slate-300 text-center align-middle bg-white"
+                      style={{
+                        width: col.width,
+                        minWidth: col.width,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!row.checked}
+                        onChange={(e) => updateChecked(rowIndex, e.target.checked)}
+                      />
+                    </td>
+                  );
+                }
+
                 return (
                   <td
                     key={`${row.id}-${col.key}`}
@@ -384,6 +446,7 @@ export default function SpecificDateShipmentGrid({
                       data-sds-col={colIndex}
                       value={row.data?.[col.key] ?? ""}
                       onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
+                      onBlur={(e) => commitDateCell(rowIndex, col.key, e.target.value)}
                       onKeyDown={(e) => handleInputKeyDown(e, rowIndex, colIndex)}
                       className="block h-full min-h-8 w-full border-0 bg-transparent px-2 py-1 text-xs font-normal text-slate-900 outline-none"
                       style={{

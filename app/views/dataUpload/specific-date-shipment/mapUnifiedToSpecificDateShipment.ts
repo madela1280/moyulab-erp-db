@@ -67,27 +67,30 @@ function formatDateOnly(d: Date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function isBusinessDay(d: Date) {
+  const day = d.getDay();
+  if (day === 0 || day === 6) return false;
+  return !HOLIDAYS.has(formatDateOnly(d));
+}
+
 /*
- * ✅ 출고일자 계산 규칙
- * - 기준: 시작일 - 2일
- * - 영업일(월~금)만 출고 가능. 계산된 날짜가 토요일/일요일 또는 공휴일이면
- *   하루씩 앞당겨서 가장 가까운 영업일로 이동한다.
+ * ✅ 출고일자 계산 규칙: 시작일 기준 "영업일" 2일 전.
+ * - 시작일부터 하루씩 거슬러 올라가면서 영업일(월~금, 공휴일 제외)만 세어 2일째 되는 날.
+ * - (단순 "캘린더 -2일 후 보정"이 아님: 시작일 자체가 휴일이어도 정확히 계산됨.
+ *   예) 토요일 시작→목요일 / 일요일 시작→목요일 / 연휴(9/24~27) 직후 9/28(월) 시작→9/22)
  */
 export function computeShipmentDate(startDateText: unknown): string {
   const start = parseDateOnly(startDateText);
   if (!start) return "";
 
   const d = new Date(start);
-  d.setDate(d.getDate() - 2);
+  let remaining = 2;
 
-  while (true) {
-    const ds = formatDateOnly(d);
-    const day = d.getDay();
-    if (day === 0 || day === 6 || HOLIDAYS.has(ds)) {
-      d.setDate(d.getDate() - 1);
-      continue;
+  while (remaining > 0) {
+    d.setDate(d.getDate() - 1);
+    if (isBusinessDay(d)) {
+      remaining -= 1;
     }
-    break;
   }
 
   return formatDateOnly(d);
@@ -109,6 +112,9 @@ export function mapUnifiedToSpecificDateShipmentRows(
     const partnerCategory = text(data["거래처분류"]);
     mapped.itemName = partnerCategory ? `${partnerCategory}/대여` : "대여";
 
+    // ✅ 택배발송일은 항상 빈 값에서 시작(수기 입력 전용). 이 값이 전송 시 통합관리 택배발송일에 저장됨.
+    mapped.shippingDate = "";
+
     mapped.startDate = text(data["시작일"]);
     mapped.shipmentDate = computeShipmentDate(data["시작일"]);
     mapped.boxCount = "";
@@ -119,8 +125,12 @@ export function mapUnifiedToSpecificDateShipmentRows(
     mapped.memo = "";
     mapped.originalInvoiceNo = "";
 
+    // ✅ 전송 시 통합관리 행을 특정하기 위한 숨김 필드(화면/CSV에는 노출 안 됨)
+    mapped.__unifiedId = String(source.id);
+
     return {
       id: `unified-${source.id}`,
+      checked: false,
       data: mapped,
     };
   });
