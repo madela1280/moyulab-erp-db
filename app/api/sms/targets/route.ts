@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { SmsSubCategory } from "@/sms/types/sms.types";
 import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
+import { decideSmsSubCategoryFromUnifiedRow } from "@/sms/rules/smsSubCategoryRules";
 
 function getKstTodayYmd() {
   // "YYYY-MM-DD"
@@ -36,6 +37,16 @@ function pick(data: Record<string, any>, key: string) {
   const v = (data as any)?.[key];
   if (v === undefined) return null;
   return v;
+}
+
+// ✅ holidays 테이블(YYYY-MM-DD Set). 실패해도 빈 Set으로 폴백(공휴일 구분만 안 될 뿐 조회는 계속됨)
+async function getHolidaySet(): Promise<Set<string>> {
+  try {
+    const r = await query(`SELECT to_char(date, 'YYYY-MM-DD') AS date FROM holidays`);
+    return new Set((r.rows ?? []).map((row: any) => String(row.date)));
+  } catch {
+    return new Set();
+  }
 }
 
 export async function GET(req: Request) {
@@ -77,7 +88,9 @@ export async function GET(req: Request) {
       [subCategory, baseDate]
     );
 
-    const rows = (r.rows ?? []).map((row: any) => {
+    const holidays = await getHolidaySet();
+
+    const mapped = (r.rows ?? []).map((row: any) => {
       const data: Record<string, any> =
         row?.data && typeof row.data === "object" ? row.data : {};
 
@@ -94,6 +107,13 @@ export async function GET(req: Request) {
         },
         baseToday
       );
+
+      // ✅ 실시간 제외: 05시 집계 당시엔 이 소카테고리로 분류됐더라도,
+      // 조회 시점(현재) 기준으로 재판정했을 때 더 이상 해당 소카테고리가 아니면
+      // (예: 낮 동안 반납완료 처리됨) 화면 목록에서 제외한다.
+      // - DB(sms_targets)는 건드리지 않으므로 집계/발송/중복방지 로직에는 영향 없음.
+      const liveDecision = decideSmsSubCategoryFromUnifiedRow(data, baseToday, holidays);
+      if (liveDecision.subCategory !== subCategory) return null;
 
       // ✅ SmsTargetTable에서 선택/키로 쓰는 id는 sms_targets.id 여야 함
       return {
@@ -121,6 +141,8 @@ export async function GET(req: Request) {
         특이사항1: pick(data, "특이사항1"),
       };
     });
+
+    const rows = mapped.filter((v): v is NonNullable<typeof v> => v !== null);
 
     return NextResponse.json({
       ok: true,
