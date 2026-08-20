@@ -7,6 +7,7 @@ export type UnifiedStatus =
   | "만기5일전"
   | "만기4일전"
   | "만기3일전"
+  | "만기3일전(공휴일)"
   | "만기2일전"
   | "만기1일전"
   | "오늘만기"
@@ -35,7 +36,13 @@ type Inputs = {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): UnifiedStatusResult {
+export function calcUnifiedStatus(
+  input: Inputs,
+  baseToday: Date = new Date(),
+  // ✅ 선택 인자(기존 호출부는 안 넘겨도 그대로 동작). YYYY-MM-DD Set.
+  // 넘기면 "만기3일전"이 공휴일 만기 건일 때 "만기3일전(공휴일)"로 구분 표시된다.
+  holidays?: Set<string>
+): UnifiedStatusResult {
   const today = todayStart(baseToday);
 
   const shipped = parseUnifiedCell(input.택배발송일);
@@ -64,7 +71,12 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
     const diff = diffDays(ended.date, today); // 종료일 - 오늘
     if (diff === 5) return { status: "만기5일전" };
     if (diff === 4) return { status: "만기4일전" };
-    if (diff === 3) return { status: "만기3일전", textColor: "#2563eb" }; // blue-600
+    if (diff === 3) {
+      if (holidays?.has(formatDateKey(ended.date))) {
+        return { status: "만기3일전(공휴일)", textColor: "#d97706" }; // amber-600
+      }
+      return { status: "만기3일전", textColor: "#2563eb" }; // blue-600
+    }
     if (diff === 2) return { status: "만기2일전" };
     if (diff === 1) return { status: "만기1일전" };
 
@@ -103,6 +115,13 @@ export function calcUnifiedStatus(input: Inputs, baseToday: Date = new Date()): 
   // ✅ 단, 완전 빈행에는 발송전 표시하지 않음
   if (!hasMinimumInfo) return { status: "" };
   return { status: "발송전" };
+}
+
+function formatDateKey(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 /** a - b (일 단위), 둘 다 startOfDay로 들어온다는 전제 */

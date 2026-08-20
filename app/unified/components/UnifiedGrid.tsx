@@ -49,6 +49,7 @@ import {
 } from "@/unified/columns/unifiedColumns";
 
 import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
+import { useHolidays } from "@/unified/status/useHolidays";
 import { useUnifiedStatusTicker } from "@/unified/status/useUnifiedStatusTicker";
 import { countExtensionRounds, sumExtensionDaysFromRow } from "@/views/unified/extensions/extensionCompute";
 import { computeEndDateFromStartAndTotalDays } from "@/views/unified/extensions/extensionDate";
@@ -225,6 +226,9 @@ const UnifiedGrid = forwardRef<UnifiedGridHandle, UnifiedGridProps>(
 // - 자정에 자동으로 다시 계산되어 만기 D-5→D-4 같은 변화가 반영됨
 const { today } = useUnifiedStatusTicker();
 
+// ✅ 만기3일전(공휴일) 판정용. 실패해도 빈 Set이라 기존 "만기3일전" 표시로 그대로 동작.
+const { holidays } = useHolidays();
+
 function getDerivedStatusForRow(rowData: Record<string, any>) {
   return calcUnifiedStatus(
     {
@@ -239,7 +243,8 @@ function getDerivedStatusForRow(rowData: Record<string, any>) {
       반납요청일: rowData?.["반납요청일"],
       반납완료일: rowData?.["반납완료일"],
     },
-    today
+    today,
+    holidays
   );
 }
 
