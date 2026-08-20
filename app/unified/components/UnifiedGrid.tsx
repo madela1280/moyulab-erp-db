@@ -78,6 +78,9 @@ export type UnifiedGridHandle = {
   //    원격 동기화 왕복(수 초 지연)을 기다리지 않고 화면에 즉시 반영하기 위한 순수 로컬 갱신.
   //    네트워크/락과 전혀 무관 — updateLocalCell을 그대로 노출만 함.
   updateLocalCell: (id: number, key: string, value: string) => void;
+  // ✅ 셀 직접입력 저장 시 이미 쓰던 것과 동일한 함수를 그대로 노출.
+  //    자기 저장으로 발생한 동기화 echo가 방금 반영한 화면을 덮어쓰지 않도록 잠깐 보류시킴(순수 타이머, 네트워크/락 무관).
+  suppressReloadFor: (ms: number) => void;
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
@@ -1892,6 +1895,7 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     applyColorToSelection,
     scrollToTailData,
     updateLocalCell,
+    suppressReloadFor,
   }),
   [displayRows, selectedCellRange, viewColumns]
 );

@@ -887,6 +887,8 @@ export default function UnifiedMainView() {
           const next = normalizeName(name);
           // ✅ 원격 동기화 왕복을 기다리지 않고 화면에 즉시 반영(순수 로컬, 락/네트워크 무관)
           gridRef.current?.updateLocalCell(unifiedId, "거래처분류", next);
+          // ✅ 이 저장으로 발생하는 동기화 echo가 방금 반영한 화면을 잠깐 덮어써 점멸하는 것 방지
+          gridRef.current?.suppressReloadFor(2500);
           await syncPatch(unifiedId, "거래처분류", next);
           setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }));
         }}
@@ -901,6 +903,7 @@ export default function UnifiedMainView() {
           const unifiedId = partnerPopover.unifiedId;
           if (unifiedId) {
             gridRef.current?.updateLocalCell(unifiedId, "거래처분류", n);
+            gridRef.current?.suppressReloadFor(2500);
             await syncPatch(unifiedId, "거래처분류", n);
           }
         }}
@@ -914,6 +917,7 @@ export default function UnifiedMainView() {
           const unifiedId = partnerPopover.unifiedId;
           if (unifiedId && normalizeName(partnerPopover.currentValue) === n) {
             gridRef.current?.updateLocalCell(unifiedId, "거래처분류", "");
+            gridRef.current?.suppressReloadFor(2500);
             await syncPatch(unifiedId, "거래처분류", "");
           }
         }}
