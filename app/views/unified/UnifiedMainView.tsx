@@ -885,6 +885,8 @@ export default function UnifiedMainView() {
           if (!unifiedId) return;
 
           const next = normalizeName(name);
+          // ✅ 원격 동기화 왕복을 기다리지 않고 화면에 즉시 반영(순수 로컬, 락/네트워크 무관)
+          gridRef.current?.updateLocalCell(unifiedId, "거래처분류", next);
           await syncPatch(unifiedId, "거래처분류", next);
           setPartnerPopover((p) => ({ ...p, open: false, unifiedId: null }));
         }}
@@ -897,7 +899,10 @@ export default function UnifiedMainView() {
           await patchPartnerOptionsNoStore(nextOptions);
 
           const unifiedId = partnerPopover.unifiedId;
-          if (unifiedId) await syncPatch(unifiedId, "거래처분류", n);
+          if (unifiedId) {
+            gridRef.current?.updateLocalCell(unifiedId, "거래처분류", n);
+            await syncPatch(unifiedId, "거래처분류", n);
+          }
         }}
         onDelete={async (raw) => {
           const n = normalizeName(raw);
@@ -908,6 +913,7 @@ export default function UnifiedMainView() {
 
           const unifiedId = partnerPopover.unifiedId;
           if (unifiedId && normalizeName(partnerPopover.currentValue) === n) {
+            gridRef.current?.updateLocalCell(unifiedId, "거래처분류", "");
             await syncPatch(unifiedId, "거래처분류", "");
           }
         }}

@@ -74,6 +74,10 @@ export type UnifiedGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
   applyColorToSelection: (color: UnifiedSoftColor, mode: ColorApplyMode) => Promise<void>;
   scrollToTailData: () => void; // ✅ 필터 토글 후 “마지막 데이터 근처”로 복귀용
+  // ✅ 거래처분류 팝업처럼 그리드 밖(UnifiedMainView)에서 syncPatch로 저장한 값을,
+  //    원격 동기화 왕복(수 초 지연)을 기다리지 않고 화면에 즉시 반영하기 위한 순수 로컬 갱신.
+  //    네트워크/락과 전혀 무관 — updateLocalCell을 그대로 노출만 함.
+  updateLocalCell: (id: number, key: string, value: string) => void;
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
@@ -1887,9 +1891,10 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     appendBlankRows,
     applyColorToSelection,
     scrollToTailData,
+    updateLocalCell,
   }),
   [displayRows, selectedCellRange, viewColumns]
-);  
+);
 
     /* --------------------- 로컬 셀 값 반영 --------------------- */
 function freezeDisplayRowsIfNeeded() {
