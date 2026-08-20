@@ -3866,6 +3866,10 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             }
           }
 
+          // ✅ 화면 반영은 큐를 기다리지 않고 즉시(거래처분류 등 클릭 선택 직후 표시 지연 방지).
+          // 실제 서버 저장(락/PATCH/검증)만 아래에서 행 단위로 순서대로 실행한다.
+          updateLocalCell(row.id, key, v);
+
           // ✅ 같은 행에서 셀을 빠르게 연속 이동할 때 onBlur들의 실제 저장 로직이
           // 서로 겹치지 않도록, 지금부터 finally까지를 행(row.id) 단위로 순서대로 실행한다.
           // (v/v0 값은 이미 위에서 캡처했으므로 대기 중에도 값 유실 없음)
@@ -3919,8 +3923,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             // ✅ 저장 직후 소켓 echo/부분재조회가 1~2초 내로 들어오며 점멸하는 케이스 방지
             suppressReloadFor(2500);
 
-            // ✅ blur 1회에만 로컬 반영 (입력 누락/잘림 방지)
-            updateLocalCell(row.id, key, v);
+            // (로컬 반영은 큐 진입 전에 이미 완료됨 — 위 updateLocalCell 참고)
 
             // ✅ 삭제(v==="")는 syncPatch가 res.ok 체크가 없어 저장 누락이 묻히는 케이스가 있음
             // → 안정화된 bulkPatchAndReconcile 경로로 저장 확정
