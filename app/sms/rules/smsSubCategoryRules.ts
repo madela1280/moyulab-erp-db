@@ -18,7 +18,10 @@ type UnifiedData = Record<string, any>;
 
 export function decideSmsSubCategoryFromUnifiedRow(
   data: UnifiedData,
-  baseToday: Date = new Date()
+  baseToday: Date = new Date(),
+  // ✅ 선택 인자(기존 호출부는 안 넘겨도 그대로 동작). YYYY-MM-DD Set.
+  // 넘기면 "만기3일전"이 공휴일 만기 건일 때 "만기3일전(공휴일)"로 별도 소카테고리로 분류된다.
+  holidays?: Set<string>
 ): SmsSubCategoryDecision {
   const today = todayStart(baseToday);
 
@@ -33,10 +36,14 @@ export function decideSmsSubCategoryFromUnifiedRow(
       반납요청일: data?.["반납요청일"],
       반납완료일: data?.["반납완료일"],
     },
-    today
+    today,
+    holidays
   );
 
-  // 1) 만기3일전 / 만기지남은 통합관리 상태를 기준으로 고정
+  // 1) 만기3일전(공휴일) / 만기3일전 / 만기지남은 통합관리 상태를 기준으로 고정
+  if (derived.status === "만기3일전(공휴일)") {
+    return { subCategory: "만기3일전(공휴일)", derivedStatus: derived.status };
+  }
   if (derived.status === "만기3일전") {
     return { subCategory: "만기3일전", derivedStatus: derived.status };
   }

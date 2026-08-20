@@ -1,6 +1,6 @@
 // app/sms/types/sms.types.ts
 
-export const SMS_SUB_CATEGORIES = ["대여첫안내", "만기3일전", "만기지남"] as const;
+export const SMS_SUB_CATEGORIES = ["대여첫안내", "만기3일전", "만기3일전(공휴일)", "만기지남"] as const;
 export type SmsSubCategory = (typeof SMS_SUB_CATEGORIES)[number];
 
 export type SmsTargetStatus =

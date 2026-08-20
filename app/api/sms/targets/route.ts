@@ -15,7 +15,7 @@ function getKstTodayYmd() {
 
 function normalizeSubCategory(v: string | null): SmsSubCategory | null {
   const s = String(v ?? "").trim();
-  if (s === "대여첫안내" || s === "만기3일전" || s === "만기지남") return s;
+  if (s === "대여첫안내" || s === "만기3일전" || s === "만기3일전(공휴일)" || s === "만기지남") return s;
   return null;
 }
 

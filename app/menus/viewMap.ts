@@ -47,6 +47,7 @@ export const VIEW_MAP: Record<string, any> = {
   // 문자
   "문자>대여첫안내": makeSmsWrapper("대여첫안내"),
   "문자>만기3일전": makeSmsWrapper("만기3일전"),
+  "문자>만기3일전(공휴일)": makeSmsWrapper("만기3일전(공휴일)"),
   "문자>만기지남": makeSmsWrapper("만기지남"),
 
   // 백업복원

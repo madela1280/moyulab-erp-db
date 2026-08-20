@@ -45,9 +45,64 @@ function norm(v: any) {
   return s ? s : null;
 }
 
-const ALL_SUBS: SmsSubCategory[] = ["대여첫안내", "만기3일전", "만기지남"];
+const ALL_SUBS: SmsSubCategory[] = ["대여첫안내", "만기3일전", "만기3일전(공휴일)", "만기지남"];
 
 type UnifiedRow = { id: number; data: Record<string, any> };
+
+// ✅ sms_targets/sms_template_map의 sub_category CHECK 제약을 새 카테고리까지 허용하도록 확장.
+// (unified/locks 스키마와 무관, 기존 3개 값은 그대로 포함되므로 기존 카테고리 동작에 영향 없음)
+async function ensureSubCategoryConstraint() {
+  const allowed = ALL_SUBS.map((s) => `'${s}'`).join(",");
+
+  for (const table of ["sms_targets", "sms_template_map"]) {
+    await query(
+      `
+      DO $$
+      DECLARE
+        con_name text;
+      BEGIN
+        SELECT conname INTO con_name
+        FROM pg_constraint
+        WHERE conrelid = '${table}'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%sub_category%';
+
+        IF con_name IS NOT NULL THEN
+          EXECUTE format('ALTER TABLE ${table} DROP CONSTRAINT %I', con_name);
+        END IF;
+
+        ALTER TABLE ${table}
+          ADD CONSTRAINT ${table}_sub_category_check
+          CHECK (sub_category IN (${allowed}));
+      END $$;
+      `
+    );
+  }
+}
+
+// ✅ holidays 테이블(YYYY-MM-DD Set). 실패해도 빈 Set으로 폴백(공휴일 구분만 안 될 뿐 집계 자체는 계속됨)
+async function getHolidaySet(): Promise<Set<string>> {
+  try {
+    const r = await query(`SELECT to_char(date, 'YYYY-MM-DD') AS date FROM holidays`);
+    return new Set((r.rows ?? []).map((row: any) => String(row.date)));
+  } catch {
+    return new Set();
+  }
+}
+
+// ✅ 만기지남 전용: "역대 한 번이라도" 발송(sent/success) 확정된 unified_id는 base_date와 무관하게
+// 다시는 집계 대상에 포함하지 않는다(매일 재집계되어 중복 발송되는 것 방지).
+async function getAlreadyNotifiedOverdueIds(): Promise<Set<number>> {
+  const r = await query(
+    `
+    SELECT DISTINCT unified_id
+    FROM sms_targets
+    WHERE sub_category = '만기지남'
+      AND target_status IN ('sent','success')
+    `
+  );
+  return new Set((r.rows ?? []).map((row: any) => Number(row.unified_id)));
+}
 
 /**
  * POST /api/sms/aggregate
@@ -82,6 +137,16 @@ export async function POST(req: Request) {
     const baseDate = normalizeBaseDate(body?.baseDate) ?? getKstTodayYmd();
     const baseToday = ymdToDateLocal(baseDate);
 
+    await ensureSubCategoryConstraint();
+
+    const holidays = await getHolidaySet();
+    // ✅ 만기지남: 오늘(집계 기준일)이 공휴일이면 이번 회차는 만기지남을 통째로 건너뛴다.
+    // (다음 영업일 집계에서 밀린 것까지 자동으로 포함되어 처리됨 — 별도 보정 로직 불필요)
+    const isBaseDateHoliday = holidays.has(baseDate);
+    const alreadyNotifiedOverdueIds = isBaseDateHoliday
+      ? new Set<number>()
+      : await getAlreadyNotifiedOverdueIds();
+
     // ✅ 후보만 최소로 가져오기:
     // - 연락처1이 있어야 발송 대상이 될 수 있음
     // - 대여첫안내(시작일=baseDate) 또는 종료일이 있는 행(만기 계산 후보)
@@ -114,9 +179,15 @@ export async function POST(req: Request) {
       // ✅ 예외 규칙: 특정 거래처분류+안내분류 조합은 집계 대상에서 제외
       if (isSmsExcludedFromUnifiedRow(data)) continue;
 
-      const decision = decideSmsSubCategoryFromUnifiedRow(data, baseToday);
+      const decision = decideSmsSubCategoryFromUnifiedRow(data, baseToday, holidays);
       const sub = decision.subCategory;
       if (!sub) continue;
+
+      // ✅ 만기지남 전용 예외: 오늘이 공휴일이면 이번 회차엔 만기지남 자체를 집계하지 않음
+      if (sub === "만기지남" && isBaseDateHoliday) continue;
+
+      // ✅ 만기지남 전용 예외: 역대 한 번이라도 발송 확정된 건은 다시 집계하지 않음(영구 1회)
+      if (sub === "만기지남" && alreadyNotifiedOverdueIds.has(row.id)) continue;
 
       matchBySub.get(sub)!.push(row.id);
 

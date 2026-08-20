@@ -6,6 +6,7 @@ import type { SmsSubCategory } from "@/sms/types/sms.types";
 const TABS: { key: SmsSubCategory; label: string }[] = [
   { key: "대여첫안내", label: "대여첫안내" },
   { key: "만기3일전", label: "만기3일전" },
+  { key: "만기3일전(공휴일)", label: "만기3일전(공휴일)" },
   { key: "만기지남", label: "만기지남" },
 ];
 
