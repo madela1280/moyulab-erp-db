@@ -61,7 +61,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 고객접수
   "고객접수>반납접수": dynamic(() => import("@/views/customerReception/ReturnRequestView")),
-  "고객접수>연장접수": dynamic(() => import("@/views/customerReception/ExtendRequestView")),
+  "고객접수>입금확인": dynamic(() => import("@/views/customerReception/PaymentConfirmView")),
   "고객접수>환불접수": dynamic(() => import("@/views/customerReception/RefundRequestView")),
   "고객접수>A": dynamic(() => import("@/views/customerReception/CustomerReceptionAView")),
   "고객접수>B": dynamic(() => import("@/views/customerReception/CustomerReceptionBView")),
