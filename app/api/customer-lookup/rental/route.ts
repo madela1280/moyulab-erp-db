@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
         연락처2: valueOrNull(data["연락처2"]),
         거래처분류: valueOrNull(data["거래처분류"]),
         제품: valueOrNull(data["제품"]),
+        계약자주소: valueOrNull(data["계약자주소"]),
         시작일: valueOrNull(data["시작일"]),
         종료일: valueOrNull(data["종료일"]),
         반납요청일: valueOrNull(data["반납요청일"]),
