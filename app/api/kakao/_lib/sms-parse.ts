@@ -21,7 +21,8 @@ export type ParsedSms = {
 // 은행·보안 문구 등 이름으로 오인하면 안 되는 토큰
 const NOT_NAMES = new Set([
   "국민", "국민은행", "KB", "kb", "입금", "출금", "잔액", "전자금융",
-  "체크카드", "타행", "당행", "누적", "지급", "이체", "web", "Web",
+  "체크카드", "타행", "당행", "누적", "지급", "이체", "web", "Web", "발신",
+  "기업", "기업은행", "농협", "신한", "우리", "하나", "카카오", "토스",
 ]);
 
 /**
@@ -54,9 +55,10 @@ export function parseDepositSms(raw: string): ParsedSms {
 }
 
 function extractAmount(text: string): number | null {
-  // 1순위: "입금 35,000원" / "입금35000원"
-  let m = text.match(/입금[^0-9]{0,10}([0-9][0-9,]*)\s*원/);
-  // 2순위: "35,000원 입금"
+  // 실물 확인: KB는 "입금\n13,000" 처럼 원 없이 다음 줄에 금액이 옴
+  // → 입금 바로 뒤의 첫 숫자를 잡는다 (잔액은 "잔액" 뒤라 혼동 없음)
+  let m = text.match(/입금[^0-9]{0,10}([0-9][0-9,]*)/);
+  // 보조: "35,000원 입금" 어순
   if (!m) m = text.match(/([0-9][0-9,]*)\s*원[^가-힣]{0,4}입금/);
   if (!m) return null;
   const n = Number(m[1].replace(/,/g, ""));
@@ -85,9 +87,10 @@ function extractName(text: string): string | null {
 /* ts-node 로 직접 실행 시 케이스 검증                                   */
 /* ------------------------------------------------------------------ */
 
+// 2026-08-25 실물 문자 기준 (계좌 마스킹)
 export const SAMPLE_CASES: { raw: string; amount: number | null; depositor: string | null }[] = [
-  { raw: "[KB]08/20 14:32 272501**286073 김민지 입금 35,000원 잔액2,111,000원", amount: 35000, depositor: "김민지" },
-  { raw: "KB국민은행 입금 20,000원 박서준 08/21 09:15 잔액 555,000원", amount: 20000, depositor: "박서준" },
-  { raw: "[Web발신] 국민 08/21 이수현 입금 12,000 원", amount: 12000, depositor: "이수현" },
+  { raw: "[Web발신]\n2026/08/25 19:53\n입금 91,000원\n잔액 18,394,249원\n박연희\n635***68302016\n기업", amount: 91000, depositor: "박연희" },
+  { raw: "[Web발신]\n[KB]08/25 22:54\n272501**073\n조예은\n입금\n13,000\n잔액39,756,074", amount: 13000, depositor: "조예은" },
+  { raw: "[Web발신]\n[KB]08/25 21:15\n593501**356\n김대욱\n입금\n5,000\n잔액4,579,053", amount: 5000, depositor: "김대욱" },
   { raw: "[KB] 체크카드 승인 35,000원 스타벅스", amount: null, depositor: null },
 ];
