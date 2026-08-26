@@ -1,0 +1,109 @@
+// app/api/customer-reception/packaging-orders/route.ts
+//
+// 포장재구매(payment_orders, order_type='parts') 조회/생성 API.
+// - GET: ERP "고객접수 > 포장재구매" 그리드가 호출. 같은 DB라 인증 없이 내부에서 바로 조회한다
+//   (반납접수처럼 CS서버 API를 거칠 필요 없음 — payment_orders는 이미 ERP DB에 있음).
+// - POST: 카카오 챗봇(CS서버)이 입금자명 확정 시점에 호출해서 새 "입금대기" 주문을 만든다.
+//   인증: 헤더 x-cs-api-key 가 CS_SERVER_API_KEY 환경변수와 일치해야 한다
+//   (기존 /api/customer-lookup/rental과 동일한 방향의 인증키를 재사용).
+
+import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+function isAuthorized(req: NextRequest): boolean {
+  const expected = String(process.env.CS_SERVER_API_KEY || "").trim();
+  if (!expected) return false; // 키 미설정 시 기본 거부(안전 우선)
+
+  const provided = String(req.headers.get("x-cs-api-key") || "").trim();
+  return !!provided && provided === expected;
+}
+
+function valueOrNull(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s ? s : null;
+}
+
+export async function GET() {
+  try {
+    const result = await query(
+      `
+      SELECT
+        id,
+        renter_name,
+        phone1,
+        phone2,
+        shipping_address,
+        item_name,
+        amount,
+        depositor_name,
+        status,
+        created_at
+      FROM payment_orders
+      WHERE order_type = 'parts'
+      ORDER BY created_at DESC
+      `
+    );
+
+    return NextResponse.json({ ok: true, rows: result.rows || [] });
+  } catch (e) {
+    console.error("GET /api/customer-reception/packaging-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server", rows: [] }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json().catch(() => null);
+
+    const unifiedId = Number(body?.unifiedId);
+    const amount = Number(body?.amount);
+    const depositorName = valueOrNull(body?.depositorName);
+    const renterName = valueOrNull(body?.renterName);
+    const phone1 = valueOrNull(body?.phone1);
+    const phone2 = valueOrNull(body?.phone2);
+    const shippingAddress = valueOrNull(body?.shippingAddress);
+    const itemName = valueOrNull(body?.itemName);
+    const kakaoUserKey = valueOrNull(body?.kakaoUserKey);
+
+    if (!Number.isFinite(unifiedId) || unifiedId <= 0) {
+      return NextResponse.json({ ok: false, error: "invalid_unified_id" }, { status: 400 });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return NextResponse.json({ ok: false, error: "invalid_amount" }, { status: 400 });
+    }
+    if (!depositorName) {
+      return NextResponse.json({ ok: false, error: "missing_depositor_name" }, { status: 400 });
+    }
+
+    const result = await query(
+      `
+      INSERT INTO payment_orders (
+        order_type, unified_id, amount, depositor_name,
+        renter_name, phone1, phone2, shipping_address, item_name,
+        kakao_user_key
+      )
+      VALUES ('parts', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+      `,
+      [unifiedId, amount, depositorName, renterName, phone1, phone2, shippingAddress, itemName, kakaoUserKey]
+    );
+
+    return NextResponse.json({ ok: true, id: result.rows?.[0]?.id ?? null });
+  } catch (e: any) {
+    // 같은 unified_id로 이미 waiting 건이 있으면 uq_payment_orders_waiting 유니크 제약에 걸림
+    if (e?.code === "23505") {
+      return NextResponse.json(
+        { ok: false, error: "already_waiting", message: "이미 처리 대기 중인 결제 건이 있습니다." },
+        { status: 409 }
+      );
+    }
+    console.error("POST /api/customer-reception/packaging-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
+  }
+}
