@@ -34,7 +34,10 @@ const ORDER_TYPE_LABEL: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: "입금대기",
-  matched: "문자매칭됨",
+  matched: "입금확인",
+  confirmed: "입금확인",
+  expired: "만료",
+  canceled: "취소",
 };
 
 export default function PaymentConfirmTable(props: {
@@ -73,8 +76,9 @@ export default function PaymentConfirmTable(props: {
     return norm((r as any)[colKey]);
   }
 
-  // 임박 건 강조: 만료까지 3시간 이내
+  // 임박 건 강조: 아직 입금대기 중이면서 만료까지 3시간 이내인 것만(확정·만료·취소 건은 대상 아님)
   function isUrgent(r: PaymentOrderRow) {
+    if (r.status !== "waiting") return false;
     const t = new Date(r.expires_at).getTime();
     if (!Number.isFinite(t)) return false;
     return t - Date.now() < 3 * 60 * 60 * 1000;

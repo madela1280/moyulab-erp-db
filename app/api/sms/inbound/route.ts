@@ -7,14 +7,12 @@
 //   헤더:   x-sms-secret: (환경변수 SMS_INBOUND_SECRET 값)
 //   본문:   { "text": "문자 원문" }   또는 text/plain 원문 그대로
 //
-// 매칭 규칙 (지시서와 동일):
-//   금액 일치 + 입금자명 일치 + waiting 1건  → status='matched'
-//   그 외 (0건·2건 이상·이름 불일치)         → 원문만 보관, 직원 수동 처리
+// 매칭 규칙:
+//   금액 일치 + 입금자명 일치 + waiting 1건  → status='confirmed'(자동 확정)
+//   그 외 (0건·2건 이상·이름 불일치)         → 원문만 보관, 직원 수동 처리(입금확인 화면에서 확인 후 직접 처리)
 //
-// ★ 'confirmed'로 바로 올리지 않습니다. 종료일 갱신·알림톡은 ERP [입금 확인]의
-//   책임이므로, 파서는 "이 건이 맞다"까지만 표시(matched)하고 멈춥니다.
-//   ERP 화면에서 matched 건은 강조 표시 + 원클릭 확인. (완전 자동 전환은
-//   운영 안정 후 AUTO_CONFIRM 환경변수로 승격 — 이사님과 협의 후)
+// ★ 사람이 다시 한번 확인하는 중간 단계(matched) 없이 바로 확정한다 — 대표님 지시.
+//   (오매칭 방지는 "waiting 정확히 1건"이라는 매칭 조건 자체로만 건다.)
 
 import { NextRequest } from "next/server";
 import { query } from "@/lib/db";
@@ -77,7 +75,8 @@ export async function POST(req: NextRequest) {
   const orderId = r.rows[0].id;
   await query(
     `UPDATE payment_orders
-     SET status = 'matched', memo = COALESCE(memo,'') || '[SMS자동매칭 ' || now()::date || '] '
+     SET status = 'confirmed', confirmed_at = now(), confirmed_by = 'SMS자동매칭',
+         memo = COALESCE(memo,'') || '[SMS자동매칭 ' || now()::date || '] '
      WHERE id = $1 AND status = 'waiting'`,
     [orderId]
   );

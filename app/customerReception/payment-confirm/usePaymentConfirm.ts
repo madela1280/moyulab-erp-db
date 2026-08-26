@@ -17,12 +17,12 @@ export function usePaymentConfirm() {
     try {
       const res = await fetch("/api/customer-reception/payment-confirm", { cache: "no-store" });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "입금대기 목록을 불러오지 못했습니다.");
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "목록을 불러오지 못했습니다.");
 
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setSelectedIds(new Set());
     } catch (e: any) {
-      setError(e?.message || "입금대기 목록을 불러오지 못했습니다.");
+      setError(e?.message || "목록을 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -45,23 +45,23 @@ export function usePaymentConfirm() {
     });
   }, [rows, keyword]);
 
-  async function confirmSelected() {
+  async function deleteSelected() {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`선택한 ${selectedIds.size}건을 입금확인 처리하시겠습니까?`)) return;
+    if (!window.confirm(`선택한 ${selectedIds.size}건을 삭제하시겠습니까?`)) return;
 
     setError("");
     try {
       const res = await fetch("/api/customer-reception/payment-confirm", {
-        method: "POST",
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "입금확인 처리하지 못했습니다.");
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "삭제하지 못했습니다.");
 
       await loadRows();
     } catch (e: any) {
-      setError(e?.message || "입금확인 처리하지 못했습니다.");
+      setError(e?.message || "삭제하지 못했습니다.");
     }
   }
 
@@ -73,7 +73,7 @@ export function usePaymentConfirm() {
     setKeyword,
     selectedIds,
     setSelectedIds,
-    confirmSelected,
+    deleteSelected,
     refresh: loadRows,
   };
 }
