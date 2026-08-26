@@ -15,15 +15,27 @@ function formatAmount(n: number) {
 
 const COLS: Array<{ key: string; label: string; width: number }> = [
   { key: "received_at", label: "접수 시각", width: 140 },
-  { key: "order_type", label: "구분", width: 80 },
+  { key: "order_type", label: "구분", width: 90 },
+  { key: "status", label: "상태", width: 100 },
   { key: "customer_name", label: "고객명", width: 100 },
-  { key: "device_model", label: "기종", width: 120 },
+  { key: "device_model", label: "기종/품목", width: 120 },
   { key: "partner_category", label: "대여처", width: 110 },
   { key: "extend_info", label: "연장일수 · 새만기일", width: 160 },
   { key: "amount", label: "금액", width: 100 },
   { key: "depositor_name", label: "입금자명", width: 100 },
   { key: "expires_at", label: "남은 기한", width: 140 },
 ];
+
+const ORDER_TYPE_LABEL: Record<string, string> = {
+  extend: "연장",
+  overdue: "연체료",
+  parts: "포장재구매",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  waiting: "입금대기",
+  matched: "문자매칭됨",
+};
 
 export default function PaymentConfirmTable(props: {
   loading: boolean;
@@ -49,7 +61,8 @@ export default function PaymentConfirmTable(props: {
   }
 
   function getValue(r: PaymentOrderRow, colKey: string) {
-    if (colKey === "order_type") return r.order_type === "extend" ? "연장" : "연체료";
+    if (colKey === "order_type") return ORDER_TYPE_LABEL[r.order_type] ?? r.order_type;
+    if (colKey === "status") return STATUS_LABEL[r.status] ?? r.status;
     if (colKey === "extend_info") {
       if (r.order_type !== "extend") return "-";
       const days = r.extend_days != null ? `${r.extend_days}일` : "-";

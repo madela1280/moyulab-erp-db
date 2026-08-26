@@ -1,8 +1,7 @@
 // app/views/customerReception/PaymentConfirmView.tsx
 //
-// 고객접수 > 입금확인
-// ⚠ 껍데기 단계: payment_orders 테이블/API가 아직 없어 항상 빈 목록으로 표시된다.
-// 테이블 생성 + 목록/확인 API 추가 시 usePaymentConfirm 훅만 채우면 이 화면은 그대로 동작한다.
+// 고객접수 > 입금확인. payment_orders에서 status='waiting'/'matched'(아직 사람이 확인 안 한) 건을 보여주고,
+// 체크 후 "입금확인" 누르면 status='confirmed'로 확정한다(확인한 사람은 confirmed_by에 기록).
 "use client";
 
 import PaymentConfirmHeader from "@/customerReception/payment-confirm/PaymentConfirmHeader";
@@ -13,11 +12,13 @@ export default function PaymentConfirmView() {
   const {
     rows,
     loading,
+    error,
     keyword,
     setKeyword,
     selectedIds,
     setSelectedIds,
     confirmSelected,
+    refresh,
   } = usePaymentConfirm();
 
   return (
@@ -26,8 +27,12 @@ export default function PaymentConfirmView() {
         keyword={keyword}
         onKeywordChange={setKeyword}
         selectedCount={selectedIds.size}
+        loading={loading}
+        onRefresh={refresh}
         onConfirm={confirmSelected}
       />
+
+      {error && <div className="text-xs text-red-600">{error}</div>}
 
       <div className="flex-1 min-h-0 border rounded bg-white overflow-hidden">
         <PaymentConfirmTable

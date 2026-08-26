@@ -1,16 +1,36 @@
 // app/customerReception/payment-confirm/usePaymentConfirm.ts
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PaymentOrderRow } from "@/customerReception/payment-confirm/types";
 
-// ⚠ 껍데기 단계: payment_orders 테이블/조회 API가 아직 없어 항상 빈 목록.
-// 테이블 생성 + 목록 API 추가 시 이 훅에서 fetch 로직만 채우면 된다(화면 쪽은 수정 불필요).
 export function usePaymentConfirm() {
-  const [rows] = useState<PaymentOrderRow[]>([]);
-  const [loading] = useState(false);
+  const [rows, setRows] = useState<PaymentOrderRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  async function loadRows() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/customer-reception/payment-confirm", { cache: "no-store" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "입금대기 목록을 불러오지 못했습니다.");
+
+      setRows(Array.isArray(data.rows) ? data.rows : []);
+      setSelectedIds(new Set());
+    } catch (e: any) {
+      setError(e?.message || "입금대기 목록을 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadRows();
+  }, []);
 
   const filteredRows = useMemo(() => {
     const kw = keyword.trim();
@@ -26,17 +46,34 @@ export function usePaymentConfirm() {
   }, [rows, keyword]);
 
   async function confirmSelected() {
-    // ⚠ 껍데기 단계: 확인 처리 API가 아직 없음.
-    alert("입금확인 처리는 payment_orders 테이블/API 준비 후 연결됩니다.");
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`선택한 ${selectedIds.size}건을 입금확인 처리하시겠습니까?`)) return;
+
+    setError("");
+    try {
+      const res = await fetch("/api/customer-reception/payment-confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "입금확인 처리하지 못했습니다.");
+
+      await loadRows();
+    } catch (e: any) {
+      setError(e?.message || "입금확인 처리하지 못했습니다.");
+    }
   }
 
   return {
     rows: filteredRows,
     loading,
+    error,
     keyword,
     setKeyword,
     selectedIds,
     setSelectedIds,
     confirmSelected,
+    refresh: loadRows,
   };
 }
