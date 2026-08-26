@@ -1,6 +1,7 @@
 // app/views/customerReception/packaging-order/service.ts
 //
-// 포장재구매 그리드 데이터 조회. ERP 자체 API를 호출한다(같은 DB라 CS서버를 거치지 않음).
+// 포장재구매 그리드 데이터 조회/삭제, 열 순서/너비 설정 조회/저장.
+// ERP 자체 API를 호출한다(같은 DB라 CS서버를 거치지 않음).
 
 import type { PackagingOrderRow } from "@/views/customerReception/packaging-order/columns";
 
@@ -11,6 +12,7 @@ type PackagingOrderApiRow = {
   phone2: string | null;
   shipping_address: string | null;
   item_name: string | null;
+  status: string;
 };
 
 export async function fetchPackagingOrders(): Promise<PackagingOrderRow[]> {
@@ -25,6 +27,7 @@ export async function fetchPackagingOrders(): Promise<PackagingOrderRow[]> {
 
   return rows.map((row) => ({
     id: String(row.id),
+    status: row.status ?? "waiting",
     data: {
       renter_name: row.renter_name ?? "",
       phone1: row.phone1 ?? "",
@@ -33,4 +36,56 @@ export async function fetchPackagingOrders(): Promise<PackagingOrderRow[]> {
       item_name: row.item_name ?? "",
     },
   }));
+}
+
+export async function deletePackagingOrders(ids: string[]): Promise<void> {
+  const numericIds = ids.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!numericIds.length) return;
+
+  const res = await fetch("/api/customer-reception/packaging-orders", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: numericIds }),
+  });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "삭제하지 못했습니다.");
+  }
+}
+
+export type PackagingOrderGridSettings = {
+  columnOrder: string[];
+  columnWidths: Record<string, number>;
+};
+
+export async function fetchPackagingOrderGridSettings(): Promise<PackagingOrderGridSettings> {
+  try {
+    const res = await fetch("/api/customer-reception/packaging-orders/grid-settings", { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) return { columnOrder: [], columnWidths: {} };
+
+    return {
+      columnOrder: Array.isArray(data.columnOrder) ? data.columnOrder.map((v: unknown) => String(v)) : [],
+      columnWidths:
+        data.columnWidths && typeof data.columnWidths === "object" ? data.columnWidths : {},
+    };
+  } catch {
+    return { columnOrder: [], columnWidths: {} };
+  }
+}
+
+export async function savePackagingOrderGridSettings(
+  columnOrder?: string[],
+  columnWidths?: Record<string, number>
+): Promise<void> {
+  try {
+    await fetch("/api/customer-reception/packaging-orders/grid-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ columnOrder, columnWidths }),
+    });
+  } catch {
+    // 열 설정 저장 실패는 조용히 무시(그리드 사용 자체를 막을 정도의 문제는 아님)
+  }
 }

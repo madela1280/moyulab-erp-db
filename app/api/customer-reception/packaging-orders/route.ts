@@ -6,6 +6,7 @@
 // - POST: 카카오 챗봇(CS서버)이 입금자명 확정 시점에 호출해서 새 "입금대기" 주문을 만든다.
 //   인증: 헤더 x-cs-api-key 가 CS_SERVER_API_KEY 환경변수와 일치해야 한다
 //   (기존 /api/customer-lookup/rental과 동일한 방향의 인증키를 재사용).
+// - DELETE: ERP 그리드에서 체크한 행 삭제(끝내 입금 안 한 대기 건 정리용).
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
@@ -104,6 +105,27 @@ export async function POST(req: NextRequest) {
       );
     }
     console.error("POST /api/customer-reception/packaging-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+    const ids = Array.isArray(body?.ids) ? body.ids.map((v: unknown) => Number(v)).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+
+    if (!ids.length) {
+      return NextResponse.json({ ok: false, error: "no_ids" }, { status: 400 });
+    }
+
+    const result = await query(
+      `DELETE FROM payment_orders WHERE id = ANY($1::int[]) AND order_type = 'parts'`,
+      [ids]
+    );
+
+    return NextResponse.json({ ok: true, deletedCount: result.rowCount ?? 0 });
+  } catch (e) {
+    console.error("DELETE /api/customer-reception/packaging-orders error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
 }

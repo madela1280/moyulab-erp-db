@@ -5,11 +5,16 @@
 // 포장재구매 그리드. dataUpload/return-recovery/ReturnRecoveryGrid.tsx와 같은 동작
 // (열 이동/너비 조절, 영역지정 복사(Ctrl+C), 영역지정 삭제(Delete))을 제공하되
 // 반납회수 코드는 건드리지 않기 위해 이 기능 전용 파일로 분리했다.
+//
+// 맨 앞 "확인" 체크박스 컬럼은 열 이동/너비 대상이 아닌 고정 컬럼이라
+// PACKAGING_ORDER_COLUMNS 목록과 별도로 그린다.
+// "입금확인" 컬럼은 값 입력이 아니라 상태 표시 + 정렬 트리거(헤더의 ▲/▼) 역할만 한다.
 
 import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent } from "react";
 import {
   PACKAGING_ORDER_COLUMNS,
   createEmptyPackagingOrderRow,
+  getPaymentStatusLabel,
   type PackagingOrderColumn,
   type PackagingOrderRow,
 } from "@/views/customerReception/packaging-order/columns";
@@ -21,12 +26,19 @@ import {
   type PackagingOrderCellRange,
 } from "@/views/customerReception/packaging-order/clipboard";
 
+export type PackagingOrderSortMode = "none" | "confirmed-first" | "waiting-first";
+
 type PackagingOrderGridProps = {
   rows?: PackagingOrderRow[];
   columns?: PackagingOrderColumn[];
   isColumnEditMode?: boolean;
   onRowsChange?: (rows: PackagingOrderRow[]) => void;
   onColumnsChange?: (columns: PackagingOrderColumn[]) => void;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleSelectAll?: (checked: boolean) => void;
+  sortMode?: PackagingOrderSortMode;
+  onToggleSort?: () => void;
 };
 
 function isMultiCellRange(range: PackagingOrderCellRange | null) {
@@ -44,6 +56,11 @@ export default function PackagingOrderGrid({
   isColumnEditMode,
   onRowsChange,
   onColumnsChange,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  sortMode = "none",
+  onToggleSort,
 }: PackagingOrderGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -59,6 +76,8 @@ export default function PackagingOrderGrid({
 
   const [selectionAnchor, setSelectionAnchor] = useState<PackagingOrderCellPoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<PackagingOrderCellRange | null>(null);
+
+  const allChecked = displayRows.length > 0 && displayRows.every((row) => selectedIds?.has(row.id));
 
   function focusCell(rowIndex: number, colIndex: number) {
     window.setTimeout(() => {
@@ -95,7 +114,7 @@ export default function PackagingOrderGrid({
       const nextData = { ...(row.data ?? {}) };
       for (let colIndex = selectedRange.startCol; colIndex <= selectedRange.endCol; colIndex += 1) {
         const col = displayColumns[colIndex];
-        if (col) nextData[col.key] = "";
+        if (col && col.type !== "status") nextData[col.key] = "";
       }
       return { ...row, data: nextData };
     });
@@ -205,6 +224,18 @@ export default function PackagingOrderGrid({
       <table className="border-collapse text-xs text-slate-900 font-normal">
         <thead className="sticky top-0 z-10">
           <tr>
+            <th
+              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white"
+              style={{ width: 40, minWidth: 40, backgroundColor: "#7030a0" }}
+            >
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={(e) => onToggleSelectAll?.(e.target.checked)}
+                title="전체 선택"
+              />
+            </th>
+
             {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
@@ -212,7 +243,23 @@ export default function PackagingOrderGrid({
                 style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
               >
                 <div className="flex flex-col items-center gap-1">
-                  <div className="w-full overflow-hidden text-ellipsis whitespace-nowrap">{col.label}</div>
+                  <div className="w-full overflow-hidden text-ellipsis whitespace-nowrap flex items-center justify-center gap-1">
+                    <span>{col.label}</span>
+                    {col.type === "status" && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onToggleSort?.();
+                        }}
+                        className="leading-none text-[10px] hover:text-purple-200"
+                        title="입금확인 상태로 정렬"
+                      >
+                        {sortMode === "waiting-first" ? "▲" : "▼"}
+                      </button>
+                    )}
+                  </div>
 
                   {isColumnEditMode && (
                     <div className="flex flex-col items-center gap-1">
@@ -266,9 +313,44 @@ export default function PackagingOrderGrid({
         <tbody>
           {displayRows.map((row, rowIndex) => (
             <tr key={row.id} className="h-8">
+              <td
+                className="border border-slate-300 bg-white text-center align-middle"
+                style={{ width: 40, minWidth: 40 }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!selectedIds?.has(row.id)}
+                  onChange={() => onToggleSelect?.(row.id)}
+                />
+              </td>
+
               {displayColumns.map((col, colIndex) => {
                 const selected = isPackagingOrderCellInRange(rowIndex, colIndex, selectedRange);
                 const multiSelected = selected && isMultiCellRange(selectedRange);
+
+                if (col.type === "status") {
+                  const label = getPaymentStatusLabel(row.status);
+                  const isConfirmed = label === "입금확인";
+                  return (
+                    <td
+                      key={`${row.id}-${col.key}`}
+                      className={`border border-slate-300 align-middle text-center font-normal ${
+                        multiSelected ? "bg-blue-50" : selected ? "bg-blue-100" : "bg-white"
+                      }`}
+                      style={{ width: col.width, minWidth: col.width }}
+                      onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex)}
+                      onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}
+                    >
+                      <span
+                        className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${
+                          isConfirmed ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {label}
+                      </span>
+                    </td>
+                  );
+                }
 
                 return (
                   <td

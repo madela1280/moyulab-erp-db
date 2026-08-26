@@ -5,16 +5,18 @@
 type PackagingOrderHeaderProps = {
   loading?: boolean;
   isColumnEditMode?: boolean;
+  deleteCount?: number;
   onRefresh: () => void;
-  onDownloadExcel: () => void;
+  onDelete: () => void;
   onToggleColumnEditMode: () => void;
 };
 
 export default function PackagingOrderHeader({
   loading,
   isColumnEditMode,
+  deleteCount = 0,
   onRefresh,
-  onDownloadExcel,
+  onDelete,
   onToggleColumnEditMode,
 }: PackagingOrderHeaderProps) {
   return (
@@ -46,10 +48,11 @@ export default function PackagingOrderHeader({
 
       <button
         type="button"
-        onClick={onDownloadExcel}
-        className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        onClick={onDelete}
+        disabled={deleteCount === 0}
+        className="rounded border border-blue-600 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        엑셀 다운로드
+        삭제{deleteCount > 0 ? ` (${deleteCount})` : ""}
       </button>
     </div>
   );

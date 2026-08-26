@@ -3,7 +3,11 @@
 // 그리드 영역지정 복사/삭제용 헬퍼. dataUpload/return-recovery/clipboard.ts와 같은 로직이지만
 // 반납회수 코드를 건드리지 않기 위해 이 기능 전용으로 분리했다.
 
-import type { PackagingOrderColumn, PackagingOrderRow } from "@/views/customerReception/packaging-order/columns";
+import {
+  getPaymentStatusLabel,
+  type PackagingOrderColumn,
+  type PackagingOrderRow,
+} from "@/views/customerReception/packaging-order/columns";
 
 export type PackagingOrderCellPoint = {
   rowIndex: number;
@@ -67,7 +71,8 @@ export function makePackagingOrderTSV(
 
     for (let colIndex = range.startCol; colIndex <= range.endCol; colIndex += 1) {
       const col = columns[colIndex];
-      cells.push(normalizeCopyText(row?.data?.[col.key] ?? ""));
+      const value = col.type === "status" ? getPaymentStatusLabel(row?.status ?? "waiting") : row?.data?.[col.key];
+      cells.push(normalizeCopyText(value ?? ""));
     }
 
     lines.push(cells.join("\t"));
