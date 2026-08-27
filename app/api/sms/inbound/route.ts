@@ -21,6 +21,7 @@
 import { NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import { parseDepositSms } from "@/api/kakao/_lib/sms-parse";
+import { sendPaymentConfirmAlimtalk } from "@/lib/alimtalk/paymentConfirmAlimtalk";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,8 @@ export async function POST(req: NextRequest) {
 
   // 매칭: 금액 + 입금자명 + waiting, 유효기간 내
   const r = await query(
-    `SELECT id FROM payment_orders
+    `SELECT id, order_type, amount, depositor_name, phone1, item_name, extend_days, new_end_date
+     FROM payment_orders
      WHERE status = 'waiting'
        AND amount = $1
        AND depositor_name = $2
@@ -68,7 +70,8 @@ export async function POST(req: NextRequest) {
   );
 
   if (r.rows.length === 1) {
-    const orderId = r.rows[0].id;
+    const order = r.rows[0];
+    const orderId = order.id;
     await query(
       `UPDATE payment_orders
        SET status = 'confirmed', confirmed_at = now(), confirmed_by = 'SMS자동매칭',
@@ -77,6 +80,7 @@ export async function POST(req: NextRequest) {
       [orderId]
     );
     await query(`UPDATE sms_inbound SET matched_id = $1 WHERE id = $2`, [orderId, smsId]);
+    await sendPaymentConfirmAlimtalk(order);
 
     console.log("[SMS_MATCH]", JSON.stringify({ orderId, amount: parsed.amount }));
     return Response.json({ ok: true, matched: true, orderId });
