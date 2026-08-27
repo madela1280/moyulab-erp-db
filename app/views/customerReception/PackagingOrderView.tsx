@@ -60,6 +60,26 @@ function applyGridSettings(
   });
 }
 
+// 박스수량/출고일자/메모는 서버에 저장 안 되는 화면 전용 입력칸이라(직원이 롯데택배용으로 잠깐 채우는 값),
+// 자동 새로고침 때 서버값으로 덮어써버리면 타이핑 중이던 내용이 날아간다 — 그래서 폴링 시엔 이 칸들만
+// 기존 화면 값을 그대로 보존하고, 나머지(입금상태/카톡 접수 정보 등)만 최신값으로 갱신한다.
+const MANUAL_ONLY_KEYS = ["pickupDate", "boxCount", "memo"];
+
+function mergePolledRows(freshRows: PackagingOrderRow[], prevRows: PackagingOrderRow[]): PackagingOrderRow[] {
+  const prevById = new Map(prevRows.map((r) => [r.id, r]));
+
+  return freshRows.map((row) => {
+    const prev = prevById.get(row.id);
+    if (!prev) return row;
+
+    const mergedData = { ...row.data };
+    for (const key of MANUAL_ONLY_KEYS) {
+      if (prev.data?.[key] !== undefined) mergedData[key] = prev.data[key];
+    }
+    return { ...row, data: mergedData };
+  });
+}
+
 export default function PackagingOrderView() {
   const [rows, setRows] = useState<PackagingOrderRow[]>([]);
   const [columns, setColumns] = useState<PackagingOrderColumn[]>(PACKAGING_ORDER_COLUMNS);
@@ -94,6 +114,26 @@ export default function PackagingOrderView() {
         setColumns((prev) => applyGridSettings(prev, settings));
       }
     })();
+  }, []);
+
+  // 카톡으로 새 주문이 들어오거나 SMS로 입금상태가 바뀌어도 새로고침 없이 화면에 반영되도록 주기적으로 갱신.
+  // (통합관리처럼 소켓 실시간은 아니지만, 8초마다 조용히 다시 불러와서 사실상 실시간처럼 보이게 한다.
+  //  타이핑 중인 박스수량/출고일자/메모는 mergePolledRows가 보존해서 안 날아간다.)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const nextRows = await fetchPackagingOrders();
+        setRows((prev) => mergePolledRows(nextRows, prev));
+        setSelectedIds((prev) => {
+          const stillExists = new Set(nextRows.map((r) => r.id));
+          return new Set(Array.from(prev).filter((id) => stillExists.has(id)));
+        });
+      } catch {
+        // 폴링 실패는 조용히 무시 — 다음 주기에 다시 시도
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // 정렬 우선순위: 입금확정(발송 준비 다 된 건) 먼저 → 확인필요(직원이 봐야 하는 건) → 입금대기
