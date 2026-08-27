@@ -76,19 +76,21 @@ export default function ConversationThread(props: {
         {phone || "번호 미확인"}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto px-4 py-3 flex flex-col gap-2">
+      <div className="flex-1 min-h-0 overflow-auto px-4 py-3 flex flex-col gap-2 bg-[#b2c7d9]">
         {messages.map((m, i) => {
           const isCustomer = m.direction === "in";
           return (
             <div key={i} className={`flex flex-col ${isCustomer ? "items-start" : "items-end"}`}>
               <div
-                className={`max-w-[70%] rounded-lg px-3 py-2 text-xs whitespace-pre-wrap ${
-                  isCustomer ? "bg-slate-100 text-slate-800" : "bg-blue-500 text-white"
+                className={`max-w-[70%] rounded-2xl px-3 py-2 text-xs whitespace-pre-wrap shadow-sm ${
+                  isCustomer
+                    ? "bg-[#fee500] text-slate-900"
+                    : "bg-white text-slate-900 border border-slate-200"
                 }`}
               >
                 {renderContent(m.content)}
               </div>
-              <div className="mt-0.5 text-[10px] text-slate-400">{formatDateTime(m.createdAt)}</div>
+              <div className="mt-0.5 text-[10px] text-slate-500">{formatDateTime(m.createdAt)}</div>
             </div>
           );
         })}

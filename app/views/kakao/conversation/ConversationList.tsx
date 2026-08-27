@@ -45,12 +45,15 @@ export default function ConversationList(props: {
             }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-                {row.unread && <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />}
-                {row.phone || "번호 미확인"}
-              </span>
-              <span className="text-[11px] text-slate-400 whitespace-nowrap">
-                {formatDateTime(row.lastMessageAt)}
+              <span className="text-xs font-semibold text-slate-800">{row.phone || "번호 미확인"}</span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                {row.unread && (
+                  <span className="flex items-center gap-0.5 text-[10px] text-red-600 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+                    안읽음
+                  </span>
+                )}
+                <span className="text-[11px] text-slate-400">{formatDateTime(row.lastMessageAt)}</span>
               </span>
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
