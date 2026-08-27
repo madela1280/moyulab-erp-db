@@ -5,6 +5,41 @@
 
 import type { KakaoMessage } from "@/views/kakao/conversation/service";
 
+// 로그 저장 형식이 "텍스트 / [이미지: url] / [이미지: url]" 식으로 이미지 URL을 텍스트에 박아 넣으므로
+// (messageLog.js의 extractResponseText), 여기서 그 패턴을 뽑아서 실제 이미지로 보여준다.
+const IMAGE_TAG_RE = /\[이미지:\s*(\S+?)\]/g;
+
+function renderContent(content: string) {
+  const parts: Array<{ type: "text" | "image"; value: string }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  IMAGE_TAG_RE.lastIndex = 0;
+  while ((match = IMAGE_TAG_RE.exec(content))) {
+    const before = content.slice(lastIndex, match.index).replace(/^\s*\/\s*|\s*\/\s*$/g, "").trim();
+    if (before) parts.push({ type: "text", value: before });
+    parts.push({ type: "image", value: match[1] });
+    lastIndex = IMAGE_TAG_RE.lastIndex;
+  }
+  const rest = content.slice(lastIndex).replace(/^\s*\/\s*/, "").trim();
+  if (rest) parts.push({ type: "text", value: rest });
+
+  if (!parts.length) return <>{content}</>;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {parts.map((p, i) =>
+        p.type === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={p.value} alt="첨부 이미지" className="max-w-full rounded" />
+        ) : (
+          <span key={i}>{p.value}</span>
+        )
+      )}
+    </div>
+  );
+}
+
 function formatDateTime(v: string) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "-";
@@ -51,7 +86,7 @@ export default function ConversationThread(props: {
                   isCustomer ? "bg-slate-100 text-slate-800" : "bg-blue-500 text-white"
                 }`}
               >
-                {m.content}
+                {renderContent(m.content)}
               </div>
               <div className="mt-0.5 text-[10px] text-slate-400">
                 {formatDateTime(m.createdAt)}

@@ -10,6 +10,7 @@ export type KakaoConversationRow = {
   lastDirection: "in" | "out";
   lastMessageAt: string;
   messageCount: number;
+  unread: boolean;
 };
 
 export type KakaoMessage = {
@@ -26,6 +27,7 @@ type ApiRow = {
   last_direction: "in" | "out";
   last_message_at: string;
   message_count: string | number;
+  unread: boolean;
 };
 
 type ApiMessage = {
@@ -55,7 +57,16 @@ export async function fetchKakaoConversations(phone?: string): Promise<KakaoConv
     lastDirection: r.last_direction,
     lastMessageAt: r.last_message_at,
     messageCount: Number(r.message_count) || 0,
+    unread: !!r.unread,
   }));
+}
+
+export async function markConversationRead(userKey: string): Promise<void> {
+  try {
+    await fetch(`/api/kakao-conversations/${encodeURIComponent(userKey)}`, { method: "POST" });
+  } catch {
+    // 읽음 처리 실패는 조용히 무시(화면 사용 자체를 막을 정도는 아님)
+  }
 }
 
 export async function fetchKakaoConversationDetail(userKey: string): Promise<KakaoMessage[]> {

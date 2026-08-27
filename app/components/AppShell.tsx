@@ -308,7 +308,7 @@ export default function AppShell() {
                 }`}
                 title="카카오톡 대화조회"
               >
-                <Image src="/kakao-icon.jpg" alt="카카오톡" width={28} height={28} className="rounded" />
+                <Image src="/kakao-icon.jpg" alt="카카오톡" width={26} height={26} className="rounded-full" />
                 <span className="text-[0.78rem] font-[660]">카카오톡</span>
               </button>
 

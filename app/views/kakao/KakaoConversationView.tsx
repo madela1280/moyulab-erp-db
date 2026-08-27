@@ -12,6 +12,7 @@ import ConversationThread from "@/views/kakao/conversation/ConversationThread";
 import {
   fetchKakaoConversations,
   fetchKakaoConversationDetail,
+  markConversationRead,
   type KakaoConversationRow,
   type KakaoMessage,
 } from "@/views/kakao/conversation/service";
@@ -21,6 +22,7 @@ export default function KakaoConversationView() {
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
 
   const [selectedUserKey, setSelectedUserKey] = useState<string | null>(null);
   const [messages, setMessages] = useState<KakaoMessage[]>([]);
@@ -55,21 +57,43 @@ export default function KakaoConversationView() {
     } finally {
       setDetailLoading(false);
     }
+
+    // 읽음 처리(실패해도 화면 사용엔 지장 없음) 후 목록의 안읽음 표시도 바로 지운다
+    markConversationRead(userKey);
+    setRows((prev) => prev.map((r) => (r.userKey === userKey ? { ...r, unread: false } : r)));
   }
 
   const filteredRows = rows.filter((r) => {
+    if (unreadOnly && !r.unread) return false;
     const kw = keyword.trim();
     if (!kw) return true;
     return String(r.phone ?? "").includes(kw);
   });
 
   const selectedRow = rows.find((r) => r.userKey === selectedUserKey) || null;
+  const hasUnread = rows.some((r) => r.unread);
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
       <div className="flex items-center gap-3">
-        <div className="text-base font-semibold text-slate-800">카카오톡 대화조회</div>
+        <div className="flex items-center gap-2">
+          <div className="text-base font-semibold text-slate-800">카카오톡 대화조회</div>
+          {hasUnread && (
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500" title="안읽은 대화 있음" />
+          )}
+        </div>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setUnreadOnly((prev) => !prev)}
+          className={`rounded border px-3 py-1.5 text-xs font-medium ${
+            unreadOnly
+              ? "border-red-500 bg-red-50 text-red-700"
+              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          안읽음만
+        </button>
         <input
           type="text"
           value={keyword}
@@ -99,7 +123,13 @@ export default function KakaoConversationView() {
           />
         </div>
 
-        <ConversationThread phone={selectedRow?.phone ?? null} messages={messages} loading={detailLoading} />
+        <div className="w-[30%] flex-shrink-0 border-r border-slate-200 flex flex-col min-h-0">
+          <ConversationThread phone={selectedRow?.phone ?? null} messages={messages} loading={detailLoading} />
+        </div>
+
+        <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+          상담원 연결 등 기능 예정
+        </div>
       </div>
     </div>
   );

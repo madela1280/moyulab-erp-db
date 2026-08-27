@@ -45,7 +45,8 @@ export default function ConversationList(props: {
             }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-800">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                {row.unread && <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />}
                 {row.phone || "번호 미확인"}
               </span>
               <span className="text-[11px] text-slate-400 whitespace-nowrap">

@@ -8,6 +8,7 @@
 //   반드시 CS서버의 인증된 API(x-erp-api-key)를 호출한다.
 
 import { NextRequest, NextResponse } from "next/server";
+import { getLastReadMap } from "@/api/kakao-conversations/_lib/reads";
 
 const DEFAULT_CS_BASE_URL = "https://return.moulab.kr";
 
@@ -42,7 +43,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true, rows: data.rows || [] });
+    const rows: any[] = data.rows || [];
+    const readMap: Record<string, string> = await getLastReadMap(rows.map((r) => r.user_key)).catch(
+      () => ({})
+    );
+
+    const rowsWithUnread = rows.map((r) => {
+      const lastReadAt = readMap[r.user_key];
+      const unread = !lastReadAt || new Date(r.last_message_at).getTime() > new Date(lastReadAt).getTime();
+      return { ...r, unread };
+    });
+
+    return NextResponse.json({ ok: true, rows: rowsWithUnread });
   } catch (e) {
     console.error("GET /api/kakao-conversations error:", e);
     return NextResponse.json({ ok: false, error: "server", rows: [] }, { status: 500 });
