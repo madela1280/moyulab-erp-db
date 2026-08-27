@@ -69,6 +69,34 @@ export async function markConversationRead(userKey: string): Promise<void> {
   }
 }
 
+export type AgentConnectRequestRow = {
+  userKey: string;
+  phone: string | null;
+  requestedAt: string;
+};
+
+type ApiAgentConnectRow = {
+  user_key: string;
+  phone: string | null;
+  created_at: string;
+};
+
+export async function fetchAgentConnectRequests(): Promise<AgentConnectRequestRow[]> {
+  const res = await fetch("/api/agent-connect-requests", { cache: "no-store" });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "상담원 연결 요청 목록을 불러오지 못했습니다.");
+  }
+
+  const rows: ApiAgentConnectRow[] = Array.isArray(data.rows) ? data.rows : [];
+  return rows.map((r) => ({
+    userKey: r.user_key,
+    phone: r.phone,
+    requestedAt: r.created_at,
+  }));
+}
+
 export async function fetchKakaoConversationDetail(userKey: string): Promise<KakaoMessage[]> {
   const res = await fetch(`/api/kakao-conversations/${encodeURIComponent(userKey)}`, { cache: "no-store" });
   const data = await res.json().catch(() => null);
