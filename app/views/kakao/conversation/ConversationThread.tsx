@@ -88,10 +88,7 @@ export default function ConversationThread(props: {
               >
                 {renderContent(m.content)}
               </div>
-              <div className="mt-0.5 text-[10px] text-slate-400">
-                {formatDateTime(m.createdAt)}
-                {m.blockName ? ` · ${m.blockName}` : ""}
-              </div>
+              <div className="mt-0.5 text-[10px] text-slate-400">{formatDateTime(m.createdAt)}</div>
             </div>
           );
         })}
