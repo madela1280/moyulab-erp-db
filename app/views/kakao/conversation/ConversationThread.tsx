@@ -9,7 +9,24 @@ import type { KakaoMessage } from "@/views/kakao/conversation/service";
 // (messageLog.js의 extractResponseText), 여기서 그 패턴을 뽑아서 실제 이미지로 보여준다.
 const IMAGE_TAG_RE = /\[이미지:\s*(\S+?)\]/g;
 
+// 고객이 채팅으로 사진을 직접 보내면(플러그인 안 거친 경우) 카카오가 그 사진의 CDN URL을 발화
+// 원문 그대로 넘겨준다(대괄호 태그 없이) — 예: https://talk.kakaocdn.net/dna/.../i_xxx.jpg?credential=...
+// 그래서 "전체 내용이 곧 이미지 URL 하나"인 경우도 이미지로 인식해서 보여준다.
+function looksLikeBareImageUrl(text: string) {
+  const trimmed = text.trim();
+  if (!/^https?:\/\/\S+$/.test(trimmed)) return false;
+  const withoutQuery = trimmed.split("?")[0];
+  return /\.(jpe?g|png|gif|webp)$/i.test(withoutQuery) || trimmed.includes("kakaocdn.net");
+}
+
 function renderContent(content: string) {
+  if (looksLikeBareImageUrl(content)) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={content.trim()} alt="첨부 이미지" className="max-w-full rounded" />
+    );
+  }
+
   const parts: Array<{ type: "text" | "image"; value: string }> = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
