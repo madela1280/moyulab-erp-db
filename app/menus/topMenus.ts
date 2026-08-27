@@ -9,6 +9,7 @@ export const TOP_MENUS = [
   "백업복원",
   "집계",
   "고객접수",
+  "카카오톡",
 ] as const;
 
 export type TopMenu = (typeof TOP_MENUS)[number];

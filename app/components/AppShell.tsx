@@ -194,7 +194,8 @@ export default function AppShell() {
 
   /* ---------------- 렌더링 ---------------- */
 
-  const visibleTopMenus: TopMenu[] = [...TOP_MENUS];
+  // "카카오톡"은 일반 카테고리 탭 줄이 아니라 로그아웃 오른쪽에 아이콘 버튼으로 따로 그린다.
+  const visibleTopMenus: TopMenu[] = TOP_MENUS.filter((m) => m !== "카카오톡");
   const loading = authLoading || (!isAdmin && permsLoading);
 
   const currentCanRead = top ? canRead(top) : false;
@@ -280,6 +281,35 @@ export default function AppShell() {
                 title="로그아웃"
               >
                 로그아웃
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (loading) return;
+
+                  if (!canRead("카카오톡")) {
+                    setNoAccessMenu("카카오톡");
+                    setTop("카카오톡");
+                    setSub(null);
+                    setShowSub(false);
+                    stopTimer();
+                    return;
+                  }
+
+                  setNoAccessMenu(null);
+                  setTop("카카오톡");
+                  setSub(SUB_MENUS["카카오톡"][0]);
+                  setShowSub(false);
+                  stopTimer();
+                }}
+                className={`ml-12 flex flex-col items-center gap-0.5 ${
+                  top === "카카오톡" ? "text-black" : "text-gray-700 hover:text-black"
+                }`}
+                title="카카오톡 대화조회"
+              >
+                <Image src="/kakao-icon.jpg" alt="카카오톡" width={28} height={28} className="rounded" />
+                <span className="text-[0.78rem] font-[660]">카카오톡</span>
               </button>
 
               {top && showSub && canRead(top) && (

@@ -65,4 +65,7 @@ export const VIEW_MAP: Record<string, any> = {
   "고객접수>환불접수": dynamic(() => import("@/views/customerReception/RefundRequestView")),
   "고객접수>포장재구매": dynamic(() => import("@/views/customerReception/PackagingOrderView")),
   "고객접수>B": dynamic(() => import("@/views/customerReception/CustomerReceptionBView")),
+
+  // 카카오톡
+  "카카오톡>대화조회": dynamic(() => import("@/views/kakao/KakaoConversationView")),
 };
