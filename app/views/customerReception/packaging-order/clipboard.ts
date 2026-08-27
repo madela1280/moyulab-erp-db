@@ -4,7 +4,7 @@
 // 반납회수 코드를 건드리지 않기 위해 이 기능 전용으로 분리했다.
 
 import {
-  getPaymentStatusLabel,
+  getCellDisplayValue,
   type PackagingOrderColumn,
   type PackagingOrderRow,
 } from "@/views/customerReception/packaging-order/columns";
@@ -71,8 +71,8 @@ export function makePackagingOrderTSV(
 
     for (let colIndex = range.startCol; colIndex <= range.endCol; colIndex += 1) {
       const col = columns[colIndex];
-      const value = col.type === "status" ? getPaymentStatusLabel(row?.status ?? "waiting") : row?.data?.[col.key];
-      cells.push(normalizeCopyText(value ?? ""));
+      const value = row ? getCellDisplayValue(row, col) : "";
+      cells.push(normalizeCopyText(value));
     }
 
     lines.push(cells.join("\t"));

@@ -31,19 +31,24 @@ export async function GET() {
     const result = await query(
       `
       SELECT
-        id,
-        renter_name,
-        phone1,
-        phone2,
-        shipping_address,
-        item_name,
-        amount,
-        depositor_name,
-        status,
-        created_at
-      FROM payment_orders
-      WHERE order_type = 'parts'
-      ORDER BY created_at DESC
+        po.id,
+        po.renter_name,
+        po.phone1,
+        po.phone2,
+        po.shipping_address,
+        po.item_name,
+        po.amount,
+        po.depositor_name,
+        po.status,
+        po.created_at,
+        po.confirmed_at,
+        s.amount AS actual_amount
+      FROM payment_orders po
+      LEFT JOIN LATERAL (
+        SELECT amount FROM sms_inbound WHERE matched_id = po.id ORDER BY received_at DESC LIMIT 1
+      ) s ON true
+      WHERE po.order_type = 'parts'
+      ORDER BY po.created_at DESC
       `
     );
 

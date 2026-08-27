@@ -14,6 +14,7 @@ import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, typ
 import {
   PACKAGING_ORDER_COLUMNS,
   createEmptyPackagingOrderRow,
+  getCellDisplayValue,
   getPaymentStatusLabel,
   type PackagingOrderColumn,
   type PackagingOrderRow,
@@ -48,6 +49,11 @@ function isMultiCellRange(range: PackagingOrderCellRange | null) {
 
 function normalizeWidth(width: number) {
   return Math.max(60, Math.min(800, Math.round(width)));
+}
+
+/** status/datetime/checknote는 값 입력이 아니라 서버 데이터를 그대로 보여주기만 하는 읽기전용 컬럼 */
+function isReadonlyColumn(col: PackagingOrderColumn) {
+  return col.type === "status" || col.type === "datetime" || col.type === "checknote";
 }
 
 export default function PackagingOrderGrid({
@@ -114,7 +120,7 @@ export default function PackagingOrderGrid({
       const nextData = { ...(row.data ?? {}) };
       for (let colIndex = selectedRange.startCol; colIndex <= selectedRange.endCol; colIndex += 1) {
         const col = displayColumns[colIndex];
-        if (col && col.type !== "status") nextData[col.key] = "";
+        if (col && !isReadonlyColumn(col)) nextData[col.key] = "";
       }
       return { ...row, data: nextData };
     });
@@ -330,7 +336,12 @@ export default function PackagingOrderGrid({
 
                 if (col.type === "status") {
                   const label = getPaymentStatusLabel(row.status);
-                  const isConfirmed = label === "입금확인";
+                  const badgeClass =
+                    label === "입금확정"
+                      ? "bg-blue-100 text-blue-700"
+                      : label === "확인필요"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-slate-100 text-slate-500";
                   return (
                     <td
                       key={`${row.id}-${col.key}`}
@@ -341,13 +352,26 @@ export default function PackagingOrderGrid({
                       onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex)}
                       onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}
                     >
-                      <span
-                        className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${
-                          isConfirmed ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
+                      <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${badgeClass}`}>
                         {label}
                       </span>
+                    </td>
+                  );
+                }
+
+                if (col.type === "datetime" || col.type === "checknote") {
+                  const text = getCellDisplayValue(row, col);
+                  return (
+                    <td
+                      key={`${row.id}-${col.key}`}
+                      className={`border border-slate-300 align-middle text-center font-normal ${
+                        multiSelected ? "bg-blue-50" : selected ? "bg-blue-100" : "bg-white"
+                      } ${col.type === "checknote" && text ? "text-red-600 font-semibold" : "text-slate-600"}`}
+                      style={{ width: col.width, minWidth: col.width }}
+                      onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex)}
+                      onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}
+                    >
+                      <span className="block truncate px-2 py-1 text-xs">{text}</span>
                     </td>
                   );
                 }

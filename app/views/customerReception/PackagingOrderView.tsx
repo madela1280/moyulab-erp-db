@@ -8,7 +8,7 @@
 //
 // 추가 기능:
 // - "확인" 체크박스로 선택한 행을 "삭제" 버튼(시그니처 블루)으로 일괄 삭제(끝내 입금 안 한 대기 건 정리용)
-// - "입금확인" 컬럼 헤더의 ▲▼로 입금확인/입금대기 그룹 정렬(반복 클릭 시 반대로)
+// - "입금확인" 컬럼 헤더의 ▲▼로 입금확정/확인필요/입금대기 그룹 정렬(반복 클릭 시 반대로)
 // - 열 순서/너비를 grid-settings API에 저장해 새로고침/재방문 후에도 유지
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -96,16 +96,19 @@ export default function PackagingOrderView() {
     })();
   }, []);
 
+  // 정렬 우선순위: 입금확정(발송 준비 다 된 건) 먼저 → 확인필요(직원이 봐야 하는 건) → 입금대기
+  const STATUS_SORT_RANK: Record<string, number> = { 입금확정: 0, 확인필요: 1, 입금대기: 2 };
+
   const sortedRows = useMemo(() => {
     if (sortMode === "none") return rows;
 
     const withIndex = rows.map((row, index) => ({ row, index }));
     withIndex.sort((a, b) => {
-      const aConfirmed = getPaymentStatusLabel(a.row.status) === "입금확인";
-      const bConfirmed = getPaymentStatusLabel(b.row.status) === "입금확인";
-      if (aConfirmed === bConfirmed) return a.index - b.index;
-      if (sortMode === "confirmed-first") return aConfirmed ? -1 : 1;
-      return aConfirmed ? 1 : -1;
+      const aRank = STATUS_SORT_RANK[getPaymentStatusLabel(a.row.status)] ?? 3;
+      const bRank = STATUS_SORT_RANK[getPaymentStatusLabel(b.row.status)] ?? 3;
+      if (aRank === bRank) return a.index - b.index;
+      const diff = aRank - bRank;
+      return sortMode === "confirmed-first" ? diff : -diff;
     });
     return withIndex.map((w) => w.row);
   }, [rows, sortMode]);

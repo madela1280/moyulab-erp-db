@@ -34,8 +34,8 @@ const ORDER_TYPE_LABEL: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: "입금대기",
-  matched: "입금확인",
-  confirmed: "입금확인",
+  matched: "확인필요", // 입금자명은 일치하지만 금액이 다르게 들어온 경우
+  confirmed: "입금확정",
   expired: "만료",
   canceled: "취소",
 };
