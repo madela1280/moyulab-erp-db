@@ -87,6 +87,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "missing_depositor_name" }, { status: 400 });
     }
 
+    // ⚠ uq_payment_orders_waiting(unified_id WHERE status='waiting')은 order_type 구분 없이
+    //   "같은 대여건에 대기 중인 결제 1건만" 허용한다(이일호 이사 원설계). 예전엔 이 제약에 걸리면
+    //   그냥 INSERT 실패로 끝났는데 — 고객이 포장재 구매를 다시(예: 품목 변경) 신청하면 예전 waiting
+    //   건과 충돌해서 새 주문이 조용히 사라지는 문제가 실제로 있었다(카톡엔 성공으로 나가는데 ERP엔 안 뜸).
+    //   그래서 "같은 포장재구매(parts) 종류끼리의 충돌"이면 최신 내용으로 덮어쓰기(재신청 처리)한다.
+    //   다른 종류(연장/연체료)의 대기 건과 충돌한 경우는 여전히 막는다(WHERE절이 false면 업데이트 안 되고
+    //   RETURNING이 비어서 아래에서 감지된다).
     const result = await query(
       `
       INSERT INTO payment_orders (
@@ -95,20 +102,37 @@ export async function POST(req: NextRequest) {
         kakao_user_key
       )
       VALUES ('parts', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (unified_id) WHERE status = 'waiting'
+      DO UPDATE SET
+        amount = EXCLUDED.amount,
+        depositor_name = EXCLUDED.depositor_name,
+        renter_name = EXCLUDED.renter_name,
+        phone1 = EXCLUDED.phone1,
+        phone2 = EXCLUDED.phone2,
+        shipping_address = EXCLUDED.shipping_address,
+        item_name = EXCLUDED.item_name,
+        kakao_user_key = EXCLUDED.kakao_user_key,
+        created_at = now()
+      WHERE payment_orders.order_type = 'parts'
       RETURNING id
       `,
       [unifiedId, amount, depositorName, renterName, phone1, phone2, shippingAddress, itemName, kakaoUserKey]
     );
 
-    return NextResponse.json({ ok: true, id: result.rows?.[0]?.id ?? null });
-  } catch (e: any) {
-    // 같은 unified_id로 이미 waiting 건이 있으면 uq_payment_orders_waiting 유니크 제약에 걸림
-    if (e?.code === "23505") {
+    const id = result.rows?.[0]?.id;
+    if (!id) {
       return NextResponse.json(
-        { ok: false, error: "already_waiting", message: "이미 처리 대기 중인 결제 건이 있습니다." },
+        {
+          ok: false,
+          error: "already_waiting_other_type",
+          message: "이미 다른 종류(연장/연체료)의 결제 대기 건이 있어 포장재구매를 등록하지 못했습니다.",
+        },
         { status: 409 }
       );
     }
+
+    return NextResponse.json({ ok: true, id });
+  } catch (e) {
     console.error("POST /api/customer-reception/packaging-orders error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
