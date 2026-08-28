@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import ConversationList from "@/views/kakao/conversation/ConversationList";
 import ConversationThread from "@/views/kakao/conversation/ConversationThread";
 import AgentConnectList from "@/views/kakao/conversation/AgentConnectList";
+import StaffReplyBox from "@/views/kakao/conversation/StaffReplyBox";
 import {
   fetchKakaoConversations,
   fetchKakaoConversationDetail,
@@ -103,6 +104,17 @@ export default function KakaoConversationView() {
     }
   }
 
+  // 답장 전송 후 그 자리에서 바로 새 메시지가 보이도록 다시 불러온다(선택 상태는 그대로 유지).
+  async function refreshAgentMessages() {
+    if (!agentSelectedUserKey) return;
+    try {
+      const nextMessages = await fetchKakaoConversationDetail(agentSelectedUserKey);
+      setAgentMessages(nextMessages);
+    } catch {
+      // 재조회 실패는 조용히 무시 — 다음 새로고침이나 재선택 시 다시 시도됨
+    }
+  }
+
   // 전화번호 검색은 안읽음 필터와 무관하게 항상 전체에서 찾는다(검색 중엔 안읽음 필터를 무시).
   const filteredRows = rows.filter((r) => {
     const kw = keyword.trim();
@@ -190,11 +202,16 @@ export default function KakaoConversationView() {
             />
           </div>
 
-          <ConversationThread
-            phone={agentSelectedRow?.phone ?? null}
-            messages={agentMessages}
-            loading={agentDetailLoading}
-          />
+          <div className="flex-1 min-w-0 flex flex-col min-h-0">
+            <ConversationThread
+              phone={agentSelectedRow?.phone ?? null}
+              messages={agentMessages}
+              loading={agentDetailLoading}
+            />
+            {agentSelectedUserKey && (
+              <StaffReplyBox userKey={agentSelectedUserKey} onSent={refreshAgentMessages} />
+            )}
+          </div>
         </div>
       </div>
     </div>

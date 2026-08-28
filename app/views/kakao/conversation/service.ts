@@ -97,6 +97,32 @@ export async function fetchAgentConnectRequests(): Promise<AgentConnectRequestRo
   }));
 }
 
+/** 직원이 이 고객에게 답장 전송(카카오 Event API 능동발송) — 성공하면 봇은 이 고객에게 자동응답 안 함 */
+export async function sendStaffReply(userKey: string, message: string): Promise<void> {
+  const res = await fetch(`/api/kakao-conversations/${encodeURIComponent(userKey)}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "답장을 보내지 못했습니다.");
+  }
+}
+
+/** 상담종료 — 봇 자동응답을 다시 켠다 */
+export async function endStaffHandling(userKey: string): Promise<void> {
+  const res = await fetch(`/api/kakao-conversations/${encodeURIComponent(userKey)}/end-handling`, {
+    method: "POST",
+  });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "상담 종료 처리에 실패했습니다.");
+  }
+}
+
 export async function fetchKakaoConversationDetail(userKey: string): Promise<KakaoMessage[]> {
   const res = await fetch(`/api/kakao-conversations/${encodeURIComponent(userKey)}`, { cache: "no-store" });
   const data = await res.json().catch(() => null);
