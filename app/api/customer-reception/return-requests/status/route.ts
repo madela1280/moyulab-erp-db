@@ -144,9 +144,10 @@ export async function POST(req: NextRequest) {
     const failedRows: Array<ReturnType<typeof buildFailRow>> = [];
 
     for (const item of items) {
-      // 반납접수(접수중) 화면에서만 삭제 버튼을 노출하므로, 접수중이 아닌 행은 방어적으로 막는다.
-      if (item.processStatus && item.processStatus !== "접수중") {
-        failedRows.push(buildFailRow(item, "접수중 상태만 삭제할 수 있습니다."));
+      // ⚠ 반납접수 화면에는 접수중/전송(성공·실패) 건이 다 보인다(대표님 지시, 2026-09-07) —
+      //   확인 후 정리하려고 접수완료 건도 삭제할 수 있어야 하므로, 이미 "삭제"된 것만 막는다.
+      if (item.processStatus === "삭제") {
+        failedRows.push(buildFailRow(item, "이미 삭제된 건입니다."));
         continue;
       }
 

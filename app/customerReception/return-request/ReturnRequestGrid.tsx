@@ -260,6 +260,9 @@ export default function ReturnRequestGrid({
                         type="checkbox"
                         checked={!!row.checked}
                         onChange={(e) => updateChecked(rowIndex, e.target.checked)}
+                        // 접수완료(예약번호 있음)된 건도 체크해서 삭제할 수 있어야 한다 — 확인 후
+                        // 정리하는 용도(대표님 지시, 2026-09-07). 실수로 "전송"을 눌러 롯데택배에
+                        // 중복 접수되는 것은 체크박스가 아니라 전송 API 쪽에서 막는다(submit/route.ts).
                         disabled={mode === "list" || emptyRow}
                       />
                     </td>

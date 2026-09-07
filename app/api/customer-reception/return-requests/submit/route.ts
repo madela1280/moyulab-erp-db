@@ -15,6 +15,7 @@ type SubmitItem = {
   returnMemo: string;
   mismatchReason: string;
   processStatus: string;
+  lotteStatus: string;
 };
 
 function getCsBaseUrl() {
@@ -75,6 +76,7 @@ function extractSubmitItem(raw: any, index: number): SubmitItem {
     returnMemo: normalizeString(data.returnMemo || raw?.return_memo || raw?.returnMemo),
     mismatchReason: normalizeString(data.mismatchReason || raw?.mismatch_reason),
     processStatus: normalizeString(raw?.processStatus || data.processStatus || raw?.process_status),
+    lotteStatus: normalizeString(data.lotteStatus || raw?.lotte_status),
   };
 }
 
@@ -212,6 +214,13 @@ export async function POST(req: NextRequest) {
       //   "삭제"된 건만 막는다.
       if (item.processStatus === "삭제") {
         failedRows.push(buildFailRow(item, "삭제된 건은 전송할 수 없습니다."));
+        continue;
+      }
+
+      // ⚠ 이미 롯데택배 접수완료(예약번호 있음)된 건은 재전송하면 안 된다 — 롯데택배에 중복
+      //   접수될 수 있다. 확인 후 정리하려면 "삭제"를 눌러야 한다(대표님 지시, 2026-09-07).
+      if (item.lotteStatus === "booked") {
+        failedRows.push(buildFailRow(item, "이미 롯데택배 접수완료된 건입니다. 재전송할 수 없습니다(삭제해 주세요)."));
         continue;
       }
 
