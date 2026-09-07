@@ -207,8 +207,11 @@ export async function POST(req: NextRequest) {
     const failedRows: Array<ReturnType<typeof buildFailRow>> = [];
 
     for (const item of items) {
-      if (item.processStatus && item.processStatus !== "접수중") {
-        failedRows.push(buildFailRow(item, "접수중 상태만 전송할 수 있습니다."));
+      // ⚠ "전송"도 통과시킨다 — 통합관리 반영은 성공했는데 롯데택배 자동접수만 실패한 건을
+      //   재전송(덮어쓰기)으로 다시 시도할 수 있어야 하기 때문(대표님 지시, 2026-09-07).
+      //   "삭제"된 건만 막는다.
+      if (item.processStatus === "삭제") {
+        failedRows.push(buildFailRow(item, "삭제된 건은 전송할 수 없습니다."));
         continue;
       }
 
@@ -258,23 +261,15 @@ export async function POST(req: NextRequest) {
     const unifiedIds = Array.from(new Set(items.map((item) => item.unifiedId)));
     const unifiedMap = await fetchUnifiedMap(unifiedIds);
 
+    // ⚠ 예전엔 여기서 "통합관리 반납요청일에 이미 값이 있으면" 막았다 — 그런데 롯데택배 자동접수만
+    //   실패한 건을 재전송하려면 이 값을 다시 같은(또는 수정된) 값으로 덮어써야 한다. 통합관리
+    //   업데이트 자체는 같은 값을 다시 쓰는 거라 해가 없고, 날짜가 그 사이 수정됐으면 최신 값이
+    //   맞다(대표님 지시) — 그래서 이 차단은 뺐다. "통합관리 행을 찾을 수 없음"만 계속 막는다.
     for (const item of items) {
       const unifiedData = unifiedMap.get(item.unifiedId);
 
       if (!unifiedData) {
         failedRows.push(buildFailRow(item, "통합관리 행을 찾을 수 없습니다."));
-        continue;
-      }
-
-      const currentReturnRequestDate = normalizeString(unifiedData["반납요청일"]);
-
-      if (currentReturnRequestDate) {
-        failedRows.push(
-          buildFailRow(
-            item,
-            `통합관리 반납요청일에 이미 값이 있습니다. (${currentReturnRequestDate})`
-          )
-        );
       }
     }
 
@@ -282,7 +277,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          message: "통합관리 반납요청일이 비어 있는 행만 전송할 수 있습니다.",
+          message: "통합관리 매칭 행을 찾을 수 없는 행이 있습니다.",
           successCount: 0,
           failedRows,
         },
