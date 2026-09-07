@@ -2,6 +2,7 @@ import type { ReturnRequestColumn } from "@/customerReception/return-request/typ
 
 export const RETURN_REQUEST_CURRENT_COLUMNS: ReturnRequestColumn[] = [
   { key: "checked", label: "확인", width: 70, source: "check", editable: true },
+  { key: "lotteStatusDisplay", label: "롯데접수", width: 200, source: "system" },
   { key: "receivedAt", label: "접수일자", width: 150, source: "system" },
   { key: "partnerCategory", label: "거래처분류", width: 120, source: "erp" },
   { key: "deviceNo", label: "기기번호", width: 110, source: "erp" },
@@ -16,12 +17,12 @@ export const RETURN_REQUEST_CURRENT_COLUMNS: ReturnRequestColumn[] = [
   { key: "returnRequestDate", label: "반납요청일", width: 120, source: "web", editable: true },
   { key: "specialNote1", label: "특이사항1", width: 140, source: "erp" },
   { key: "specialNote2", label: "특이사항2", width: 140, source: "erp" },
-  { key: "lotteStatusDisplay", label: "롯데접수", width: 200, source: "system" },
   { key: "returnMemo", label: "반납메모", width: 180, source: "web", editable: true },
   { key: "mismatchReason", label: "불일치사유", width: 220, source: "system", editable: true },
 ];
 
 export const RETURN_REQUEST_LIST_COLUMNS: ReturnRequestColumn[] = [
+  { key: "lotteStatusDisplay", label: "롯데접수", width: 200, source: "system" },
   { key: "receivedAt", label: "접수일자", width: 150, source: "system" },
   { key: "partnerCategory", label: "거래처분류", width: 120, source: "erp" },
   { key: "deviceNo", label: "기기번호", width: 110, source: "erp" },
@@ -36,7 +37,6 @@ export const RETURN_REQUEST_LIST_COLUMNS: ReturnRequestColumn[] = [
   { key: "returnRequestDate", label: "반납요청일", width: 120, source: "web" },
   { key: "specialNote1", label: "특이사항1", width: 140, source: "erp" },
   { key: "specialNote2", label: "특이사항2", width: 140, source: "erp" },
-  { key: "lotteStatusDisplay", label: "롯데접수", width: 200, source: "system" },
   { key: "returnMemo", label: "반납메모", width: 180, source: "web" },
   { key: "mismatchReason", label: "최초 불일치사유", width: 220, source: "system" },
   { key: "mismatchResolvedNote", label: "불일치 수정여부", width: 140, source: "system" },
