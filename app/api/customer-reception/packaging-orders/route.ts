@@ -112,7 +112,8 @@ export async function POST(req: NextRequest) {
         shipping_address = EXCLUDED.shipping_address,
         item_name = EXCLUDED.item_name,
         kakao_user_key = EXCLUDED.kakao_user_key,
-        created_at = now()
+        created_at = now(),
+        expires_at = now() + interval '24 hours'
       WHERE payment_orders.order_type = 'parts'
       RETURNING id
       `,
