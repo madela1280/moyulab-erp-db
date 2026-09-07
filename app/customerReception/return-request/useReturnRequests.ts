@@ -213,6 +213,21 @@ export function useReturnRequests(mode: ReturnRequestViewMode) {
     void reloadCurrent();
   }, [mode, reloadCurrent, reloadList]);
 
+  // 롯데택배 자동접수 결과(대기→완료/실패)는 CS서버 백그라운드 큐가 자체적으로 처리하며
+  // sync-engine 이벤트를 안 타므로(통합관리 변경이 아니라 CS서버 자기 DB만 바뀜), 포장재구매
+  // 화면과 동일하게 몇 초마다 조용히 다시 불러와서 반영한다.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (mode === "list") {
+        void reloadListSilent();
+        return;
+      }
+      void reloadCurrentSilent();
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [mode, reloadCurrentSilent, reloadListSilent]);
+
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
