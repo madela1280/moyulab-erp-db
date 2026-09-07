@@ -5,6 +5,7 @@ const SETTING_ID = "customer_return_request_default";
 
 const DEFAULT_COLUMNS = [
   { key: "checked", width: 70, minWidth: 30 },
+  { key: "lotteStatusDisplay", width: 200, minWidth: 60 },
   { key: "processStatus", width: 90, minWidth: 60 },
   { key: "receivedAt", width: 150, minWidth: 60 },
   { key: "partnerCategory", width: 120, minWidth: 60 },
