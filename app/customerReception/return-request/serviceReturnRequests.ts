@@ -20,6 +20,12 @@ export type ReturnRequestApiRow = {
 
   process_status?: string;
 
+  item_name?: string | null;
+  item_name_short?: string | null;
+  lotte_status?: string | null;
+  lotte_booking_no?: string | null;
+  lotte_error_reason?: string | null;
+
   unified_id?: number | null;
   matched_unified?: {
     거래처분류?: string;
@@ -125,6 +131,13 @@ function getMismatchReasonForView(row: ReturnRequestApiRow, isListMode: boolean)
   return normalizeString(row.current_mismatch_reason);
 }
 
+function getLotteStatusDisplay(row: ReturnRequestApiRow) {
+  const status = normalizeString(row.lotte_status) || "pending";
+  if (status === "booked") return `접수완료(${normalizeString(row.lotte_booking_no) || "예약번호 없음"})`;
+  if (status === "failed") return `접수실패(${normalizeString(row.lotte_error_reason) || "사유 없음"})`;
+  return "대기";
+}
+
 function isRealRow(row: ReturnRequestRow) {
   return !!row?.id && !String(row.id).startsWith("empty-");
 }
@@ -173,6 +186,12 @@ export function mapReturnRequestApiRow(
       specialNote2: normalizeString(matched.특이사항2),
 
       returnMemo: normalizeString(row.return_memo),
+
+      lotteStatus: normalizeString(row.lotte_status) || "pending",
+      lotteBookingNo: normalizeString(row.lotte_booking_no),
+      lotteErrorReason: normalizeString(row.lotte_error_reason),
+      lotteStatusDisplay: getLotteStatusDisplay(row),
+
       mismatchReason,
       mismatchResolvedNote: isListMode ? normalizeString(row.mismatch_resolved_note) : "",
 
