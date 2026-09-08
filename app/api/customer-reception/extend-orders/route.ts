@@ -1,13 +1,12 @@
 // app/api/customer-reception/extend-orders/route.ts
 //
-// 연장/연체료 결제(payment_orders, order_type='extend') 생성 API.
+// 연장/연체료 결제(payment_orders, order_type='extend') 조회/생성/삭제 API.
+// - GET: ERP "고객접수 > 연장·연체료" 그리드가 호출. 같은 DB라 인증 없이 내부에서 바로 조회한다
+//   (포장재구매와 동일한 방식 — packaging-orders/route.ts 참고).
 // - POST: 카카오 챗봇(CS서버)이 입금자명 확정 시점에 호출해서 새 "입금대기" 주문을 만든다.
 //   인증: 헤더 x-cs-api-key 가 CS_SERVER_API_KEY 환경변수와 일치해야 한다
-//   (기존 /api/customer-lookup/rental, /api/customer-reception/packaging-orders와 동일한
-//   방향의 인증키를 재사용 — packaging-orders/route.ts 참고).
-// - GET/DELETE는 아직 안 만듦 — "입금확인" 화면(payment-confirm)이 이미 order_type 구분 없이
-//   전체를 조회하고 있어서(extend_days/new_end_date 컬럼도 이미 조회 중) 당장 조회 API가
-//   따로 필요 없다. 화면 전용 UI가 필요해지면(작업 순서 7단계) 그때 추가한다.
+//   (기존 /api/customer-lookup/rental과 동일한 방향의 인증키를 재사용).
+// - DELETE: ERP 그리드에서 체크한 행 삭제(끝내 입금 안 한 대기 건 정리용).
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
@@ -25,6 +24,41 @@ function isAuthorized(req: NextRequest): boolean {
 function valueOrNull(v: unknown): string | null {
   const s = String(v ?? "").trim();
   return s ? s : null;
+}
+
+export async function GET() {
+  try {
+    const result = await query(
+      `
+      SELECT
+        po.id,
+        po.created_at,
+        po.confirmed_at,
+        po.status,
+        COALESCE(u.data->>'수취인명', '') AS customer_name,
+        COALESCE(u.data->>'연락처1', '') AS phone1,
+        COALESCE(u.data->>'제품', '') AS device_model,
+        COALESCE(u.data->>'거래처분류', '') AS partner_category,
+        po.extend_days,
+        po.new_end_date,
+        po.amount,
+        po.depositor_name,
+        s.amount AS actual_amount
+      FROM payment_orders po
+      LEFT JOIN unified u ON u.id = po.unified_id
+      LEFT JOIN LATERAL (
+        SELECT amount FROM sms_inbound WHERE matched_id = po.id ORDER BY received_at DESC LIMIT 1
+      ) s ON true
+      WHERE po.order_type = 'extend'
+      ORDER BY po.created_at DESC
+      `
+    );
+
+    return NextResponse.json({ ok: true, rows: result.rows || [] });
+  } catch (e) {
+    console.error("GET /api/customer-reception/extend-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server", rows: [] }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -101,6 +135,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, id });
   } catch (e) {
     console.error("POST /api/customer-reception/extend-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+    const ids = Array.isArray(body?.ids)
+      ? body.ids.map((v: unknown) => Number(v)).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+
+    if (!ids.length) {
+      return NextResponse.json({ ok: false, error: "no_ids" }, { status: 400 });
+    }
+
+    const result = await query(
+      `DELETE FROM payment_orders WHERE id = ANY($1::int[]) AND order_type = 'extend'`,
+      [ids]
+    );
+
+    return NextResponse.json({ ok: true, deletedCount: result.rowCount ?? 0 });
+  } catch (e) {
+    console.error("DELETE /api/customer-reception/extend-orders error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
 }
