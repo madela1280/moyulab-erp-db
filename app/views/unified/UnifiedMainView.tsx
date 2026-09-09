@@ -210,7 +210,7 @@ export default function UnifiedMainView() {
   }
 
   // (결제수단 추가등록 기능은 다음 단계 — 지금은 고정 옵션 + 패널에서 직접입력 지원)
-  const paymentOptions = useMemo(() => ["계좌이체", "서비스", "카드", "온라인연장"], []);
+  const paymentOptions = useMemo(() => ["계좌이체", "계좌이체(연체료)", "서비스", "카드", "온라인연장"], []);
 
   useEffect(() => {
     if (!filterMode) return;
