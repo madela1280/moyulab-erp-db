@@ -65,6 +65,15 @@ export async function GET(req: NextRequest) {
 
     const data = row.data && typeof row.data === "object" ? row.data : {};
 
+    // 0차연장(초기계약일수) + 1~15차연장(각 "연장일수/결제수단/금액/접수일" 원본 문자열) —
+    // CS서버가 "지금 어느 결제건(신규계약 vs 몇 차 연장)이 진행 중인지" 판별해서 환불액을
+    // 계산할 때 씀(환불접수 1단계, 2026-09-09). app/views/unified/extensions/extensionCompute.ts의
+    // EXTENSION_KEYS(1~15차)와 동일한 범위.
+    const extensions: Record<string, string | null> = {};
+    for (let i = 1; i <= 15; i += 1) {
+      extensions[`${i}차연장`] = valueOrNull(data[`${i}차연장`]);
+    }
+
     return NextResponse.json({
       ok: true,
       found: true,
@@ -82,6 +91,8 @@ export async function GET(req: NextRequest) {
         종료일: valueOrNull(data["종료일"]),
         반납요청일: valueOrNull(data["반납요청일"]),
         반납완료일: valueOrNull(data["반납완료일"]),
+        "0차연장": valueOrNull(data["0차연장"]),
+        ...extensions,
       },
     });
   } catch (e) {
