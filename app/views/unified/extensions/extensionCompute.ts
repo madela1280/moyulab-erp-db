@@ -77,6 +77,23 @@ export function sumExtensionDaysFromRow(rowData: Record<string, any> | null | un
 }
 
 /**
+ * 1차~15차 중 아직 값이 없는(비어있는) 첫 칸의 키를 반환. 전부 차있으면 null.
+ * (연장·연체료 화면의 "전송" 기능이 통합관리에 자동 기록할 빈 슬롯을 찾을 때 사용)
+ */
+export function findFirstEmptyExtensionKey(
+  rowData: Record<string, any> | null | undefined
+): ExtensionKey | null {
+  const d = rowData ?? {};
+
+  for (const key of EXTENSION_KEYS) {
+    const v = String((d as any)?.[key] ?? "").trim();
+    if (!v) return key;
+  }
+
+  return null;
+}
+
+/**
  * 사용자 직접입력/서버 저장값 검증용:
  * - 정수로 해석 가능하면 0 이상만 허용
  * - 그 외는 null

@@ -1,11 +1,14 @@
 // app/api/customer-reception/extend-orders/route.ts
 //
-// 연장/연체료 결제(payment_orders, order_type='extend') 조회/생성/삭제 API.
+// 연장/연체료 결제(payment_orders, order_type='extend') 조회/생성/삭제/전송완료표시 API.
 // - GET: ERP "고객접수 > 연장·연체료" 그리드가 호출. 같은 DB라 인증 없이 내부에서 바로 조회한다
 //   (포장재구매와 동일한 방식 — packaging-orders/route.ts 참고).
 // - POST: 카카오 챗봇(CS서버)이 입금자명 확정 시점에 호출해서 새 "입금대기" 주문을 만든다.
 //   인증: 헤더 x-cs-api-key 가 CS_SERVER_API_KEY 환경변수와 일치해야 한다
 //   (기존 /api/customer-lookup/rental과 동일한 방향의 인증키를 재사용).
+// - PATCH: ERP 그리드의 "전송" 버튼이 통합관리 n차연장 기록을 끝낸 뒤, 이 건을 "전송완료"로
+//   표시한다(unified_synced_at). 이미 전송된 건은 다시 표시되지 않는다(WHERE ... IS NULL) —
+//   중복전송으로 n차연장이 계속 쌓이는 사고를 막기 위한 안전장치.
 // - DELETE: ERP 그리드에서 체크한 행 삭제(끝내 입금 안 한 대기 건 정리용).
 
 import { NextRequest, NextResponse } from "next/server";
@@ -26,12 +29,27 @@ function valueOrNull(v: unknown): string | null {
   return s ? s : null;
 }
 
+// ✅ 기존 payment_orders 테이블에 컬럼만 추가(기존 데이터/다른 order_type 영향 없음, grid-settings의
+//   ensureTable()과 동일한 "온디맨드로 존재 보장" 패턴). unified_synced_at: 통합관리 n차연장 전송완료
+//   시각(중복전송 방지용). is_overdue_settlement: 카카오 대화에서 "연체료정산"으로 안내된 건인지
+//   (연장이 더 저렴해서 "연장접수"로 안내된 건은 false) — 통합관리 결제수단 라벨(계좌이체 vs
+//   계좌이체(연체료)) 판정에 사용.
+async function ensureExtendColumns() {
+  await query(`ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS unified_synced_at timestamptz`);
+  await query(
+    `ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS is_overdue_settlement boolean NOT NULL DEFAULT false`
+  );
+}
+
 export async function GET() {
   try {
+    await ensureExtendColumns();
+
     const result = await query(
       `
       SELECT
         po.id,
+        po.unified_id,
         po.created_at,
         po.confirmed_at,
         po.status,
@@ -39,10 +57,15 @@ export async function GET() {
         COALESCE(u.data->>'연락처1', '') AS phone1,
         COALESCE(u.data->>'제품', '') AS device_model,
         COALESCE(u.data->>'거래처분류', '') AS partner_category,
+        COALESCE(u.data->>'기기번호', '') AS device_no,
+        COALESCE(u.data->>'특이사항1', '') AS unified_special_note1,
         po.extend_days,
-        po.new_end_date,
+        po.current_end_date::text AS current_end_date,
+        po.new_end_date::text AS new_end_date,
         po.amount,
         po.depositor_name,
+        po.is_overdue_settlement,
+        po.unified_synced_at,
         s.amount AS actual_amount
       FROM payment_orders po
       LEFT JOIN unified u ON u.id = po.unified_id
@@ -67,6 +90,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await ensureExtendColumns();
+
     const body = await req.json().catch(() => null);
 
     const unifiedId = Number(body?.unifiedId);
@@ -76,6 +101,8 @@ export async function POST(req: NextRequest) {
     const amount = Number(body?.amount);
     const depositorName = valueOrNull(body?.depositorName);
     const kakaoUserKey = valueOrNull(body?.kakaoUserKey);
+    // 연체 중 "연체료정산"으로 안내된 건인지(연장이 더 저렴해 "연장접수"로 안내된 건은 false/미전달)
+    const isOverdueSettlement = body?.isOverdueSettlement === true;
 
     if (!Number.isFinite(unifiedId) || unifiedId <= 0) {
       return NextResponse.json({ ok: false, error: "invalid_unified_id" }, { status: 400 });
@@ -101,9 +128,9 @@ export async function POST(req: NextRequest) {
       `
       INSERT INTO payment_orders (
         order_type, unified_id, extend_days, current_end_date, new_end_date,
-        amount, depositor_name, kakao_user_key
+        amount, depositor_name, kakao_user_key, is_overdue_settlement
       )
-      VALUES ('extend', $1, $2, $3, $4, $5, $6, $7)
+      VALUES ('extend', $1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (unified_id) WHERE status = 'waiting'
       DO UPDATE SET
         extend_days = EXCLUDED.extend_days,
@@ -112,12 +139,13 @@ export async function POST(req: NextRequest) {
         amount = EXCLUDED.amount,
         depositor_name = EXCLUDED.depositor_name,
         kakao_user_key = EXCLUDED.kakao_user_key,
+        is_overdue_settlement = EXCLUDED.is_overdue_settlement,
         created_at = now(),
         expires_at = now() + interval '24 hours'
       WHERE payment_orders.order_type = 'extend'
       RETURNING id
       `,
-      [unifiedId, extendDays, currentEndDate, newEndDate, amount, depositorName, kakaoUserKey]
+      [unifiedId, extendDays, currentEndDate, newEndDate, amount, depositorName, kakaoUserKey, isOverdueSettlement]
     );
 
     const id = result.rows?.[0]?.id;
@@ -135,6 +163,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, id });
   } catch (e) {
     console.error("POST /api/customer-reception/extend-orders error:", e);
+    return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
+  }
+}
+
+// ✅ 통합관리 반영(n차연장 기록)까지 끝난 뒤 "전송완료"로 표시. unified_synced_at이 이미 채워진
+//   건은 WHERE절에 안 걸려서 RETURNING이 비고, 그러면 409로 "이미 전송됨"을 알려서 중복전송을 막는다.
+export async function PATCH(req: NextRequest) {
+  try {
+    await ensureExtendColumns();
+
+    const body = await req.json().catch(() => null);
+    const id = Number(body?.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return NextResponse.json({ ok: false, error: "invalid_id" }, { status: 400 });
+    }
+
+    const result = await query(
+      `
+      UPDATE payment_orders
+      SET unified_synced_at = now()
+      WHERE id = $1 AND order_type = 'extend' AND unified_synced_at IS NULL
+      RETURNING id
+      `,
+      [id]
+    );
+
+    if (!result.rows?.[0]?.id) {
+      return NextResponse.json({ ok: false, error: "already_synced" }, { status: 409 });
+    }
+
+    return NextResponse.json({ ok: true, id });
+  } catch (e) {
+    console.error("PATCH /api/customer-reception/extend-orders error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
   }
 }

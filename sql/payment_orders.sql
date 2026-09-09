@@ -42,3 +42,9 @@ CREATE TABLE IF NOT EXISTS sms_inbound (
 
 -- holidays 테이블은 이사님이 이미 생성·운영 중 (컬럼: date, name)
 -- 챗봇에서 공휴일 조회 시: SELECT date FROM holidays WHERE date = $1
+
+-- ✅ 연장·연체료 ERP 화면(app/api/customer-reception/extend-orders/route.ts)이 온디맨드로
+--   추가하는 컬럼(ensureExtendColumns()). 여기 문서에도 기록만 해둠 — 실제 적용은 API가 처음
+--   호출될 때 자동으로 됨(ALTER TABLE ... ADD COLUMN IF NOT EXISTS, 기존 데이터 영향 없음).
+ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS unified_synced_at timestamptz;
+ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS is_overdue_settlement boolean NOT NULL DEFAULT false;
