@@ -5,7 +5,7 @@
 // 반납접수 화면과 동일한 필드명(거래처분류/기기번호/제품/수취인명)을 쓰고, 입금확인 상태 배지는
 // 포장재구매 화면과 동일한 방식을 재사용한다.
 
-export type ExtendOrderColumnType = "text" | "status" | "datetime" | "settlementType";
+export type ExtendOrderColumnType = "text" | "status" | "datetime" | "settlementType" | "readonly";
 
 export type ExtendOrderColumn = {
   key: string;
@@ -42,9 +42,11 @@ export const EXTEND_ORDER_COLUMNS: ExtendOrderColumn[] = [
   { key: "extend_days", label: "연장일수", width: 90 },
   { key: "new_end_date", label: "새만기일", width: 110 },
   { key: "amount", label: "금액", width: 100 },
+  { key: "actual_amount", label: "실입금액", width: 100, type: "readonly" },
   { key: "depositor_name", label: "입금자명", width: 100 },
   { key: "specialNote1", label: "특이사항1", width: 220 },
   { key: "settlementType", label: "구분", width: 90, type: "settlementType" },
+  { key: "syncStatus", label: "전송완료", width: 130, type: "readonly" },
 ];
 
 /** waiting → 입금대기 / matched(이름만 일치·금액 다름) → 확인필요 / confirmed → 입금확정 */
@@ -90,6 +92,8 @@ export function getCellDisplayValue(row: ExtendOrderRow, col: ExtendOrderColumn)
   if (col.key === "orderedAt") return formatDateTime(row.orderedAt);
   if (col.key === "confirmedAt") return formatDateTime(row.confirmedAt);
   if (col.key === "new_end_date" || col.key === "current_end_date") return formatDateOnly(row.data?.[col.key] ?? "");
+  if (col.key === "actual_amount") return row.actualAmount != null ? row.actualAmount.toLocaleString("ko-KR") : "-";
+  if (col.key === "syncStatus") return row.unifiedSyncedAt ? `전송완료 (${formatDateTime(row.unifiedSyncedAt)})` : "-";
   return row.data?.[col.key] ?? "";
 }
 

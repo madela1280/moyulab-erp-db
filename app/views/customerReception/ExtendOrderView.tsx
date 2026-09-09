@@ -93,6 +93,14 @@ function mergePolledRows(freshRows: ExtendOrderRow[], prevRows: ExtendOrderRow[]
   });
 }
 
+/** 그리드에서 직접 고친 값(쉼표 포함 가능) 파싱 — 0 이하/파싱 실패면 null(원래 값으로 대체하라는 신호) */
+function parsePositiveInt(v: string | undefined): number | null {
+  const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+  if (!Number.isFinite(n)) return null;
+  const i = Math.floor(n);
+  return i > 0 ? i : null;
+}
+
 function toDateOnly(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -218,14 +226,28 @@ export default function ExtendOrderView() {
 
   // 선택한 행 하나를 통합관리 n차연장에 기록. 실패 사유를 문자열로 반환(성공이면 null).
   async function sendOneRow(row: ExtendOrderRow): Promise<string | null> {
-    if (getPaymentStatusLabel(row.status) !== "입금확정") {
-      return `${row.data?.customer_name || row.id}: 입금확정 건만 전송할 수 있습니다`;
+    const statusLabel = getPaymentStatusLabel(row.status);
+    // 입금대기(아직 돈이 안 들어옴)만 막는다 — 확인필요(실입금액이 예정액과 다름)는 직원이
+    // 실입금액을 보고 연장일수/금액을 맞게 고친 뒤 보낼 수 있어야 한다(대표님 지시, 2026-09-08).
+    if (statusLabel === "입금대기") {
+      return `${row.data?.customer_name || row.id}: 아직 입금 전(입금대기)이라 전송할 수 없습니다`;
     }
     if (row.unifiedSyncedAt) {
       return `${row.data?.customer_name || row.id}: 이미 전송된 건입니다`;
     }
     if (!row.unifiedId) {
       return `${row.data?.customer_name || row.id}: 통합관리 대여건을 찾을 수 없습니다`;
+    }
+
+    // 그리드에서 직접 고친 값(확인필요 건을 실입금액에 맞게 수정한 경우)을 우선 사용하고,
+    // 수정이 없거나 파싱 실패하면 접수 당시 원래 값으로 되돌아간다.
+    const editedDays = parsePositiveInt(row.data?.extend_days);
+    const editedAmount = parsePositiveInt(row.data?.amount);
+    const extendDaysToSend = editedDays ?? row.extendDays;
+    const amountToSend = editedAmount ?? row.expectedAmount;
+
+    if (!extendDaysToSend || !amountToSend) {
+      return `${row.data?.customer_name || row.id}: 연장일수/금액 값이 올바르지 않습니다`;
     }
 
     const unifiedRes = await fetch(`/api/unified/${row.unifiedId}`, { cache: "no-store" });
@@ -239,9 +261,9 @@ export default function ExtendOrderView() {
     }
 
     const cellText = formatExtensionCell({
-      days: row.extendDays != null ? String(row.extendDays) : null,
+      days: String(extendDaysToSend),
       paymentMethod: getExtensionPaymentMethodLabel(row.isOverdueSettlement),
-      amount: row.expectedAmount != null ? String(row.expectedAmount) : null,
+      amount: String(amountToSend),
       receivedDate: toDateOnly(row.confirmedAt) || null,
     });
 

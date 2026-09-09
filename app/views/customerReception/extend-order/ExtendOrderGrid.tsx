@@ -51,9 +51,11 @@ function normalizeWidth(width: number) {
   return Math.max(60, Math.min(800, Math.round(width)));
 }
 
-/** status/datetime/settlementType은 값 입력이 아니라 서버 데이터를 그대로 보여주기만 하는 읽기전용 컬럼 */
+/** status/datetime/settlementType/readonly는 값 입력이 아니라 서버 데이터를 그대로 보여주기만 하는 읽기전용 컬럼 */
 function isReadonlyColumn(col: ExtendOrderColumn) {
-  return col.type === "status" || col.type === "datetime" || col.type === "settlementType";
+  return (
+    col.type === "status" || col.type === "datetime" || col.type === "settlementType" || col.type === "readonly"
+  );
 }
 
 export default function ExtendOrderGrid({
@@ -359,14 +361,20 @@ export default function ExtendOrderGrid({
                   );
                 }
 
-                if (col.type === "datetime" || col.type === "settlementType") {
+                if (col.type === "datetime" || col.type === "settlementType" || col.type === "readonly") {
                   const text = getCellDisplayValue(row, col);
                   return (
                     <td
                       key={`${row.id}-${col.key}`}
                       className={`border border-slate-300 align-middle text-center font-normal ${
                         multiSelected ? "bg-blue-50" : selected ? "bg-blue-100" : "bg-white"
-                      } ${col.type === "settlementType" && text === "연체료" ? "text-red-600 font-semibold" : "text-slate-600"}`}
+                      } ${
+                        col.type === "settlementType" && text === "연체료"
+                          ? "text-red-600 font-semibold"
+                          : col.key === "syncStatus" && text !== "-"
+                          ? "text-emerald-600 font-semibold"
+                          : "text-slate-600"
+                      }`}
                       style={{ width: col.width, minWidth: col.width }}
                       onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex)}
                       onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}

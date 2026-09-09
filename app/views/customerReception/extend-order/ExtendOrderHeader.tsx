@@ -55,7 +55,7 @@ export default function ExtendOrderHeader({
         onClick={onSend}
         disabled={!hasSelection || sending}
         className="rounded border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        title="선택한 입금확정 건을 통합관리 n차연장에 기록합니다"
+        title="선택한 입금확정/확인필요 건을 통합관리 n차연장에 기록합니다(입금대기 건은 제외)"
       >
         {sending ? "전송 중..." : "전송"}
       </button>
