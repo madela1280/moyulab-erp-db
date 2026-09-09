@@ -15,9 +15,9 @@
 //   (중복전송 방지 — n차연장이 계속 쌓여 종료일이 무한정 늘어나는 사고 예방).
 // - "입금확인" 컬럼 헤더의 ▲▼로 입금확정/확인필요/입금대기 그룹 정렬(반복 클릭 시 반대로)
 // - 열 순서/너비를 grid-settings API에 저장해 새로고침/재방문 후에도 유지
-//
-// ⚠ 자동전송(입금확정되면 사람 개입 없이 자동으로 위 전송을 수행하는 기능)은 아직 미구현 —
-//   지금은 "전송" 버튼으로 수동 실행만 한다. 다음 단계에서 이 화면의 폴링에 자동 트리거를 붙일 예정.
+// - 자동전송(runAutoSend): 8초 폴링마다 "입금확정 + 아직 미전송" 건을 사람 개입 없이 자동으로
+//   위 전송 로직을 그대로 태운다. "확인필요"(값이 틀릴 수 있는 건)는 자동전송 대상에서 제외 —
+//   직원이 실입금액을 보고 값을 고친 뒤 "전송" 버튼으로 직접 처리해야 한다.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ExtendOrderHeader from "@/views/customerReception/extend-order/ExtendOrderHeader";
@@ -28,6 +28,7 @@ import {
   fetchExtendOrders,
   deleteExtendOrders,
   markExtendOrderSynced,
+  confirmMismatchExtendOrder,
   fetchExtendOrderGridSettings,
   saveExtendOrderGridSettings,
   type ExtendOrderGridSettings,
@@ -122,6 +123,9 @@ export default function ExtendOrderView() {
   const [sortMode, setSortMode] = useState<ExtendOrderSortMode>("none");
 
   const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 자동전송 중복 실행 방지 — 폴링 주기(8초)마다 새로 판단하다 보니, 이전 자동전송이 아직
+  // 안 끝났는데 같은 행을 또 자동전송 시도하는 걸 막는다.
+  const autoSendingIds = useRef<Set<string>>(new Set());
 
   async function loadRows() {
     setLoading(true);
@@ -130,6 +134,7 @@ export default function ExtendOrderView() {
       const nextRows = await fetchExtendOrders();
       setRows(nextRows);
       setSelectedIds(new Set());
+      runAutoSend(nextRows);
     } catch (e: any) {
       setError(e?.message || "연장·연체료 목록을 불러오지 못했습니다.");
     } finally {
@@ -158,6 +163,7 @@ export default function ExtendOrderView() {
           const stillExists = new Set(nextRows.map((r) => r.id));
           return new Set(Array.from(prev).filter((id) => stillExists.has(id)));
         });
+        runAutoSend(nextRows);
       } catch {
         // 폴링 실패는 조용히 무시 — 다음 주기에 다시 시도
       }
@@ -250,6 +256,16 @@ export default function ExtendOrderView() {
       return `${row.data?.customer_name || row.id}: 연장일수/금액 값이 올바르지 않습니다`;
     }
 
+    // "확인필요"(실입금액이 예정액과 다름) 건은 통합관리에 반영하기 전에 먼저 고친 값으로
+    // 확정 처리(status→confirmed)하고 입금확인 알림톡을 보낸다 — 틀린 값인 채로 먼저 통합관리에
+    // 쓰거나 고객에게 알림이 나가면 안 되므로 이 순서를 지킨다(대표님 지시, 2026-09-08).
+    if (statusLabel === "확인필요") {
+      const confirmed = await confirmMismatchExtendOrder(row.id, extendDaysToSend, amountToSend);
+      if (!confirmed.ok) {
+        return `${row.data?.customer_name || row.id}: 확정 처리 실패(${confirmed.error})`;
+      }
+    }
+
     const unifiedRes = await fetch(`/api/unified/${row.unifiedId}`, { cache: "no-store" });
     if (!unifiedRes.ok) return `${row.data?.customer_name || row.id}: 통합관리 조회 실패`;
     const unifiedJson = await unifiedRes.json().catch(() => null);
@@ -287,6 +303,39 @@ export default function ExtendOrderView() {
     }
 
     return null;
+  }
+
+  // 자동전송: 폴링 때마다 "입금확정 + 아직 미전송" 건을 사람 개입 없이 그대로 통합관리에 반영한다.
+  // "확인필요"(값이 틀릴 수 있는 건)는 대상에서 뺀다 — 직원이 실입금액 보고 고친 뒤 "전송"
+  // 버튼으로 직접 처리해야 한다(대표님 지시, 2026-09-08).
+  async function runAutoSend(candidateRows: ExtendOrderRow[]) {
+    const targets = candidateRows.filter(
+      (row) =>
+        getPaymentStatusLabel(row.status) === "입금확정" &&
+        !row.unifiedSyncedAt &&
+        row.unifiedId &&
+        !autoSendingIds.current.has(row.id)
+    );
+    if (!targets.length) return;
+
+    for (const row of targets) autoSendingIds.current.add(row.id);
+
+    try {
+      const failures: string[] = [];
+      for (const row of targets) {
+        try {
+          const failReason = await sendOneRow(row);
+          if (failReason) failures.push(`[자동전송] ${failReason}`);
+        } catch (e: any) {
+          failures.push(`[자동전송] ${row.data?.customer_name || row.id}: ${e?.message || "전송 실패"}`);
+        }
+      }
+      if (failures.length) setError((prev) => (prev ? `${prev} / ${failures.join(" / ")}` : failures.join(" / ")));
+      // 여기서 loadRows()를 부르지 않는다 — 그러면 로딩 스피너가 뜨고 직원이 선택해둔 체크박스가
+      // 초기화된다. 다음 8초 폴링이 자연스럽게 최신 상태(전송완료 표시 등)를 반영해준다.
+    } finally {
+      for (const row of targets) autoSendingIds.current.delete(row.id);
+    }
   }
 
   async function handleSend() {

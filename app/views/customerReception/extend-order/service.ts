@@ -94,6 +94,32 @@ export async function deleteExtendOrders(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * "확인필요"(금액 다름) 건을 직원이 고친 연장일수/금액으로 확정 처리(status→confirmed) +
+ * 입금확인 알림톡 발송까지 서버에서 한 번에 한다. 통합관리 전송(syncPatch) 전에 먼저 호출해야
+ * 한다 — 확정되지 않은 채로 n차연장에 기록되면 안 되기 때문.
+ */
+export async function confirmMismatchExtendOrder(
+  id: string,
+  extendDays: number,
+  amount: number
+): Promise<{ ok: boolean; error?: string }> {
+  const numericId = Number(id);
+  if (!Number.isFinite(numericId) || numericId <= 0) return { ok: false, error: "invalid_id" };
+
+  const res = await fetch("/api/customer-reception/extend-orders", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: numericId, confirmMismatch: true, extendDays, amount }),
+  });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.ok) {
+    return { ok: false, error: data?.error || "server" };
+  }
+  return { ok: true };
+}
+
 /** 통합관리 n차연장 기록까지 끝난 뒤 이 결제건을 "전송완료"로 표시(중복전송 방지). */
 export async function markExtendOrderSynced(id: string): Promise<{ ok: boolean; error?: string }> {
   const numericId = Number(id);
