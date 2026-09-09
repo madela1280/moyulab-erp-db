@@ -51,6 +51,9 @@ function normalizeWidth(width: number) {
   return Math.max(60, Math.min(800, Math.round(width)));
 }
 
+// 종료일/새만기일/실입금액은 눈에 잘 띄어야 하는 값이라 글자색을 빨간색으로 강조한다.
+const RED_TEXT_KEYS = new Set(["current_end_date", "new_end_date", "actual_amount"]);
+
 /** status/datetime/settlementType/readonly는 값 입력이 아니라 서버 데이터를 그대로 보여주기만 하는 읽기전용 컬럼 */
 function isReadonlyColumn(col: ExtendOrderColumn) {
   return (
@@ -369,7 +372,7 @@ export default function ExtendOrderGrid({
                       className={`border border-slate-300 align-middle text-center font-normal ${
                         multiSelected ? "bg-blue-50" : selected ? "bg-blue-100" : "bg-white"
                       } ${
-                        col.type === "settlementType" && text === "연체료"
+                        (col.type === "settlementType" && text === "연체료") || RED_TEXT_KEYS.has(col.key)
                           ? "text-red-600 font-semibold"
                           : col.key === "syncStatus" && text !== "-"
                           ? "text-emerald-600 font-semibold"
@@ -400,7 +403,9 @@ export default function ExtendOrderGrid({
                       value={row.data?.[col.key] ?? ""}
                       onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
                       onKeyDown={(e) => handleInputKeyDown(e, rowIndex, colIndex)}
-                      className="block h-full min-h-8 w-full border-0 bg-transparent px-2 py-1 text-xs font-normal text-slate-900 outline-none"
+                      className={`block h-full min-h-8 w-full border-0 bg-transparent px-2 py-1 text-xs font-normal outline-none ${
+                        RED_TEXT_KEYS.has(col.key) ? "text-red-600 font-semibold" : "text-slate-900"
+                      }`}
                       style={{ width: col.width - 2, minWidth: col.width - 2 }}
                     />
                   </td>
