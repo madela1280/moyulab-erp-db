@@ -68,6 +68,7 @@ export async function fetchExtendOrders(): Promise<ExtendOrderRow[]> {
       device_model: row.device_model ?? "",
       partner_category: row.partner_category ?? "",
       device_no: row.device_no ?? "",
+      current_end_date: row.current_end_date ?? "",
       extend_days: row.extend_days != null ? String(row.extend_days) : "",
       new_end_date: row.new_end_date ?? "",
       amount: row.amount != null ? row.amount.toLocaleString("ko-KR") : "",

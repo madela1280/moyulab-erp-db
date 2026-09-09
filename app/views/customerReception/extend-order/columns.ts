@@ -38,6 +38,7 @@ export const EXTEND_ORDER_COLUMNS: ExtendOrderColumn[] = [
   { key: "device_model", label: "제품", width: 100 },
   { key: "customer_name", label: "수취인명", width: 100 },
   { key: "phone1", label: "연락처", width: 130 },
+  { key: "current_end_date", label: "종료일", width: 110 },
   { key: "extend_days", label: "연장일수", width: 90 },
   { key: "new_end_date", label: "새만기일", width: 110 },
   { key: "amount", label: "금액", width: 100 },
@@ -88,7 +89,7 @@ export function getCellDisplayValue(row: ExtendOrderRow, col: ExtendOrderColumn)
   if (col.type === "settlementType") return getSettlementTypeLabel(row.isOverdueSettlement);
   if (col.key === "orderedAt") return formatDateTime(row.orderedAt);
   if (col.key === "confirmedAt") return formatDateTime(row.confirmedAt);
-  if (col.key === "new_end_date") return formatDateOnly(row.data?.[col.key] ?? "");
+  if (col.key === "new_end_date" || col.key === "current_end_date") return formatDateOnly(row.data?.[col.key] ?? "");
   return row.data?.[col.key] ?? "";
 }
 
