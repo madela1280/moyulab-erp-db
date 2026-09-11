@@ -76,6 +76,18 @@ export default function RefundRequestGrid({
 
   const allChecked = displayRows.length > 0 && displayRows.every((row) => selectedIds?.has(row.id));
 
+  function focusCell(rowIndex: number, colIndex: number) {
+    window.setTimeout(() => {
+      const input = gridRef.current?.querySelector<HTMLInputElement>(
+        `input[data-rr-row="${rowIndex}"][data-rr-col="${colIndex}"]`
+      );
+      if (!input) return;
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }, 0);
+  }
+
   function selectSingleCell(rowIndex: number, colIndex: number) {
     const point = { rowIndex, colIndex };
     setSelectionAnchor(point);
@@ -111,6 +123,7 @@ export default function RefundRequestGrid({
     if (e.button !== 0) return;
     e.preventDefault();
     selectSingleCell(rowIndex, colIndex);
+    focusCell(rowIndex, colIndex);
   }
 
   function handleCellMouseEnter(rowIndex: number, colIndex: number, buttons: number) {
@@ -281,6 +294,8 @@ export default function RefundRequestGrid({
                     onMouseEnter={(e) => handleCellMouseEnter(rowIndex, colIndex, e.buttons)}
                   >
                     <input
+                      data-rr-row={rowIndex}
+                      data-rr-col={colIndex}
                       value={row.data?.[col.key] ?? ""}
                       onChange={(e) => updateCellLocal(rowIndex, col.key, e.target.value)}
                       onBlur={(e) => onFieldSave?.(row.id, col.key, e.target.value)}

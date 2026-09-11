@@ -28,7 +28,6 @@ export const REFUND_REQUEST_COLUMNS: RefundRequestColumn[] = [
   { key: "product", label: "제품", width: 100 },
   { key: "renter_name", label: "수취인명", width: 100 },
   { key: "phone", label: "연락처1", width: 130 },
-  { key: "phone2", label: "연락처2", width: 130 },
   { key: "contract_address", label: "계약자주소", width: 220 },
   { key: "start_date", label: "시작일", width: 100 },
   { key: "end_date", label: "종료일", width: 100 },
@@ -38,6 +37,7 @@ export const REFUND_REQUEST_COLUMNS: RefundRequestColumn[] = [
   { key: "account_holder", label: "예금주명", width: 90 },
   { key: "account_number", label: "계좌번호", width: 160 },
   { key: "payment_status", label: "입금", width: 90, type: "select" },
+  { key: "parts_note", label: "추가반품", width: 180 },
   { key: "memo", label: "메모", width: 200 },
 ];
 

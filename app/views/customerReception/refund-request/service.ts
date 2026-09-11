@@ -10,7 +10,6 @@ type RefundRequestApiRow = {
   renter_name: string | null;
   product: string | null;
   phone: string | null;
-  phone2: string | null;
   partner_category: string | null;
   device_no: string | null;
   contract_address: string | null;
@@ -22,6 +21,7 @@ type RefundRequestApiRow = {
   account_holder: string | null;
   account_number: string | null;
   payment_status: string | null;
+  parts_note: string | null;
   memo: string | null;
   received_at: string | null;
 };
@@ -45,7 +45,6 @@ export async function fetchRefundRequests(): Promise<RefundRequestRow[]> {
       product: row.product ?? "",
       renter_name: row.renter_name ?? "",
       phone: row.phone ?? "",
-      phone2: row.phone2 ?? "",
       contract_address: row.contract_address ?? "",
       start_date: row.start_date ?? "",
       end_date: row.end_date ?? "",
@@ -55,6 +54,7 @@ export async function fetchRefundRequests(): Promise<RefundRequestRow[]> {
       account_holder: row.account_holder ?? "",
       account_number: row.account_number ?? "",
       payment_status: row.payment_status || "반품전",
+      parts_note: row.parts_note ?? "",
       memo: row.memo ?? "",
     },
   }));
@@ -89,5 +89,40 @@ export async function deleteRefundRequests(ids: string[]): Promise<void> {
 
   if (!res.ok || !data?.ok) {
     throw new Error(data?.error || "삭제하지 못했습니다.");
+  }
+}
+
+export type RefundRequestGridSettings = {
+  columnOrder: string[];
+  columnWidths: Record<string, number>;
+};
+
+export async function fetchRefundRequestGridSettings(): Promise<RefundRequestGridSettings> {
+  try {
+    const res = await fetch("/api/customer-reception/refund-requests/grid-settings", { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) return { columnOrder: [], columnWidths: {} };
+
+    return {
+      columnOrder: Array.isArray(data.columnOrder) ? data.columnOrder.map((v: unknown) => String(v)) : [],
+      columnWidths: data.columnWidths && typeof data.columnWidths === "object" ? data.columnWidths : {},
+    };
+  } catch {
+    return { columnOrder: [], columnWidths: {} };
+  }
+}
+
+export async function saveRefundRequestGridSettings(
+  columnOrder?: string[],
+  columnWidths?: Record<string, number>
+): Promise<void> {
+  try {
+    await fetch("/api/customer-reception/refund-requests/grid-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ columnOrder, columnWidths }),
+    });
+  } catch {
+    // 열 설정 저장 실패는 조용히 무시
   }
 }

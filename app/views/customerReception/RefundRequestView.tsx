@@ -13,12 +13,45 @@ import {
   fetchRefundRequests,
   updateRefundRequestField,
   deleteRefundRequests,
+  fetchRefundRequestGridSettings,
+  saveRefundRequestGridSettings,
+  type RefundRequestGridSettings,
 } from "@/views/customerReception/refund-request/service";
 import {
   REFUND_REQUEST_COLUMNS,
   type RefundRequestColumn,
   type RefundRequestRow,
 } from "@/views/customerReception/refund-request/columns";
+
+function applyGridSettings(
+  baseColumns: RefundRequestColumn[],
+  settings: RefundRequestGridSettings
+): RefundRequestColumn[] {
+  let ordered = baseColumns;
+
+  if (settings.columnOrder.length) {
+    const byKey = new Map(baseColumns.map((col) => [col.key, col]));
+    const seen = new Set<string>();
+    const reordered: RefundRequestColumn[] = [];
+
+    for (const key of settings.columnOrder) {
+      const col = byKey.get(key);
+      if (col && !seen.has(key)) {
+        reordered.push(col);
+        seen.add(key);
+      }
+    }
+    for (const col of baseColumns) {
+      if (!seen.has(col.key)) reordered.push(col);
+    }
+    ordered = reordered;
+  }
+
+  return ordered.map((col) => {
+    const width = settings.columnWidths[col.key];
+    return typeof width === "number" && width > 0 ? { ...col, width } : col;
+  });
+}
 
 // 입금상태/메모는 직원이 직접 채우는 칸이라, 폴링 때 서버값으로 덮어써버리면 타이핑 중이던
 // 내용이 날아간다 — 그래서 이 칸들만 기존 화면 값을 그대로 보존한다(포장재구매 화면과 동일 원칙).
@@ -46,6 +79,7 @@ export default function RefundRequestView() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadRows() {
     setLoading(true);
@@ -63,6 +97,13 @@ export default function RefundRequestView() {
 
   useEffect(() => {
     loadRows();
+
+    (async () => {
+      const settings = await fetchRefundRequestGridSettings();
+      if (settings.columnOrder.length || Object.keys(settings.columnWidths).length) {
+        setColumns((prev) => applyGridSettings(prev, settings));
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -83,6 +124,13 @@ export default function RefundRequestView() {
 
   function handleColumnsChange(nextColumns: RefundRequestColumn[]) {
     setColumns(nextColumns);
+
+    if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
+    saveSettingsTimer.current = setTimeout(() => {
+      const columnOrder = nextColumns.map((col) => col.key);
+      const columnWidths = Object.fromEntries(nextColumns.map((col) => [col.key, col.width]));
+      saveRefundRequestGridSettings(columnOrder, columnWidths);
+    }, 400);
   }
 
   function handleToggleSelect(id: string) {
