@@ -5,6 +5,14 @@
 
 import { type RefundRequestRow } from "@/views/customerReception/refund-request/columns";
 
+// "01015156677" -> "010-1234-5678" 형태로 표시(저장값 자체는 건드리지 않고 화면 표시만 포맷).
+function formatPhoneDisplay(v: string | null | undefined): string {
+  const digits = String(v ?? "").replace(/\D/g, "");
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return v ?? "";
+}
+
 type RefundRequestApiRow = {
   id: number;
   renter_name: string | null;
@@ -44,7 +52,7 @@ export async function fetchRefundRequests(): Promise<RefundRequestRow[]> {
       device_no: row.device_no ?? "",
       product: row.product ?? "",
       renter_name: row.renter_name ?? "",
-      phone: row.phone ?? "",
+      phone: formatPhoneDisplay(row.phone),
       contract_address: row.contract_address ?? "",
       start_date: row.start_date ?? "",
       end_date: row.end_date ?? "",
