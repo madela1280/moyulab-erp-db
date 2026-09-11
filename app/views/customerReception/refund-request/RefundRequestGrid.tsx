@@ -33,6 +33,8 @@ type RefundRequestGridProps = {
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleSelectAll?: (checked: boolean) => void;
+  paymentStatusSortActive?: boolean;
+  onTogglePaymentStatusSort?: () => void;
 };
 
 function isMultiCellRange(range: RefundRequestCellRange | null) {
@@ -58,6 +60,8 @@ export default function RefundRequestGrid({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
+  paymentStatusSortActive,
+  onTogglePaymentStatusSort,
 }: RefundRequestGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -180,7 +184,23 @@ export default function RefundRequestGrid({
                 style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
               >
                 <div className="flex flex-col items-center gap-1">
-                  <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">{col.label}</span>
+                  <span className="flex w-full items-center justify-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {col.label}
+                    {col.key === "payment_status" && (
+                      <button
+                        type="button"
+                        title={paymentStatusSortActive ? "접수일자순으로 되돌리기" : "입금전 → 반품전 → 입금완료 순 정렬"}
+                        className={`text-[10px] leading-none ${paymentStatusSortActive ? "text-yellow-300" : "text-white/70 hover:text-white"}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onTogglePaymentStatusSort?.();
+                        }}
+                      >
+                        ▽
+                      </button>
+                    )}
+                  </span>
                   {isColumnEditMode && (
                     <div className="flex flex-col items-center gap-1">
                       <div className="flex items-center gap-1">

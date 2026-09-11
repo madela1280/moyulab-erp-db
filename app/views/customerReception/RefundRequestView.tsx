@@ -6,7 +6,7 @@
 // 자기 DB(refund_requests)에서 오며(반납접수와 동일 원칙), ERP 자체 API가 CS서버를 대신
 // 호출해서 가져온다. 8초마다 폴링해서 새 접수를 자동 반영한다.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import RefundRequestHeader from "@/views/customerReception/refund-request/RefundRequestHeader";
 import RefundRequestGrid from "@/views/customerReception/refund-request/RefundRequestGrid";
 import {
@@ -19,9 +19,11 @@ import {
 } from "@/views/customerReception/refund-request/service";
 import {
   REFUND_REQUEST_COLUMNS,
+  PAYMENT_STATUS_SORT_ORDER,
   type RefundRequestColumn,
   type RefundRequestRow,
 } from "@/views/customerReception/refund-request/columns";
+import { downloadRefundRequestCsv } from "@/views/customerReception/refund-request/serviceExport";
 
 function applyGridSettings(
   baseColumns: RefundRequestColumn[],
@@ -53,9 +55,10 @@ function applyGridSettings(
   });
 }
 
-// 입금상태/메모는 직원이 직접 채우는 칸이라, 폴링 때 서버값으로 덮어써버리면 타이핑 중이던
-// 내용이 날아간다 — 그래서 이 칸들만 기존 화면 값을 그대로 보존한다(포장재구매 화면과 동일 원칙).
-const MANUAL_ONLY_KEYS = ["payment_status", "memo"];
+// 고객이 잘못 입력한 정보를 직원이 고쳐서 입금해야 하므로 모든 칸이 수정 가능하다. 폴링 때
+// 서버값으로 덮어써버리면 타이핑 중이던 내용이 날아가므로, receivedAt(접수일자, 수정 불가)을
+// 제외한 모든 칸을 화면 값 그대로 보존한다(포장재구매 화면과 동일 원칙).
+const MANUAL_ONLY_KEYS = REFUND_REQUEST_COLUMNS.filter((col) => col.key !== "receivedAt").map((col) => col.key);
 
 function mergePolledRows(freshRows: RefundRequestRow[], prevRows: RefundRequestRow[]): RefundRequestRow[] {
   const prevById = new Map(prevRows.map((r) => [r.id, r]));
@@ -77,6 +80,7 @@ export default function RefundRequestView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [paymentStatusSortActive, setPaymentStatusSortActive] = useState(false);
 
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,6 +150,27 @@ export default function RefundRequestView() {
     setSelectedIds(checked ? new Set(rows.map((row) => row.id)) : new Set());
   }
 
+  // 입금 컬럼 옆 삼각형 클릭 시 입금전 -> 반품전 -> 입금완료 순 정렬, 다시 누르면 접수일자순(기본)으로.
+  // rows 원본(접수일자순) 자체는 건드리지 않고 그리드에 넘기는 표시용 배열만 정렬한다 — 그래야
+  // 8초 폴링이 원본을 다시 접수일자순으로 채워도 꼬이지 않는다.
+  const displayRows = useMemo(() => {
+    if (!paymentStatusSortActive) return rows;
+    return [...rows].sort((a, b) => {
+      const av = PAYMENT_STATUS_SORT_ORDER[a.data?.payment_status || "반품전"] ?? 99;
+      const bv = PAYMENT_STATUS_SORT_ORDER[b.data?.payment_status || "반품전"] ?? 99;
+      return av - bv;
+    });
+  }, [rows, paymentStatusSortActive]);
+
+  // Grid는 화면에 보이는(정렬된) 배열 전체를 그대로 돌려주므로, id 기준으로 원본 rows에 다시
+  // 병합해야 정렬 모드에서도 원본 순서(접수일자순)가 흐트러지지 않는다.
+  function handleDisplayRowsChange(nextDisplayRows: RefundRequestRow[]) {
+    setRows((prev) => {
+      const byId = new Map(nextDisplayRows.map((row) => [row.id, row]));
+      return prev.map((row) => byId.get(row.id) ?? row);
+    });
+  }
+
   // 텍스트 칸은 입력 중 계속 쏘지 않게 400ms 묶어서 저장, 드롭다운(입금상태)은 onChange라 이미
   // 1번만 호출됨 — 같은 디바운스 맵을 재사용해도 무방(마지막 값만 남아 저장됨).
   function handleFieldSave(rowId: string, field: string, value: string) {
@@ -178,6 +203,12 @@ export default function RefundRequestView() {
     }
   }
 
+  // 체크한 행이 있으면 그것만, 없으면 전체를 다운로드한다.
+  function handleDownload() {
+    const targetRows = selectedIds.size > 0 ? displayRows.filter((row) => selectedIds.has(row.id)) : displayRows;
+    downloadRefundRequestCsv(targetRows, columns);
+  }
+
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
       <RefundRequestHeader
@@ -187,20 +218,23 @@ export default function RefundRequestView() {
         onRefresh={loadRows}
         onDelete={handleDelete}
         onToggleColumnEditMode={() => setIsColumnEditMode((prev) => !prev)}
+        onDownload={handleDownload}
       />
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
       <RefundRequestGrid
-        rows={rows}
+        rows={displayRows}
         columns={columns}
         isColumnEditMode={isColumnEditMode}
-        onRowsChange={setRows}
+        onRowsChange={handleDisplayRowsChange}
         onColumnsChange={handleColumnsChange}
         onFieldSave={handleFieldSave}
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onToggleSelectAll={handleToggleSelectAll}
+        paymentStatusSortActive={paymentStatusSortActive}
+        onTogglePaymentStatusSort={() => setPaymentStatusSortActive((prev) => !prev)}
       />
     </div>
   );

@@ -15,6 +15,13 @@ export type RefundRequestColumn = {
 export const PAYMENT_STATUS_OPTIONS = ["반품전", "입금전", "입금완료"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUS_OPTIONS)[number];
 
+// 입금 컬럼 정렬 클릭 시 이 순서로 보여준다(대표님 지정: 입금전 -> 반품전 -> 입금완료).
+export const PAYMENT_STATUS_SORT_ORDER: Record<string, number> = {
+  입금전: 0,
+  반품전: 1,
+  입금완료: 2,
+};
+
 export type RefundRequestRow = {
   id: string;
   receivedAt: string | null;
