@@ -10,6 +10,7 @@ import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, typ
 import {
   REFUND_REQUEST_COLUMNS,
   PAYMENT_STATUS_OPTIONS,
+  REFUND_TYPE_OPTIONS,
   createEmptyRefundRequestRow,
   getCellDisplayValue,
   type RefundRequestColumn,
@@ -274,12 +275,15 @@ export default function RefundRequestGrid({
                 }
 
                 if (col.type === "select") {
-                  const value = row.data?.[col.key] || PAYMENT_STATUS_OPTIONS[0];
+                  const options = col.key === "type" ? REFUND_TYPE_OPTIONS : PAYMENT_STATUS_OPTIONS;
+                  const value = row.data?.[col.key] || options[0];
                   const badgeClass =
                     value === "입금완료"
                       ? "text-blue-700"
                       : value === "입금전"
                       ? "text-red-600 font-semibold"
+                      : value === "포장재환불"
+                      ? "text-purple-700 font-semibold"
                       : "text-slate-500";
                   return (
                     <td
@@ -295,7 +299,7 @@ export default function RefundRequestGrid({
                           onFieldSave?.(row.id, col.key, e.target.value);
                         }}
                       >
-                        {PAYMENT_STATUS_OPTIONS.map((opt) => (
+                        {options.map((opt) => (
                           <option key={opt} value={opt}>
                             {opt}
                           </option>

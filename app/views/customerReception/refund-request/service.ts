@@ -15,6 +15,7 @@ function formatPhoneDisplay(v: string | null | undefined): string {
 
 type RefundRequestApiRow = {
   id: number;
+  type: string | null;
   renter_name: string | null;
   product: string | null;
   phone: string | null;
@@ -48,6 +49,7 @@ export async function fetchRefundRequests(): Promise<RefundRequestRow[]> {
     id: String(row.id),
     receivedAt: row.received_at ?? null,
     data: {
+      type: row.type || "환불",
       partner_category: row.partner_category ?? "",
       device_no: row.device_no ?? "",
       product: row.product ?? "",

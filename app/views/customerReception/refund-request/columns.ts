@@ -15,6 +15,10 @@ export type RefundRequestColumn = {
 export const PAYMENT_STATUS_OPTIONS = ["반품전", "입금전", "입금완료"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUS_OPTIONS)[number];
 
+// 유축기 대여료 환불(환불) / 포장재 구매건 반품 환불(포장재환불) 구분.
+export const REFUND_TYPE_OPTIONS = ["환불", "포장재환불"] as const;
+export type RefundType = (typeof REFUND_TYPE_OPTIONS)[number];
+
 // 입금 컬럼 정렬 클릭 시 이 순서로 보여준다(대표님 지정: 입금전 -> 반품전 -> 입금완료).
 export const PAYMENT_STATUS_SORT_ORDER: Record<string, number> = {
   입금전: 0,
@@ -30,6 +34,7 @@ export type RefundRequestRow = {
 
 export const REFUND_REQUEST_COLUMNS: RefundRequestColumn[] = [
   { key: "receivedAt", label: "접수일자", width: 130, type: "datetime" },
+  { key: "type", label: "구분", width: 100, type: "select" },
   { key: "partner_category", label: "거래처분류", width: 100 },
   { key: "device_no", label: "기기번호", width: 100 },
   { key: "product", label: "제품", width: 100 },
