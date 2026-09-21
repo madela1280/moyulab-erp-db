@@ -89,6 +89,14 @@ export async function GET(req: Request) {
         FROM ordered_rows r
         CROSS JOIN LATERAL unnest($1::text[]) WITH ORDINALITY AS c(key, ord)
         WHERE strpos(lower(COALESCE(r.data ->> c.key, '')), lower($2::text)) > 0
+          OR (
+            c.key IN ('연락처1', '연락처2')
+            AND regexp_replace($2::text, '[^0-9]', '', 'g') <> ''
+            AND strpos(
+              regexp_replace(COALESCE(r.data ->> c.key, ''), '[^0-9]', '', 'g'),
+              regexp_replace($2::text, '[^0-9]', '', 'g')
+            ) > 0
+          )
       ),
       matched_rows AS (
         SELECT
