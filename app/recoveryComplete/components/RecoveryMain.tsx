@@ -17,6 +17,8 @@ import {
 } from "@/unified/filter/useUnifiedSort";
 
 import { exportRecoveryCsv } from "@/recoveryComplete/export/serviceRecoveryExport";
+import RestoreToUnifiedPanel from "@/recoveryComplete/components/RestoreToUnifiedPanel";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
 export type RecoveryScope = "recovery1" | "recovery2";
 
@@ -24,6 +26,9 @@ export default function RecoveryMain({ scope }: { scope: RecoveryScope }) {
   const gridRef = useRef<RecoveryGridHandle | null>(null);
 
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
+
+  // ✅ (추가) 회수1 전용: 통합관리로 복구 팝업(완전 별도 배치 기능)
+  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
 
   // 필터/정렬
   const [filterMode, setFilterMode] = useState(false);
@@ -77,6 +82,18 @@ export default function RecoveryMain({ scope }: { scope: RecoveryScope }) {
     <div className="w-full h-full flex flex-col">
       <div style={{ height: "0.3cm" }} />
 
+      {scope === "recovery1" && (
+        <div className="flex justify-end px-2 py-1">
+          <button
+            type="button"
+            className="text-xs px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
+            onClick={() => setIsRestoreOpen(true)}
+          >
+            통합관리로 복구
+          </button>
+        </div>
+      )}
+
       <RecoveryHeader
         title={scope === "recovery1" ? "회수1" : "회수2"}
         onDownload={handleDownload}
@@ -107,6 +124,16 @@ export default function RecoveryMain({ scope }: { scope: RecoveryScope }) {
           onSortStateChange={setSortState}
         />
       </div>
+
+      {scope === "recovery1" && (
+        <RestoreToUnifiedPanel
+          open={isRestoreOpen}
+          onClose={() => setIsRestoreOpen(false)}
+          onRestored={() => {
+            syncEmitUnifiedUpdate();
+          }}
+        />
+      )}
     </div>
   );
 }

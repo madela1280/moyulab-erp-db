@@ -9,7 +9,9 @@ export type UnifiedChangeActionType =
   | "bulk_patch"
   | "bulk_delete"
   | "insert"
-  | "restore";
+  | "restore"
+  | "move_to_recovery1"
+  | "restore_from_recovery1";
 
 export type ChangeHistoryActor = {
   username: string | null;

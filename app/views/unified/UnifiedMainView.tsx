@@ -11,6 +11,7 @@ import { syncEmitUnifiedUpdate, syncListen, syncPatch } from "@/global-sync/sync
 
 import PartnerPickerPopover from "@/views/dataUpload/signup-grid/partner-picker/PartnerPickerPopover";
 import PartnerGuidePanel from "@/views/unified/components/PartnerGuidePanel";
+import MoveToRecoveryPanel from "@/views/unified/components/MoveToRecoveryPanel";
 
 import UnifiedPathPickerPopover from "@/unified/path-options/UnifiedPathPickerPopover";
 import { useUnifiedPathOptions } from "@/unified/path-options/useUnifiedPathOptions";
@@ -129,6 +130,9 @@ export default function UnifiedMainView() {
 
   // ✅ 안내분류(거래처별) 설정 패널: 안내분류 셀 클릭으로 오픈
   const [isPartnerGuideOpen, setIsPartnerGuideOpen] = useState(false);
+
+  // ✅ (추가) 회수완료로 이동 팝업(완전 별도 배치 기능, UnifiedGrid와 무관)
+  const [isMoveToRecoveryOpen, setIsMoveToRecoveryOpen] = useState(false);
   const [guidePanelInitialPartner, setGuidePanelInitialPartner] = useState<string>("");
 
   // ✅ 1~7차 연장 입력 패널
@@ -814,6 +818,16 @@ export default function UnifiedMainView() {
     <div className="w-full h-full flex flex-col">
       <div style={{ height: "0.3cm" }} />
 
+      <div className="flex justify-end px-2 py-1">
+        <button
+          type="button"
+          className="text-xs px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
+          onClick={() => setIsMoveToRecoveryOpen(true)}
+        >
+          회수완료로 이동
+        </button>
+      </div>
+
       <GridHeader
         onAdd10={async () => {
           await gridRef.current?.appendBlankRows(10);
@@ -1111,6 +1125,14 @@ export default function UnifiedMainView() {
         anchor={colorAnchor}
         onClose={() => setColorOpen(false)}
         onApply={applyColor}
+      />
+
+      <MoveToRecoveryPanel
+        open={isMoveToRecoveryOpen}
+        onClose={() => setIsMoveToRecoveryOpen(false)}
+        onMoved={() => {
+          syncEmitUnifiedUpdate();
+        }}
       />
     </div>
   );
