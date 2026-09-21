@@ -4,11 +4,32 @@ import { useEffect, useState } from "react";
 
 type PreviewItem = {
   id: number;
-  기기번호: string;
-  수취인명: string;
   거래처분류: string;
+  상태: string;
+  기기번호: string;
+  제품: string;
+  수취인명: string;
+  연락처1: string;
+  시작일: string;
+  종료일: string;
   반납완료일: string;
+  특이사항1: string;
+  총연장횟수: number;
 };
+
+const COLUMNS: Array<{ key: keyof PreviewItem; label: string }> = [
+  { key: "거래처분류", label: "거래처분류" },
+  { key: "상태", label: "상태" },
+  { key: "기기번호", label: "기기번호" },
+  { key: "제품", label: "제품" },
+  { key: "수취인명", label: "수취인명" },
+  { key: "연락처1", label: "연락처1" },
+  { key: "시작일", label: "시작일" },
+  { key: "종료일", label: "종료일" },
+  { key: "반납완료일", label: "반납완료일" },
+  { key: "특이사항1", label: "특이사항" },
+  { key: "총연장횟수", label: "총연장횟수" },
+];
 
 const BATCH_LIMIT = 300;
 
@@ -103,7 +124,7 @@ export default function RestoreToUnifiedPanel({
   return (
     <div className="fixed inset-0 z-[90] bg-black/30 flex items-center justify-center" onMouseDown={onClose}>
       <div
-        className="w-[680px] max-w-[94vw] max-h-[86vh] rounded border bg-white shadow-lg flex flex-col"
+        className="w-[1180px] max-w-[96vw] max-h-[86vh] rounded border bg-white shadow-lg flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50">
@@ -122,7 +143,7 @@ export default function RestoreToUnifiedPanel({
 
         <div className="flex-1 min-h-0 overflow-auto">
           {items.length > 0 && (
-            <table className="w-full text-xs">
+            <table className="w-full text-xs whitespace-nowrap">
               <thead className="sticky top-0 bg-white">
                 <tr>
                   <th className="w-10 border-b px-2 py-1.5">
@@ -134,10 +155,11 @@ export default function RestoreToUnifiedPanel({
                       }}
                     />
                   </th>
-                  <th className="border-b px-2 py-1.5 text-left">기기번호</th>
-                  <th className="border-b px-2 py-1.5 text-left">수취인명</th>
-                  <th className="border-b px-2 py-1.5 text-left">거래처분류</th>
-                  <th className="border-b px-2 py-1.5 text-left">반납완료일</th>
+                  {COLUMNS.map((c) => (
+                    <th key={c.key} className="border-b px-2 py-1.5 text-left">
+                      {c.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -146,10 +168,11 @@ export default function RestoreToUnifiedPanel({
                     <td className="border-b px-2 py-1 text-center">
                       <input type="checkbox" checked={checkedIds.has(it.id)} onChange={() => toggleId(it.id)} />
                     </td>
-                    <td className="border-b px-2 py-1">{it.기기번호}</td>
-                    <td className="border-b px-2 py-1">{it.수취인명}</td>
-                    <td className="border-b px-2 py-1">{it.거래처분류}</td>
-                    <td className="border-b px-2 py-1">{it.반납완료일}</td>
+                    {COLUMNS.map((c) => (
+                      <td key={c.key} className="border-b px-2 py-1">
+                        {String(it[c.key] ?? "")}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

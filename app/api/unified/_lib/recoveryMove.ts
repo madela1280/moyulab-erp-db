@@ -7,6 +7,8 @@
 
 import { Pool } from "pg";
 import { parseUnifiedCell } from "@/unified/status/parseUnifiedDate";
+import { calcUnifiedStatus } from "@/unified/status/calcUnifiedStatus";
+import { countExtensionRounds } from "@/views/unified/extensions/extensionCompute";
 
 export const MOVE_BATCH_MAX = 300;
 
@@ -35,14 +37,50 @@ function isStillEligible(data: Record<string, any>): boolean {
   return completed.kind === "date";
 }
 
-export type MovePreviewItem = {
+export type PreviewDisplayRow = {
   id: number;
-  기기번호: string;
-  수취인명: string;
   거래처분류: string;
-  반납완료일: string;
+  상태: string;
+  기기번호: string;
+  제품: string;
+  수취인명: string;
+  연락처1: string;
+  시작일: string;
   종료일: string;
+  반납완료일: string;
+  특이사항1: string;
+  총연장횟수: number;
 };
+
+function buildDisplayRow(id: number, data: Record<string, any>): PreviewDisplayRow {
+  const status = calcUnifiedStatus({
+    수취인명: data?.["수취인명"],
+    연락처1: data?.["연락처1"],
+    계약자주소: data?.["계약자주소"],
+    택배발송일: data?.["택배발송일"],
+    시작일: data?.["시작일"],
+    종료일: data?.["종료일"],
+    반납요청일: data?.["반납요청일"],
+    반납완료일: data?.["반납완료일"],
+  });
+
+  return {
+    id,
+    거래처분류: normalizeString(data?.["거래처분류"]),
+    상태: status.status,
+    기기번호: normalizeString(data?.["기기번호"]),
+    제품: normalizeString(data?.["제품"]),
+    수취인명: normalizeString(data?.["수취인명"]),
+    연락처1: normalizeString(data?.["연락처1"]),
+    시작일: normalizeString(data?.["시작일"]),
+    종료일: normalizeString(data?.["종료일"]),
+    반납완료일: normalizeString(data?.["반납완료일"]),
+    특이사항1: normalizeString(data?.["특이사항1"]),
+    총연장횟수: countExtensionRounds(data),
+  };
+}
+
+export type MovePreviewItem = PreviewDisplayRow;
 
 export async function previewMoveToRecovery1(
   cutoffISO: string,
@@ -71,14 +109,7 @@ export async function previewMoveToRecovery1(
 
   matched.sort((a, b) => a.sort_key - b.sort_key);
 
-  const items: MovePreviewItem[] = matched.slice(0, limit).map((m) => ({
-    id: m.id,
-    기기번호: normalizeString(m.data?.["기기번호"]),
-    수취인명: normalizeString(m.data?.["수취인명"]),
-    거래처분류: normalizeString(m.data?.["거래처분류"]),
-    반납완료일: normalizeString(m.data?.["반납완료일"]),
-    종료일: normalizeString(m.data?.["종료일"]),
-  }));
+  const items: MovePreviewItem[] = matched.slice(0, limit).map((m) => buildDisplayRow(m.id, m.data));
 
   return { totalCount: matched.length, items };
 }
@@ -205,13 +236,7 @@ export async function executeMoveToRecovery1(
   return { movedCount: movedIds.length, movedIds, skippedIds };
 }
 
-export type RestorePreviewItem = {
-  id: number;
-  기기번호: string;
-  수취인명: string;
-  거래처분류: string;
-  반납완료일: string;
-};
+export type RestorePreviewItem = PreviewDisplayRow;
 
 export async function previewRestoreToUnified(
   limit: number
@@ -232,13 +257,7 @@ export async function previewRestoreToUnified(
 
   const items: RestorePreviewItem[] = (r.rows || []).map((row: any) => {
     const data = row?.data && typeof row.data === "object" ? row.data : {};
-    return {
-      id: Number(row.id),
-      기기번호: normalizeString(data?.["기기번호"]),
-      수취인명: normalizeString(data?.["수취인명"]),
-      거래처분류: normalizeString(data?.["거래처분류"]),
-      반납완료일: normalizeString(data?.["반납완료일"]),
-    };
+    return buildDisplayRow(Number(row.id), data);
   });
 
   return { totalCount, items };
