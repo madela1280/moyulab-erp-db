@@ -1947,6 +1947,39 @@ function updateLocalCell(id: number, key: string, value: string) {
   lastLocalUnifiedEmitAtRef.current = Date.now();
 
   await syncPatch(id, key, value);
+
+  // ✅ (추가) 기기번호 직접입력 시 마스터 미등록/비슷한 번호 경고
+  // - syncPatch(저장/소켓emit)와는 완전히 무관한 읽기 전용 확인이라 await하지 않음(저장 흐름 영향 없음)
+  if (key === "기기번호") {
+    const deviceNo = String(value ?? "").trim();
+    if (deviceNo) {
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const r = await fetch(
+              `/api/unified/device-similar-check?no=${encodeURIComponent(deviceNo)}`,
+              { cache: "no-store" }
+            );
+            if (!r.ok) return;
+
+            const j = await r.json().catch(() => null);
+            if (!j || typeof j !== "object") return;
+
+            if (j.status === "similar" && j.suggestion) {
+              alert(
+                `기기번호 확인: ${j.suggestion.기종} ${j.suggestion.기기번호} 가 맞습니까?\n` +
+                  `(입력하신 번호: ${deviceNo})`
+              );
+            } else if (j.status === "not_found") {
+              alert(`없는 기기번호입니다: ${deviceNo}`);
+            }
+          } catch {
+            // ignore
+          }
+        })();
+      }, 300);
+    }
+  }
 }
 
 // ✅ 저장 후 서버값 검증(간헐적 저장 누락/삭제 부활/마지막 1개 미반영 체감 방지)

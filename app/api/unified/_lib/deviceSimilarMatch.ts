@@ -71,3 +71,42 @@ export async function findSimilarDeviceNo(deviceNoRaw: string): Promise<SimilarD
 
   return { 기기번호: matches[0].device, 기종: matches[0].model };
 }
+
+async function existsExactDeviceNo(deviceNoRaw: string): Promise<boolean> {
+  const needle = normalizeString(deviceNoRaw).toLowerCase();
+  if (!needle) return false;
+
+  for (const table of DEVICE_TABLES) {
+    const existsR = await query(`SELECT to_regclass($1) AS reg`, [`public.${table}`]);
+    if (!existsR.rows?.[0]?.reg) continue;
+
+    const r = await query(
+      `SELECT 1 FROM ${table} WHERE lower(trim(COALESCE(data->>'시스템 기기번호',''))) = $1 LIMIT 1`,
+      [needle]
+    );
+    if (r.rows?.length) return true;
+  }
+
+  return false;
+}
+
+export type DeviceNoCheckResult =
+  | { status: "empty" }
+  | { status: "ok" }
+  | { status: "similar"; suggestion: SimilarDeviceMatch }
+  | { status: "not_found" };
+
+// ✅ (추가) 통합관리 셀 직접입력(syncPatch 경로)에서 쓰는 읽기 전용 확인용
+// - 저장 자체와는 무관, 화면에 경고만 띄우기 위한 별도 조회
+export async function checkDeviceNoStatus(deviceNoRaw: string): Promise<DeviceNoCheckResult> {
+  const needle = normalizeString(deviceNoRaw);
+  if (!needle) return { status: "empty" };
+
+  const exact = await existsExactDeviceNo(needle);
+  if (exact) return { status: "ok" };
+
+  const similar = await findSimilarDeviceNo(needle);
+  if (similar) return { status: "similar", suggestion: similar };
+
+  return { status: "not_found" };
+}
