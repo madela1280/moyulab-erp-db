@@ -273,7 +273,7 @@ export default function ExtendOrderView() {
 
     const emptyKey = findFirstEmptyExtensionKey(unifiedData);
     if (!emptyKey) {
-      return `${row.data?.customer_name || row.id}: 통합관리 1~15차연장 칸이 모두 차있어 전송할 수 없습니다`;
+      return `${row.data?.customer_name || row.id}: 통합관리 1~20차연장 칸이 모두 차있어 전송할 수 없습니다`;
     }
 
     const cellText = formatExtensionCell({
@@ -285,7 +285,7 @@ export default function ExtendOrderView() {
 
     await syncPatch(row.unifiedId, emptyKey, cellText);
 
-    // 종료일 = 시작일 + (0차연장 + 1차~15차 연장일수 합) — 지금 막 채운 칸까지 포함해서 재계산
+    // 종료일 = 시작일 + (0차연장 + 1차~20차 연장일수 합) — 지금 막 채운 칸까지 포함해서 재계산
     const totalDays = sumExtensionDaysFromRow({ ...unifiedData, [emptyKey]: cellText });
     const nextEnd = computeEndDateFromStartAndTotalDays(String(unifiedData?.["시작일"] ?? ""), totalDays);
     if (nextEnd) {

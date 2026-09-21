@@ -87,6 +87,11 @@ const EXT_KEYS = [
   "13차연장",
   "14차연장",
   "15차연장",
+  "16차연장",
+  "17차연장",
+  "18차연장",
+  "19차연장",
+  "20차연장",
 ] as const;
 
 type ExtKey = (typeof EXT_KEYS)[number];
@@ -1083,7 +1088,7 @@ export default function UnifiedMainView() {
           // 1) 해당 차수 셀 저장(비우기면 "" -> syncPatch에서 null 저장)
           await syncPatch(rowId, colKey, nextCellText);
 
-          // 2) ✅ 종료일 = 시작일 + (0차연장 + 1차~15차 연장일수 합)
+          // 2) ✅ 종료일 = 시작일 + (0차연장 + 1차~20차 연장일수 합)
           //    항상 “시작일/연장값 전체” 기준으로 재계산해서 저장(증감 롤백 방식 제거)
           const r = await fetch(`/api/unified/${rowId}`, { cache: "no-store" });
           if (!r.ok) return;

@@ -16,13 +16,18 @@ export const EXTENSION_KEYS = [
   "13차연장",
   "14차연장",
   "15차연장",
+  "16차연장",
+  "17차연장",
+  "18차연장",
+  "19차연장",
+  "20차연장",
 ] as const;
 
 export type ExtensionKey = (typeof EXTENSION_KEYS)[number];
 
 /**
  * 총연장횟수 계산:
- * - 1차~15차 중 "값이 존재"하는 셀 개수를 카운트
+ * - 1차~20차 중 "값이 존재"하는 셀 개수를 카운트
  * - 셀 값은 통상 "연장일수/결제수단/금액/접수일" 포맷 문자열
  * - null/undefined/""/공백은 "없음"으로 처리
  */
@@ -56,7 +61,7 @@ export function getExtensionDaysFromCellText(raw: any): number {
 }
 
 /**
- * 0차연장(직접입력/업로드) 값 + 1차~15차 연장일수 합계(일수)
+ * 0차연장(직접입력/업로드) 값 + 1차~20차 연장일수 합계(일수)
  * - 0차연장은 숫자 문자열(예: "14")로 저장된다는 전제
  * - 비어있거나 파싱 실패면 0
  */
@@ -77,7 +82,7 @@ export function sumExtensionDaysFromRow(rowData: Record<string, any> | null | un
 }
 
 /**
- * 1차~15차 중 아직 값이 없는(비어있는) 첫 칸의 키를 반환. 전부 차있으면 null.
+ * 1차~20차 중 아직 값이 없는(비어있는) 첫 칸의 키를 반환. 전부 차있으면 null.
  * (연장·연체료 화면의 "전송" 기능이 통합관리에 자동 기록할 빈 슬롯을 찾을 때 사용)
  */
 export function findFirstEmptyExtensionKey(

@@ -35,6 +35,11 @@ const SUBMIT_EXTENSION_KEYS = [
   "13차연장",
   "14차연장",
   "15차연장",
+  "16차연장",
+  "17차연장",
+  "18차연장",
+  "19차연장",
+  "20차연장",
 ] as const;
 
 function getSubmitExtensionDaysFromCellText(raw: any): number {
@@ -237,7 +242,7 @@ export async function POST(req: Request) {
 
   // ✅ 종료일 자동 계산:
   // - 종료일이 같이 들어온 경우는 그대로 유지
-  // - 종료일이 없고 시작일 + 0차/1~15차 연장일수가 있으면 자동 계산해서 저장
+  // - 종료일이 없고 시작일 + 0차/1~20차 연장일수가 있으면 자동 계산해서 저장
   // - 시작일만 있는 경우 종료일을 시작일과 동일하게 자동 생성하지 않음
   const autoEndDatePatch = buildSubmitAutoEndDatePatch(data);
   const patchData = { ...data, ...autoEndDatePatch };

@@ -76,7 +76,7 @@ function mergeUserOrderWithGlobal(userOrder: any, globalOrder: string[]) {
   return result;
 }
 
-// ✅ 회수완료 전용: 연장 컬럼(0차, 1~15차연장)은 항상 한 구간으로 모아서 정렬 고정
+// ✅ 회수완료 전용: 연장 컬럼(0차, 1~20차연장)은 항상 한 구간으로 모아서 정렬 고정
 function isRecoveryExtensionKey(key: any) {
   const s = String(key ?? "").trim();
   if (s === "0차연장") return true;
@@ -85,7 +85,7 @@ function isRecoveryExtensionKey(key: any) {
   if (!m) return false;
 
   const n = Number(m[1]);
-  return Number.isFinite(n) && n >= 1 && n <= 15;
+  return Number.isFinite(n) && n >= 1 && n <= 20;
 }
 
 function applyRecoveryExtensionOrder(order: string[]) {
@@ -105,7 +105,7 @@ function applyRecoveryExtensionOrder(order: string[]) {
   // 연장키를 숫자 오름차순(0,1,2,...15)으로 고정
   const ext: string[] = [];
   if (keySet.has("0차연장")) ext.push("0차연장");
-  for (let n = 1; n <= 15; n++) {
+  for (let n = 1; n <= 20; n++) {
     const k = `${n}차연장`;
     if (keySet.has(k)) ext.push(k);
   }

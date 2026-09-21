@@ -677,7 +677,7 @@ function isExtensionKey(key: any) {
   const m = s.match(/^(\d+)차연장$/);
   if (!m) return false;
   const n = Number(m[1]);
-  return Number.isFinite(n) && n >= 1 && n <= 15;
+  return Number.isFinite(n) && n >= 1 && n <= 20;
 }
 
 type CellStyleInfo = { bg?: string; fg?: string };
@@ -3943,7 +3943,7 @@ const bottomH = Math.max(0, (displayRows.length - (end + 1)) * ROW_HEIGHT);
             }
 
             // ✅ 시작일/0차연장 변경 시:
-            // - 0차연장 또는 1~15차 연장일수가 있을 때만 종료일 자동 계산
+            // - 0차연장 또는 1~20차 연장일수가 있을 때만 종료일 자동 계산
             // - 시작일만 입력된 경우에는 종료일을 시작일과 동일하게 자동 생성하지 않음
             // - 종료일을 엑셀에서 직접 붙여넣은 경우에는 그 값을 그대로 유지
             if (key === "시작일" || key === "0차연장") {
