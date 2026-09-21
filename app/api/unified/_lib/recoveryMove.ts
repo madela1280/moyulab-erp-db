@@ -263,10 +263,12 @@ export async function executeMoveToRecovery1(
 
 export type RestorePreviewItem = PreviewDisplayRow;
 
+// ✅ "통합관리로 복구" 목록은 회수1의 기존 정상 데이터가 섞이면 안 되므로,
+//    이 기능으로 이동시킬 때 남기는 표시(__mig_restore)가 있는 행만 대상으로 함.
 export async function previewRestoreToUnified(
   limit: number
 ): Promise<{ totalCount: number; items: RestorePreviewItem[] }> {
-  const totalR = await pool.query(`SELECT COUNT(*)::int AS c FROM recovery1`);
+  const totalR = await pool.query(`SELECT COUNT(*)::int AS c FROM recovery1 WHERE data ? '__mig_restore'`);
   const totalCount = Number(totalR.rows?.[0]?.c ?? 0);
 
   const r = await pool.query(
@@ -274,6 +276,7 @@ export async function previewRestoreToUnified(
     SELECT r.id, r.data
     FROM recovery1 r
     JOIN recovery1_order o ON o.recovery1_id = r.id
+    WHERE r.data ? '__mig_restore'
     ORDER BY o.sort_key DESC
     LIMIT $1
     `,
