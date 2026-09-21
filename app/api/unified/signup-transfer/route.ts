@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
+import { findSimilarDeviceNo } from "@/api/unified/_lib/deviceSimilarMatch";
 
 type RowValues = Record<string, any>;
 
@@ -469,18 +470,30 @@ export async function POST(req: Request) {
       const confirmNeededRowSet = new Set<number>();
 
       // A) 없는 기기번호
+      // ✅ (추가) 정확히 없을 때, 한 자리만 다른 비슷한 기기번호가 있으면 그걸 확인시켜줌(기존 "없는 기기" 문구는 그대로 유지)
       for (const c of candidates) {
         const dRaw = normalizeString(c.data["기기번호"]);
         const dLower = normalizeLower(c.data["기기번호"]);
         if (!dLower) continue;
 
         if (!deviceInfoMap.has(dLower)) {
-          validationResults.push({
-            rowIndex: c.rowIndex,
-            ok: false,
-            code: "DEVICE_NOT_REGISTERED",
-            reason: `없는 기기 입니다(${dRaw})`,
-          });
+          const similar = await findSimilarDeviceNo(dRaw);
+
+          if (similar) {
+            validationResults.push({
+              rowIndex: c.rowIndex,
+              ok: false,
+              code: "DEVICE_SIMILAR_FOUND",
+              reason: `비슷한 기기번호가 있습니다. ${similar.기종} ${similar.기기번호} 가 맞습니까?(입력: ${dRaw})`,
+            });
+          } else {
+            validationResults.push({
+              rowIndex: c.rowIndex,
+              ok: false,
+              code: "DEVICE_NOT_REGISTERED",
+              reason: `없는 기기 입니다(${dRaw})`,
+            });
+          }
         }
       }
 

@@ -2061,6 +2061,9 @@ async function bulkPatchAndReconcile(
     const j = await res.json().catch(() => null);
     const serverRows = Array.isArray(j?.rows) ? (j.rows as UnifiedRow[]) : null;
 
+    // ✅ (추가) 기기번호 경고/비슷한 번호 제안 — 셀 1개 직접입력일 때만 표시(붙여넣기 등 대량 작업은 방해하지 않음)
+    const deviceNoNotices = Array.isArray(j?.deviceNoNotices) ? j.deviceNoNotices : [];
+
     // ✅ 서버 truth를 rows에 재주입(연쇄 업데이트/정규화 반영 + 사라짐 방지)
     if (serverRows && serverRows.length) {
       const map = new Map<number, UnifiedRow>();
@@ -2085,6 +2088,21 @@ async function bulkPatchAndReconcile(
 
     lastLocalUnifiedEmitAtRef.current = Date.now();
     syncEmitUnifiedUpdate();
+
+    // ✅ 셀 1개 직접입력일 때만 경고 표시(저장/동기화가 끝난 뒤 지연 호출 — 저장 흐름 방해 없음)
+    if (updates.length === 1 && deviceNoNotices.length) {
+      const notice = deviceNoNotices[0];
+      setTimeout(() => {
+        if (notice.type === "similar" && notice.suggestion) {
+          alert(
+            `기기번호 확인: ${notice.suggestion.기종} ${notice.suggestion.기기번호} 가 맞습니까?\n` +
+              `(입력하신 번호: ${notice.기기번호})`
+          );
+        } else {
+          alert(`없는 기기번호입니다: ${notice.기기번호}`);
+        }
+      }, 0);
+    }
   } finally {
     endWrite();
   }

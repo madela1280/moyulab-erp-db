@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isGuideMigrationLocked } from "@/unified/migration-mode/guideMigrationLock";
+import { findSimilarDeviceNo } from "@/api/unified/_lib/deviceSimilarMatch";
 import {
   buildUnifiedCellChangeItems,
   getChangeHistoryActor,
@@ -221,6 +222,16 @@ export async function POST(req: Request) {
 
   const deviceMap = await buildDeviceInfoMap(Array.from(deviceNosLowerSet));
 
+  // ✅ (추가) 마스터에 정확히 없는 기기번호 경고/비슷한 번호 제안
+  // - 대량 붙여넣기(updates가 많음)에서는 조회 부하 방지를 위해 건너뜀(소량 입력만 대상)
+  const deviceNoNotices: Array<{
+    id: number;
+    기기번호: string;
+    type: "not_found" | "similar";
+    suggestion?: { 기기번호: string; 기종: string };
+  }> = [];
+  const shouldCheckSimilar = updates.length <= 5;
+
   for (const idx of deviceTargetIndexes) {
     const u = updates[idx];
     const p = u.patch as Record<string, any>;
@@ -251,6 +262,21 @@ export async function POST(req: Request) {
       p["구매/렌탈"] = null;
       p["에러횟수"] = null;
       p["제품"] = null;
+
+      // ✅ (추가) 비슷한 기기번호(한 자리 차이) 제안 — 기존 저장 로직에는 영향 없음
+      if (shouldCheckSimilar) {
+        const similar = await findSimilarDeviceNo(deviceNo);
+        if (similar) {
+          deviceNoNotices.push({
+            id: u.id,
+            기기번호: deviceNo,
+            type: "similar",
+            suggestion: similar,
+          });
+        } else {
+          deviceNoNotices.push({ id: u.id, 기기번호: deviceNo, type: "not_found" });
+        }
+      }
     }
   }
 
@@ -428,5 +454,6 @@ export async function POST(req: Request) {
     ok: true,
     updatedCount: r.rows.length,
     rows: r.rows,
-  }); 
+    deviceNoNotices,
+  });
 }
