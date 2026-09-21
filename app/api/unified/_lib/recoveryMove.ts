@@ -164,10 +164,36 @@ export async function executeMoveToRecovery1(
 
     const hasMap = await migContractMapExists(client);
 
-    const maxSortR = await client.query(
-      `SELECT COALESCE(MAX(sort_key), 0)::numeric AS m FROM recovery1_order`
+    // ✅ "10건추가" 등으로 미리 만들어둔 빈 행(data='{}')은 맨 끝에 남겨두고,
+    //    새로 이동하는 데이터는 "마지막 실데이터 바로 다음"에 오도록 함(빈 행 뒤에 붙는 문제 방지)
+    const beforeKeyR = await client.query(
+      `
+      SELECT COALESCE(MAX(o.sort_key), 0)::numeric AS m
+      FROM recovery1_order o
+      JOIN recovery1 r ON r.id = o.recovery1_id
+      WHERE r.data IS NOT NULL AND r.data <> '{}'::jsonb
+      `
     );
-    let runningSort = Number(maxSortR.rows?.[0]?.m ?? 0);
+    const beforeKey = Number(beforeKeyR.rows?.[0]?.m ?? 0);
+
+    const afterKeyR = await client.query(
+      `SELECT MIN(sort_key)::numeric AS m FROM recovery1_order WHERE sort_key > $1`,
+      [beforeKey]
+    );
+    const afterKeyRaw = afterKeyR.rows?.[0]?.m;
+    const afterKey = afterKeyRaw === null || afterKeyRaw === undefined ? null : Number(afterKeyRaw);
+
+    // 요청 건수만큼 beforeKey~afterKey 사이(또는 beforeKey 뒤로 쭉)를 등분해서 자리 예약
+    const slotCount = safeIds.length;
+    let insertedSoFar = 0;
+
+    function nextSortKey(): number {
+      insertedSoFar += 1;
+      if (afterKey !== null) {
+        return beforeKey + ((afterKey - beforeKey) * insertedSoFar) / (slotCount + 1);
+      }
+      return beforeKey + insertedSoFar * 1000;
+    }
 
     for (const id of safeIds) {
       const sel = await client.query(
@@ -208,10 +234,9 @@ export async function executeMoveToRecovery1(
       );
       const newRecoveryId = Number(ins.rows[0].id);
 
-      runningSort += 1000;
       await client.query(
         `INSERT INTO recovery1_order (recovery1_id, sort_key) VALUES ($1, $2)`,
-        [newRecoveryId, runningSort]
+        [newRecoveryId, nextSortKey()]
       );
 
       await client.query(`DELETE FROM unified_order WHERE unified_id = $1`, [id]);

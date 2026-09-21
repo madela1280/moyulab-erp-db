@@ -33,6 +33,7 @@ import {
 export type RecoveryGridHandle = {
   appendBlankRows: (count: number) => Promise<void>;
   scrollToTailData: () => void;
+  reloadTail: () => Promise<void>;
 };
 
 type Props = {
@@ -1299,7 +1300,14 @@ const RecoveryGrid = forwardRef<RecoveryGridHandle, Props>(function RecoveryGrid
     })();
   }
 
-  useImperativeHandle(ref, () => ({ appendBlankRows, scrollToTailData }), [scope]);
+  // ✅ (추가) 외부(복구 팝업 등)에서 행 통째 삭제/이동 후 확실히 목록을 다시 불러오기 위한 메서드
+  // - refreshVisibleRowsFromServer는 "이미 로드된 id"의 값만 갱신하고 사라진 행은 못 지우므로 별도로 노출
+  async function reloadTail() {
+    await loadTailPage();
+    requestAnimationFrame(() => updateVisibleRangeNow());
+  }
+
+  useImperativeHandle(ref, () => ({ appendBlankRows, scrollToTailData, reloadTail }), [scope]);
 
   if (!rows.length) {
     return <div className="text-center text-gray-500 py-10">Loading...</div>;

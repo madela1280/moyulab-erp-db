@@ -1132,6 +1132,7 @@ export default function UnifiedMainView() {
         onClose={() => setIsMoveToRecoveryOpen(false)}
         onMoved={() => {
           syncEmitUnifiedUpdate();
+          void gridRef.current?.reload?.();
         }}
       />
     </div>

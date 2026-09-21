@@ -131,6 +131,7 @@ export default function RecoveryMain({ scope }: { scope: RecoveryScope }) {
           onClose={() => setIsRestoreOpen(false)}
           onRestored={() => {
             syncEmitUnifiedUpdate();
+            void gridRef.current?.reloadTail?.();
           }}
         />
       )}

@@ -81,6 +81,9 @@ export type UnifiedGridHandle = {
   // ✅ 셀 직접입력 저장 시 이미 쓰던 것과 동일한 함수를 그대로 노출.
   //    자기 저장으로 발생한 동기화 echo가 방금 반영한 화면을 덮어쓰지 않도록 잠깐 보류시킴(순수 타이머, 네트워크/락 무관).
   suppressReloadFor: (ms: number) => void;
+  // ✅ (추가) 그리드 밖(회수완료 이동 팝업 등)에서 대량 삭제 직후 확실히 다시 불러오기 위한 최후수단 노출.
+  //    내부 reload()를 그대로 노출만 함 — 기존 remote-update 자동 처리(refreshCountAndMaybeReload 등)는 그대로 둠.
+  reload: () => Promise<void>;
 };
 
 type UnifiedRow = { id: number; data: Record<string, any>; sort_key?: number };
@@ -1896,6 +1899,7 @@ async function applyColorToSelection(color: UnifiedSoftColor, mode: ColorApplyMo
     scrollToTailData,
     updateLocalCell,
     suppressReloadFor,
+    reload,
   }),
   [displayRows, selectedCellRange, viewColumns]
 );
