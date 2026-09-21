@@ -818,16 +818,6 @@ export default function UnifiedMainView() {
     <div className="w-full h-full flex flex-col">
       <div style={{ height: "0.3cm" }} />
 
-      <div className="flex justify-end px-2 py-1">
-        <button
-          type="button"
-          className="text-xs px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
-          onClick={() => setIsMoveToRecoveryOpen(true)}
-        >
-          회수완료로 이동
-        </button>
-      </div>
-
       <GridHeader
         onAdd10={async () => {
           await gridRef.current?.appendBlankRows(10);
@@ -841,6 +831,7 @@ export default function UnifiedMainView() {
         searchActive={unifiedSearch.open}
         onOpenColor={openColor}
         onDownload={handleDownload}
+        onOpenMoveToRecovery={() => setIsMoveToRecoveryOpen(true)}
       />
 
       <div

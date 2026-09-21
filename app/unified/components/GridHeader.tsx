@@ -19,6 +19,9 @@ type Props = {
 
   onDownload?: () => void;
 
+  // ✅ (추가) 회수완료로 이동 버튼
+  onOpenMoveToRecovery?: () => void;
+
   };
 
 function Icon({ name }: { name: string }) {
@@ -101,6 +104,14 @@ function Icon({ name }: { name: string }) {
           <path d="M9 21l-4-4 4-4" />
         </svg>
       );
+    case "moveTo":
+      return (
+        <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M13 6l6 6-6 6" />
+          <path d="M19 12H4" />
+          <path d="M4 4v16" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -142,7 +153,8 @@ export default function GridHeader({
   onOpenSearch,
   onOpenColor,
   onDownload,
- 
+  onOpenMoveToRecovery,
+
 }: Props) {
   return (
     <div className="w-full flex items-center gap-2 px-2 py-2 bg-white border-b">
@@ -174,6 +186,14 @@ export default function GridHeader({
           <ToolButton icon="palette">칼라</ToolButton>
         </div>
       </div>
+
+      {onOpenMoveToRecovery && (
+        <div className="mx-auto">
+          <ToolButton icon="moveTo" onClick={onOpenMoveToRecovery}>
+            회수완료로 이동
+          </ToolButton>
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         <ToolButton icon="download" onClick={onDownload}>

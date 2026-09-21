@@ -11,6 +11,9 @@ type Props = {
 
   filterMode?: boolean;
   onToggleFilterMode?: () => void;
+
+  // ✅ (추가) 통합관리로 복구 버튼(회수1 전용)
+  onOpenRestoreToUnified?: () => void;
 };
 
 function Icon({ name }: { name: string }) {
@@ -69,6 +72,20 @@ function Icon({ name }: { name: string }) {
           <path d="M9 21l-4-4 4-4" />
         </svg>
       );
+    case "restoreFrom":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          className={cls}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        >
+          <path d="M11 6l-6 6 6 6" />
+          <path d="M5 12h15" />
+          <path d="M20 4v16" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -111,6 +128,7 @@ export default function RecoveryHeader({
   onToggleColumnEditMode,
   filterMode,
   onToggleFilterMode,
+  onOpenRestoreToUnified,
 }: Props) {
   return (
     <div className="w-full flex items-center gap-2 px-2 py-2 bg-white border-b">
@@ -121,6 +139,14 @@ export default function RecoveryHeader({
           필터
         </ToolButton>
       </div>
+
+      {onOpenRestoreToUnified && (
+        <div className="mx-auto">
+          <ToolButton icon="restoreFrom" onClick={onOpenRestoreToUnified}>
+            통합관리로 복구
+          </ToolButton>
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         <ToolButton icon="download" onClick={onDownload}>
