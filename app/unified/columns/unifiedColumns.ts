@@ -2,7 +2,6 @@
 
 export const unifiedColumns = [
   "거래처분류",
-  "경로",
   "기기상태",
   "상태",
   "안내분류",
@@ -31,6 +30,7 @@ export const unifiedColumns = [
   "3차연장",
   "4차연장",
   "5차연장",
+  "경로",
 ] as const;
 
 export type UnifiedColumnKey = (typeof unifiedColumns)[number];
