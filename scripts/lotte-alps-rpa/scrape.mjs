@@ -60,21 +60,24 @@ function cellText(cells, idx) {
   return el ? el.trim() : "";
 }
 
-// ✅ 이 사이트는 메뉴 클릭 시 새 탭의 iframe 안에 화면이 뜨는 구조라(id가 매번 달라짐),
-//    주어진 선택자가 들어있는 iframe(frame)을 모든 프레임 중에서 찾아 반환한다.
-async function findFrameContaining(page, selector, { timeoutMs = 15000, intervalMs = 500 } = {}) {
+// ✅ 이 사이트는 메뉴 클릭 시 "탭"처럼 보이지만 실제로는 새 브라우저 창(팝업)으로 내용이 뜨는 것으로
+//    추정됨(2026-09-23: 탭 제목은 바로 뜨는데 내용은 계속 비어있는 현상 확인) — 원래 page의 iframe뿐
+//    아니라, 같은 브라우저 context 안에서 새로 열린 페이지(팝업)까지 전부 뒤진다.
+async function findFrameContaining(context, selector, { timeoutMs = 15000, intervalMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    for (const frame of page.frames()) {
-      try {
-        const el = await frame.$(selector);
-        if (el) return frame;
-      } catch {
-        // 프레임이 막 사라지거나 교체되는 중일 수 있음 — 무시하고 계속
+    for (const pg of context.pages()) {
+      for (const frame of pg.frames()) {
+        try {
+          const el = await frame.$(selector);
+          if (el) return frame;
+        } catch {
+          // 프레임이 막 사라지거나 교체되는 중일 수 있음 — 무시하고 계속
+        }
       }
     }
-    await page.waitForTimeout(intervalMs);
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   return null;
@@ -123,14 +126,19 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     //    실제 클릭 경로: 집배달 → 집하지시 → 통합관리 운송장출력 (3단계)
     // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
     //    가끔 탭은 열려도 안쪽 내용이 안 뜨는 경우가 있어(원인 불명), 몇 번 재시도한다.
-    // ✅ 디버깅용: 각 클릭 직후 사진을 남겨서 어느 단계에서 틀어지는지 확인
+    // ✅ 디버깅용: 각 클릭 직후 사진을 남겨서 어느 단계에서 틀어지는지 확인.
+    //    새 창(팝업)이 열렸을 수도 있으니, 그 시점의 모든 창을 다 찍는다.
     async function debugShot(label) {
-      try {
-        const p = `/tmp/lotte-alps-step-${label}.png`;
-        await page.screenshot({ path: p });
-        console.error(`[디버그] ${label} 단계 사진: ${p}`);
-      } catch {
-        // ignore
+      const pages = context.pages();
+      console.error(`[디버그] ${label} — 열려있는 창 ${pages.length}개:`, pages.map((p) => p.url()));
+      for (let i = 0; i < pages.length; i++) {
+        try {
+          const p = `/tmp/lotte-alps-step-${label}-win${i}.png`;
+          await pages[i].screenshot({ path: p });
+          console.error(`[디버그] ${label} 창${i} 사진: ${p}`);
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -153,7 +161,7 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       await page.waitForLoadState("networkidle").catch(() => {});
       await debugShot("3-after-통합관리운송장출력");
 
-      targetFrame = await findFrameContaining(page, SELECTORS.searchButton, { timeoutMs: 20000 });
+      targetFrame = await findFrameContaining(context, SELECTORS.searchButton, { timeoutMs: 20000 });
 
       if (!targetFrame) {
         console.warn(`통합관리 운송장출력 화면 로딩 실패 — 재시도 ${attempt}/${MAX_NAV_ATTEMPTS}`);
@@ -229,12 +237,15 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
 
     return results;
   } catch (err) {
-    // ✅ 실패 시 그 순간 화면을 사진으로 저장(headless라 화면을 직접 볼 수 없어서 디버깅용)
+    // ✅ 실패 시 그 순간 화면을 사진으로 저장(headless라 화면을 직접 볼 수 없어서 디버깅용) — 모든 창 대상
     try {
-      const shotPath = `/tmp/lotte-alps-debug-${Date.now()}.png`;
-      await page.screenshot({ path: shotPath, fullPage: true });
-      console.error(`실패 시점 화면 저장됨: ${shotPath}`);
-      console.error("현재 열려있는 프레임 목록:", page.frames().map((f) => f.url()));
+      const pages = context.pages();
+      for (let i = 0; i < pages.length; i++) {
+        const shotPath = `/tmp/lotte-alps-debug-${Date.now()}-win${i}.png`;
+        await pages[i].screenshot({ path: shotPath, fullPage: true });
+        console.error(`실패 시점 화면 저장됨(창${i}): ${shotPath}`);
+        console.error(`창${i} 프레임 목록:`, pages[i].frames().map((f) => f.url()));
+      }
     } catch {
       // 스크린샷 저장 자체가 실패해도 원래 에러를 그대로 던진다
     }
