@@ -96,8 +96,19 @@ async function findFrameContaining(context, selector, { timeoutMs = 15000, inter
 export async function scrapeAlpsWaybills({ username, password, totpSecret, fromDate, toDate }) {
   if (!username || !password) throw new Error("MISSING_CREDENTIALS");
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  // ✅ 2026-09-23: pid.alps.llogis.com:18210 요청이 net::ERR_ABORTED로 끊기는 현상 확인.
+  //    자동화 브라우저 감지(anti-bot) 가능성이 있어, 표준적인 우회 옵션(navigator.webdriver 숨기기) 적용.
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  });
   const page = await context.newPage();
 
   // ✅ 디버깅용: 브라우저 안에서 나는 에러/콘솔 메시지를 전부 기록(클릭은 되는데 로딩이
