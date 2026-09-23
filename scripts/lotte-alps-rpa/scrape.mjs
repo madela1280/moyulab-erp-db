@@ -121,19 +121,27 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     // "통합관리 운송장출력" 화면으로 이동
     // ✅ 2026-09-23 확인: "전체화면"은 클릭 버튼이 아니라 로그인 후 자동으로 그렇게 되는 상태 표시였음.
     //    실제 클릭 경로: 집배달 → 집하지시 → 통합관리 운송장출력 (3단계)
-    await page.click(SELECTORS.pickupDeliveryMenuLink);
-    await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
-    await page.click(SELECTORS.pickupInstructionMenuLink);
-    await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
-    await page.click(SELECTORS.waybillOutputMenuLink);
-    await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
-    await page.waitForLoadState("networkidle").catch(() => {});
-
     // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
-    //    그래서 조회버튼/그리드는 최상위 page가 아니라 그 iframe 안에서 찾아야 한다.
-    //    어떤 iframe인지 미리 알 수 없으므로, 조회버튼이 들어있는 iframe을 직접 찾는다.
-    // ✅ 탭은 바로 열리지만 안쪽 iframe 내용은 조금 더 걸려서 뜸(2026-09-23 캡처로 확인) — 넉넉히 기다림
-    const targetFrame = await findFrameContaining(page, SELECTORS.searchButton, { timeoutMs: 45000 });
+    //    가끔 탭은 열려도 안쪽 내용이 안 뜨는 경우가 있어(원인 불명), 몇 번 재시도한다.
+    let targetFrame = null;
+    const MAX_NAV_ATTEMPTS = 3;
+
+    for (let attempt = 1; attempt <= MAX_NAV_ATTEMPTS && !targetFrame; attempt++) {
+      await page.click(SELECTORS.pickupDeliveryMenuLink);
+      await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
+      await page.click(SELECTORS.pickupInstructionMenuLink);
+      await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
+      await page.click(SELECTORS.waybillOutputMenuLink);
+      await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
+      await page.waitForLoadState("networkidle").catch(() => {});
+
+      targetFrame = await findFrameContaining(page, SELECTORS.searchButton, { timeoutMs: 20000 });
+
+      if (!targetFrame) {
+        console.warn(`통합관리 운송장출력 화면 로딩 실패 — 재시도 ${attempt}/${MAX_NAV_ATTEMPTS}`);
+      }
+    }
+
     if (!targetFrame) throw new Error("WAYBILL_SCREEN_FRAME_NOT_FOUND");
 
     // ✅ 집하일자 기본값이 항상 "오늘"이라, 다른 범위가 필요할 때만 날짜를 바꾼다
