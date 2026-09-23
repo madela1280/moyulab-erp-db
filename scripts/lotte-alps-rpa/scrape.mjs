@@ -96,10 +96,11 @@ async function findFrameContaining(context, selector, { timeoutMs = 15000, inter
 export async function scrapeAlpsWaybills({ username, password, totpSecret, fromDate, toDate }) {
   if (!username || !password) throw new Error("MISSING_CREDENTIALS");
 
-  // ✅ 2026-09-23: pid.alps.llogis.com:18210 요청이 net::ERR_ABORTED로 끊기는 현상 확인.
-  //    자동화 브라우저 감지(anti-bot) 가능성이 있어, 표준적인 우회 옵션(navigator.webdriver 숨기기) 적용.
+  // ✅ 2026-09-23: pid.alps.llogis.com:18210 요청이 응답도 못 받고 net::ERR_ABORTED로 끊기는 현상 확인.
+  //    headless(화면 없음) 모드 자체가 원인일 가능성이 있어, 화면 있는 것처럼(headed) 실행하도록 변경.
+  //    → 서버에서 실행할 땐 반드시 가상 화면(xvfb-run)으로 감싸서 실행해야 함.
   const browser = await chromium.launch({
-    headless: true,
+    headless: false,
     args: ["--disable-blink-features=AutomationControlled"],
   });
   const context = await browser.newContext({
