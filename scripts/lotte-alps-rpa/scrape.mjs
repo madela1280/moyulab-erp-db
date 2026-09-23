@@ -126,7 +126,8 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
     //    그래서 조회버튼/그리드는 최상위 page가 아니라 그 iframe 안에서 찾아야 한다.
     //    어떤 iframe인지 미리 알 수 없으므로, 조회버튼이 들어있는 iframe을 직접 찾는다.
-    const targetFrame = await findFrameContaining(page, SELECTORS.searchButton);
+    // ✅ 탭은 바로 열리지만 안쪽 iframe 내용은 조금 더 걸려서 뜸(2026-09-23 캡처로 확인) — 넉넉히 기다림
+    const targetFrame = await findFrameContaining(page, SELECTORS.searchButton, { timeoutMs: 45000 });
     if (!targetFrame) throw new Error("WAYBILL_SCREEN_FRAME_NOT_FOUND");
 
     // ✅ 집하일자 기본값이 항상 "오늘"이라, 다른 범위가 필요할 때만 날짜를 바꾼다
@@ -201,6 +202,7 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       const shotPath = `/tmp/lotte-alps-debug-${Date.now()}.png`;
       await page.screenshot({ path: shotPath, fullPage: true });
       console.error(`실패 시점 화면 저장됨: ${shotPath}`);
+      console.error("현재 열려있는 프레임 목록:", page.frames().map((f) => f.url()));
     } catch {
       // 스크린샷 저장 자체가 실패해도 원래 에러를 그대로 던진다
     }
