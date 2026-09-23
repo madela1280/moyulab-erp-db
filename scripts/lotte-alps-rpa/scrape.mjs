@@ -123,17 +123,35 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     //    실제 클릭 경로: 집배달 → 집하지시 → 통합관리 운송장출력 (3단계)
     // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
     //    가끔 탭은 열려도 안쪽 내용이 안 뜨는 경우가 있어(원인 불명), 몇 번 재시도한다.
+    // ✅ 디버깅용: 각 클릭 직후 사진을 남겨서 어느 단계에서 틀어지는지 확인
+    async function debugShot(label) {
+      try {
+        const p = `/tmp/lotte-alps-step-${label}.png`;
+        await page.screenshot({ path: p });
+        console.error(`[디버그] ${label} 단계 사진: ${p}`);
+      } catch {
+        // ignore
+      }
+    }
+
     let targetFrame = null;
-    const MAX_NAV_ATTEMPTS = 3;
+    const MAX_NAV_ATTEMPTS = 1; // ✅ 재시도해도 결과가 같아서 일단 1회만 하고 단계별로 원인 확인
 
     for (let attempt = 1; attempt <= MAX_NAV_ATTEMPTS && !targetFrame; attempt++) {
+      await debugShot("0-before-click");
+
       await page.click(SELECTORS.pickupDeliveryMenuLink);
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
+      await debugShot("1-after-집배달");
+
       await page.click(SELECTORS.pickupInstructionMenuLink);
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
+      await debugShot("2-after-집하지시");
+
       await page.click(SELECTORS.waybillOutputMenuLink);
       await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
       await page.waitForLoadState("networkidle").catch(() => {});
+      await debugShot("3-after-통합관리운송장출력");
 
       targetFrame = await findFrameContaining(page, SELECTORS.searchButton, { timeoutMs: 20000 });
 
