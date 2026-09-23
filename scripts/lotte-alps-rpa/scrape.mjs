@@ -211,6 +211,10 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
       await debugShot("2-after-집하지시");
 
+      // ✅ 2026-09-23: 순간이동하듯 클릭하면 드롭다운 메뉴의 마우스오버/아웃 로직과 꼬여서
+      //    방금 시작된 화면 로딩이 취소되는 것으로 추정 — hover 후 잠깐 대기하고 클릭
+      await page.hover(SELECTORS.waybillOutputMenuLink);
+      await page.waitForTimeout(500);
       await page.click(SELECTORS.waybillOutputMenuLink);
       await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
       await page.waitForLoadState("networkidle").catch(() => {});
