@@ -9,6 +9,9 @@
 //   LOTTE_ALPS_PASSWORD   — ALPS 로그인 비밀번호
 //   LOTTE_ALPS_TOTP_SECRET — OTP 앱 등록 시 받은 Base32 비밀키(QR코드 안의 secret)
 //   DATABASE_URL          — 기존 ERP와 동일한 접속 문자열
+//   LOTTE_RPA_SOCKS_PROXY  — (서버에서 실행 시 필수) PC→서버 SSH 역방향 터널로 연 SOCKS 프록시 주소.
+//                            예: socks5://127.0.0.1:1080
+//                            (롯데가 18210 포트를 서버 IP는 막고 PC IP는 허용하는 것으로 확인되어 필요)
 //
 // ⚠️ 실행 전 필요:
 //   1) npm install playwright && npx playwright install chromium  (직접 승인 후 실행)
