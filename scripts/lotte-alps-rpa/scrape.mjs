@@ -123,18 +123,35 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       // ignore
     }
   }
-  context.on("page", (pg) => {
+  function attachDebugListeners(pg) {
     pg.on("console", (msg) => logConsole(`[console:${msg.type()}] ${pg.url()} :: ${msg.text()}`));
     pg.on("pageerror", (err) => logConsole(`[pageerror] ${pg.url()} :: ${err?.message ?? err}`));
     pg.on("requestfailed", (req) =>
-      logConsole(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText ?? ""}`)
+      logConsole(
+        `[requestfailed] ${req.method()} ${req.url()} :: ${req.failure()?.errorText ?? ""} (resourceType=${req.resourceType()})`
+      )
     );
-  });
-  page.on("console", (msg) => logConsole(`[console:${msg.type()}] ${page.url()} :: ${msg.text()}`));
-  page.on("pageerror", (err) => logConsole(`[pageerror] ${page.url()} :: ${err?.message ?? err}`));
-  page.on("requestfailed", (req) =>
-    logConsole(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText ?? ""}`)
-  );
+    // ✅ pid.alps.llogis.com 요청은 응답이 실제로 왔는지(상태코드/헤더) 별도로 자세히 기록
+    pg.on("response", async (res) => {
+      if (!res.url().includes("pid.alps.llogis.com")) return;
+      try {
+        const headers = await res.allHeaders();
+        logConsole(
+          `[response] ${res.status()} ${res.url()} :: content-type=${headers["content-type"] ?? ""} content-disposition=${headers["content-disposition"] ?? ""} location=${headers["location"] ?? ""}`
+        );
+      } catch (e) {
+        logConsole(`[response-error] ${res.url()} :: ${e?.message ?? e}`);
+      }
+    });
+    pg.on("requestfinished", (req) => {
+      if (req.url().includes("pid.alps.llogis.com")) {
+        logConsole(`[requestfinished] ${req.method()} ${req.url()}`);
+      }
+    });
+  }
+
+  context.on("page", attachDebugListeners);
+  attachDebugListeners(page);
 
   try {
     await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
