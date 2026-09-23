@@ -32,34 +32,20 @@ const SELECTORS = {
   pickupDateToInput: null,
   // ✅ 2026-09-22 실제 DevTools 캡처로 확인됨
   searchButton: ".searchBtn",
-  // ✅ 결과 화면은 일반 <table>이 아니라 커스텀 그리드 컴포넌트(<i-grid id="gridRsrv">)로 확인됨(2026-09-22)
-  resultGridId: "gridRsrv",
 };
 
-// ✅ 2026-09-22 <i-grid columns="..."> 속성(실제 컬럼 정의 JSON)에서 확인된 실제 필드명.
-//    수하인전화번호(acperTelView) 컬럼이 실제로 존재함을 확인함 — 다운로드 파일엔 없지만 이 화면엔 있음.
+// ✅ 2026-09-23 확인: 화면 데이터는 i-grid DOM이 아니라, 검색 시 호출되는
+//    GET /pid/pic/intgmgrinvprnts API의 JSON 응답(dsRsrvList) 안에 있음(실제 응답 캡처로 확인).
+//    이 API 응답을 직접 가로채서 쓰므로, 아래 필드명은 그 JSON의 실제 키 이름이다.
+const SEARCH_API_URL_PART = "/pid/pic/intgmgrinvprnts";
 const GRID_FIELDS = {
   운송장번호: "invNo",
-  주문번호: "ordrNo",
+  주문번호: "ordNo",
   수하인명: "acperNmView",
   수하인전화번호: "acperTelView",
   수하인기본주소: "acperBadrView",
   수하인상세주소: "acperDetcAdrView",
 };
-
-// 결과 테이블(구형 <table> 렌더링일 경우 대비용 예비 인덱스) — i-grid 방식이 우선이며 이건 fallback일 뿐.
-const COLUMN_INDEX_FALLBACK = {
-  운송장번호: 6,
-  주문번호: 9,
-  수하인명: 15,
-  수하인전화번호: 16,
-  수하인주소: 17,
-};
-
-function cellText(cells, idx) {
-  const el = cells[idx];
-  return el ? el.trim() : "";
-}
 
 // ✅ 이 사이트는 메뉴 클릭 시 "탭"처럼 보이지만 실제로는 새 브라우저 창(팝업)으로 내용이 뜨는 것으로
 //    추정됨(2026-09-23: 탭 제목은 바로 뜨는데 내용은 계속 비어있는 현상 확인) — 원래 page의 iframe뿐
@@ -144,18 +130,6 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
         logConsole(
           `[response] ${res.status()} ${res.url()} :: content-type=${headers["content-type"] ?? ""} content-disposition=${headers["content-disposition"] ?? ""} location=${headers["location"] ?? ""}`
         );
-        // ✅ 검색 결과가 실제로 어느 API 응답(JSON)에 들어있는지 확인하기 위해 본문까지 별도 파일에 저장
-        if ((headers["content-type"] ?? "").includes("json")) {
-          try {
-            const body = await res.text();
-            fs.appendFileSync(
-              "/tmp/lotte-alps-grid-responses.log",
-              `\n===== ${res.url()} =====\n${body.slice(0, 20000)}\n`
-            );
-          } catch {
-            // ignore
-          }
-        }
       } catch (e) {
         logConsole(`[response-error] ${res.url()} :: ${e?.message ?? e}`);
       }
@@ -274,88 +248,38 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     if (fromDate && SELECTORS.pickupDateFromInput) await targetFrame.fill(SELECTORS.pickupDateFromInput, fromDate);
     if (toDate && SELECTORS.pickupDateToInput) await targetFrame.fill(SELECTORS.pickupDateToInput, toDate);
 
+    // ✅ 2026-09-23 확인: 검색 결과는 i-grid DOM이 아니라, 검색 버튼 클릭 시 호출되는
+    //    GET .../pid/pic/intgmgrinvprnts 응답(JSON)의 dsRsrvList 안에 그대로 들어있다.
+    //    클릭 후 그 응답을 직접 가로채서 쓴다(화면 렌더링/그리드 컴포넌트 구조에 의존하지 않아 더 안정적).
+    const targetPage = targetFrame.page();
+    const searchResponsePromise = targetPage.waitForResponse(
+      (res) => res.url().includes(SEARCH_API_URL_PART) && res.request().method() === "GET",
+      { timeout: 20000 }
+    );
+
     await targetFrame.click(SELECTORS.searchButton);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1500); // 검색 결과 렌더링 대기
-
-    // ✅ 디버깅용: 검색 직후 화면 + i-grid 엘리먼트 구조(shadow DOM 여부, 실제 프로퍼티 목록) 기록
-    try {
-      const searchShotPath = `/tmp/lotte-alps-step-5-after-search.png`;
-      await targetFrame.page().screenshot({ path: searchShotPath, fullPage: true });
-      console.error(`[디버그] 검색 후 화면 사진: ${searchShotPath}`);
-
-      const gridInfo = await targetFrame.evaluate((gridId) => {
-        const el = document.getElementById(gridId);
-        if (!el) return { found: false };
-        return {
-          found: true,
-          tagName: el.tagName,
-          hasShadowRoot: !!el.shadowRoot,
-          ownPropertyNames: Object.getOwnPropertyNames(el).slice(0, 50),
-          outerHTMLSnippet: el.outerHTML.slice(0, 3000),
-        };
-      }, SELECTORS.resultGridId);
-      fs.writeFileSync("/tmp/lotte-alps-grid-info.json", JSON.stringify(gridInfo, null, 2));
-      console.error(`[디버그] i-grid 구조 정보 저장: /tmp/lotte-alps-grid-info.json`);
-    } catch (e) {
-      console.error(`[디버그] 검색 후 진단 정보 수집 실패: ${e?.message ?? e}`);
-    }
-
-    // ✅ 1차 시도: i-grid 컴포넌트의 실제 데이터를 JS로 직접 읽기(가장 안정적 — 화면 배치 안 타는 방식)
-    //    ⚠️ 이 컴포넌트가 데이터를 어느 프로퍼티(.data/.rows/.dataset 등)에 두는지는 실행해봐야 확인 가능.
-    //    아래는 흔한 패턴 3가지를 순서대로 시도하고, 다 실패하면 2차 시도(표 스크래핑)로 넘어간다.
-    const gridRows = await targetFrame.evaluate((gridId) => {
-      const el = document.getElementById(gridId);
-      if (!el) return null;
-      const candidates = [el.data, el.rows, el.dataset_, el.gridData, el.items];
-      for (const c of candidates) {
-        if (Array.isArray(c) && c.length) return c;
-      }
-      return null;
-    }, SELECTORS.resultGridId);
+    const searchResponse = await searchResponsePromise;
+    const searchJson = await searchResponse.json();
+    const rowsRaw = Array.isArray(searchJson?.dsRsrvList) ? searchJson.dsRsrvList : [];
 
     const results = [];
     const seenInvoiceNos = new Set();
 
-    if (gridRows) {
-      // ✅ i-grid 데이터에서 바로 추출(필드명 기준 — GRID_FIELDS)
-      for (const row of gridRows) {
-        const 운송장번호 = String(row?.[GRID_FIELDS.운송장번호] ?? "").trim();
-        if (!운송장번호) continue;
-        if (seenInvoiceNos.has(운송장번호)) continue; // 합포장 중복 제거
-        seenInvoiceNos.add(운송장번호);
-
-        results.push({
-          운송장번호,
-          주문번호: String(row?.[GRID_FIELDS.주문번호] ?? "").trim(),
-          수하인명: String(row?.[GRID_FIELDS.수하인명] ?? "").trim(),
-          수하인전화번호: String(row?.[GRID_FIELDS.수하인전화번호] ?? "").trim(),
-          수하인주소: String(row?.[GRID_FIELDS.수하인기본주소] ?? "").trim(),
-        });
-      }
-      return results;
-    }
-
-    // ✅ 2차 시도(fallback): i-grid에서 데이터를 못 읽었을 때만 일반 표처럼 스크래핑 시도
-    console.warn("i-grid 데이터 직접 읽기 실패 — 표 스크래핑으로 대체 시도(정확도 낮을 수 있음)");
-    const rows = await targetFrame
-      .$$eval(`#${SELECTORS.resultGridId} table tbody tr`, (trs) =>
-        trs.map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? ""))
-      )
-      .catch(() => []);
-
-    for (const cells of rows) {
-      const 운송장번호 = cellText(cells, COLUMN_INDEX_FALLBACK.운송장번호);
+    for (const row of rowsRaw) {
+      const 운송장번호 = String(row?.[GRID_FIELDS.운송장번호] ?? "").trim();
       if (!운송장번호) continue;
-      if (seenInvoiceNos.has(운송장번호)) continue;
+      if (seenInvoiceNos.has(운송장번호)) continue; // 합포장 중복 제거
       seenInvoiceNos.add(운송장번호);
+
+      const 기본주소 = String(row?.[GRID_FIELDS.수하인기본주소] ?? "").trim();
+      const 상세주소 = String(row?.[GRID_FIELDS.수하인상세주소] ?? "").trim();
 
       results.push({
         운송장번호,
-        주문번호: cellText(cells, COLUMN_INDEX_FALLBACK.주문번호),
-        수하인명: cellText(cells, COLUMN_INDEX_FALLBACK.수하인명),
-        수하인전화번호: cellText(cells, COLUMN_INDEX_FALLBACK.수하인전화번호),
-        수하인주소: cellText(cells, COLUMN_INDEX_FALLBACK.수하인주소),
+        주문번호: String(row?.[GRID_FIELDS.주문번호] ?? "").trim(),
+        수하인명: String(row?.[GRID_FIELDS.수하인명] ?? "").trim(),
+        수하인전화번호: String(row?.[GRID_FIELDS.수하인전화번호] ?? "").trim(),
+        수하인주소: [기본주소, 상세주소].filter(Boolean).join(" "),
       });
     }
 
