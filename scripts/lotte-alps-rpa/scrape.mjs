@@ -195,6 +195,16 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     }
 
     return results;
+  } catch (err) {
+    // ✅ 실패 시 그 순간 화면을 사진으로 저장(headless라 화면을 직접 볼 수 없어서 디버깅용)
+    try {
+      const shotPath = `/tmp/lotte-alps-debug-${Date.now()}.png`;
+      await page.screenshot({ path: shotPath, fullPage: true });
+      console.error(`실패 시점 화면 저장됨: ${shotPath}`);
+    } catch {
+      // 스크린샷 저장 자체가 실패해도 원래 에러를 그대로 던진다
+    }
+    throw err;
   } finally {
     await browser.close();
   }
