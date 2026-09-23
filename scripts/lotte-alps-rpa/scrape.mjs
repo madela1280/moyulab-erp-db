@@ -21,8 +21,8 @@ const SELECTORS = {
   otpInput: "#otpCode", // TODO: OTP 입력 팝업(otpVerifyPop) 뜰 때 실제 input 선택자로 교체
   otpSubmitButton: "#otpSubmit", // TODO: OTP 확인 버튼 실제 선택자로 교체
 
-  // ✅ "통합관리 운송장출력" 화면 — 실제 메뉴 경로(2026-09-23 확인): 전체화면 → 집배달 → 집하지시 → 통합관리 운송장출력
-  fullScreenMenuButton: "text=전체화면", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
+  // ✅ "통합관리 운송장출력" 화면 — 실제 클릭 경로(2026-09-23 확인): 집배달 → 집하지시 → 통합관리 운송장출력
+  //    ("전체화면"은 클릭 버튼이 아니라 로그인 후 자동으로 그렇게 되는 상태 표시였음 — 클릭 불필요)
   pickupDeliveryMenuLink: "text=집배달", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
   pickupInstructionMenuLink: "text=집하지시", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
   waybillOutputMenuLink: "text=통합관리 운송장출력", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
@@ -119,9 +119,8 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     await page.waitForLoadState("networkidle");
 
     // "통합관리 운송장출력" 화면으로 이동
-    // ✅ 2026-09-23 확인된 정확한 경로: 전체화면 → 집배달 → 집하지시 → 통합관리 운송장출력 (4단계)
-    await page.click(SELECTORS.fullScreenMenuButton);
-    await page.waitForTimeout(2000);
+    // ✅ 2026-09-23 확인: "전체화면"은 클릭 버튼이 아니라 로그인 후 자동으로 그렇게 되는 상태 표시였음.
+    //    실제 클릭 경로: 집배달 → 집하지시 → 통합관리 운송장출력 (3단계)
     await page.click(SELECTORS.pickupDeliveryMenuLink);
     await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
     await page.click(SELECTORS.pickupInstructionMenuLink);
