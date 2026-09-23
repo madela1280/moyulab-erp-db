@@ -119,9 +119,13 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
 
     // "통합관리 운송장출력" 화면으로 이동
     // ✅ 2026-09-23: "전체화면" 클릭은 불필요한 것으로 확인되어 제거함. 집배달 → 통합관리 운송장출력만 클릭.
+    // ⚠️ 2026-09-23: 탭은 열리지만 그 안 주소가 안 채워지는 현상 확인 — "집배달" 클릭 후 하위메뉴가
+    //    뜨는 시간을 안 기다리고 바로 다음 걸 눌러서 그런 것으로 추정. 사이에 대기시간을 넣음.
     await page.click(SELECTORS.pickupDeliveryMenuLink);
+    await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
     await page.click(SELECTORS.waybillOutputMenuLink);
-    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
+    await page.waitForLoadState("networkidle").catch(() => {});
 
     // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
     //    그래서 조회버튼/그리드는 최상위 page가 아니라 그 iframe 안에서 찾아야 한다.
