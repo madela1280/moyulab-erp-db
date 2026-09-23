@@ -154,6 +154,20 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
   context.on("page", attachDebugListeners);
   attachDebugListeners(page);
 
+  // ✅ 2026-09-23: 클릭으로 자동 이동시키면 계속 net::ERR_ABORTED로 끊겨서,
+  //    콘솔에 찍히는 실제 목표 주소([페이지 이동] Url : ...)를 붙잡아
+  //    새 탭에서 그 주소로 직접 이동하는 방식으로 우회한다.
+  let capturedTargetUrl = null;
+  function watchForTargetUrl(pg) {
+    pg.on("console", (msg) => {
+      const text = msg.text();
+      const m = text.match(/\[페이지 이동\] Url\s*:\s*(https:\/\/pid\.alps\.llogis\.com\S+)/);
+      if (m) capturedTargetUrl = m[1];
+    });
+  }
+  context.on("page", watchForTargetUrl);
+  watchForTargetUrl(page);
+
   try {
     await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
 
@@ -211,14 +225,25 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
       await debugShot("2-after-집하지시");
 
-      // ✅ 2026-09-23: 순간이동하듯 클릭하면 드롭다운 메뉴의 마우스오버/아웃 로직과 꼬여서
-      //    방금 시작된 화면 로딩이 취소되는 것으로 추정 — hover 후 잠깐 대기하고 클릭
+      capturedTargetUrl = null;
       await page.hover(SELECTORS.waybillOutputMenuLink);
       await page.waitForTimeout(500);
       await page.click(SELECTORS.waybillOutputMenuLink);
-      await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
-      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(1500); // 콘솔에 목표 주소가 찍히길 대기
       await debugShot("3-after-통합관리운송장출력");
+
+      if (capturedTargetUrl) {
+        // ✅ 클릭이 자동으로 이동시키게 두지 않고, 붙잡은 주소로 새 탭을 열어 직접 이동
+        console.error(`[디버그] 목표 주소 확보, 새 탭에서 직접 이동: ${capturedTargetUrl}`);
+        const directPage = await context.newPage();
+        await directPage.goto(capturedTargetUrl, { waitUntil: "domcontentloaded" }).catch((e) => {
+          console.warn("직접 이동 실패:", e?.message ?? e);
+        });
+        await debugShot("4-after-직접이동");
+      } else {
+        console.warn("목표 주소를 콘솔에서 못 찾음 — 기존 방식(자동 이동)으로 대체 대기");
+        await page.waitForLoadState("networkidle").catch(() => {});
+      }
 
       targetFrame = await findFrameContaining(context, SELECTORS.searchButton, { timeoutMs: 20000 });
 
