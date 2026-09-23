@@ -144,6 +144,18 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
         logConsole(
           `[response] ${res.status()} ${res.url()} :: content-type=${headers["content-type"] ?? ""} content-disposition=${headers["content-disposition"] ?? ""} location=${headers["location"] ?? ""}`
         );
+        // ✅ 검색 결과가 실제로 어느 API 응답(JSON)에 들어있는지 확인하기 위해 본문까지 별도 파일에 저장
+        if ((headers["content-type"] ?? "").includes("json")) {
+          try {
+            const body = await res.text();
+            fs.appendFileSync(
+              "/tmp/lotte-alps-grid-responses.log",
+              `\n===== ${res.url()} =====\n${body.slice(0, 20000)}\n`
+            );
+          } catch {
+            // ignore
+          }
+        }
       } catch (e) {
         logConsole(`[response-error] ${res.url()} :: ${e?.message ?? e}`);
       }
@@ -264,6 +276,30 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
 
     await targetFrame.click(SELECTORS.searchButton);
     await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(1500); // 검색 결과 렌더링 대기
+
+    // ✅ 디버깅용: 검색 직후 화면 + i-grid 엘리먼트 구조(shadow DOM 여부, 실제 프로퍼티 목록) 기록
+    try {
+      const searchShotPath = `/tmp/lotte-alps-step-5-after-search.png`;
+      await targetFrame.page().screenshot({ path: searchShotPath, fullPage: true });
+      console.error(`[디버그] 검색 후 화면 사진: ${searchShotPath}`);
+
+      const gridInfo = await targetFrame.evaluate((gridId) => {
+        const el = document.getElementById(gridId);
+        if (!el) return { found: false };
+        return {
+          found: true,
+          tagName: el.tagName,
+          hasShadowRoot: !!el.shadowRoot,
+          ownPropertyNames: Object.getOwnPropertyNames(el).slice(0, 50),
+          outerHTMLSnippet: el.outerHTML.slice(0, 3000),
+        };
+      }, SELECTORS.resultGridId);
+      fs.writeFileSync("/tmp/lotte-alps-grid-info.json", JSON.stringify(gridInfo, null, 2));
+      console.error(`[디버그] i-grid 구조 정보 저장: /tmp/lotte-alps-grid-info.json`);
+    } catch (e) {
+      console.error(`[디버그] 검색 후 진단 정보 수집 실패: ${e?.message ?? e}`);
+    }
 
     // ✅ 1차 시도: i-grid 컴포넌트의 실제 데이터를 JS로 직접 읽기(가장 안정적 — 화면 배치 안 타는 방식)
     //    ⚠️ 이 컴포넌트가 데이터를 어느 프로퍼티(.data/.rows/.dataset 등)에 두는지는 실행해봐야 확인 가능.
