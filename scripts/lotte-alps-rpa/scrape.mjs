@@ -21,9 +21,10 @@ const SELECTORS = {
   otpInput: "#otpCode", // TODO: OTP 입력 팝업(otpVerifyPop) 뜰 때 실제 input 선택자로 교체
   otpSubmitButton: "#otpSubmit", // TODO: OTP 확인 버튼 실제 선택자로 교체
 
-  // "통합관리 운송장출력" 화면 — 메뉴 경로: 전체화면 → 집배달 → 통합관리 운송장출력
+  // ✅ "통합관리 운송장출력" 화면 — 실제 메뉴 경로(2026-09-23 확인): 전체화면 → 집배달 → 집하지시 → 통합관리 운송장출력
   fullScreenMenuButton: "text=전체화면", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
   pickupDeliveryMenuLink: "text=집배달", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
+  pickupInstructionMenuLink: "text=집하지시", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
   waybillOutputMenuLink: "text=통합관리 운송장출력", // TODO: 정확한 선택자 DevTools로 확인 필요(텍스트 기준 추정)
   // ✅ 집하일자는 기본값이 항상 "오늘"이라 평소엔 안 건드려도 됨(2026-09-22 확인)
   pickupDateFromInput: null, // 기본값이 오늘이므로 보통 사용 안 함(다른 범위 필요시만 채움)
@@ -118,10 +119,12 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     await page.waitForLoadState("networkidle");
 
     // "통합관리 운송장출력" 화면으로 이동
-    // ✅ 2026-09-23: "전체화면" 클릭은 불필요한 것으로 확인되어 제거함. 집배달 → 통합관리 운송장출력만 클릭.
-    // ⚠️ 2026-09-23: 탭은 열리지만 그 안 주소가 안 채워지는 현상 확인 — "집배달" 클릭 후 하위메뉴가
-    //    뜨는 시간을 안 기다리고 바로 다음 걸 눌러서 그런 것으로 추정. 사이에 대기시간을 넣음.
+    // ✅ 2026-09-23 확인된 정확한 경로: 전체화면 → 집배달 → 집하지시 → 통합관리 운송장출력 (4단계)
+    await page.click(SELECTORS.fullScreenMenuButton);
+    await page.waitForTimeout(2000);
     await page.click(SELECTORS.pickupDeliveryMenuLink);
+    await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
+    await page.click(SELECTORS.pickupInstructionMenuLink);
     await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
     await page.click(SELECTORS.waybillOutputMenuLink);
     await page.waitForTimeout(3000); // 탭 생성 + iframe src 로딩 대기
