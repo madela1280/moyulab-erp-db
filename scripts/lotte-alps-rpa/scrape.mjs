@@ -8,6 +8,7 @@
 // (로그인/조회 로직 흐름 자체는 그대로 두고 선택자만 교체하면 됨)
 
 import { chromium } from "playwright";
+import fs from "fs";
 import { generateTotp } from "./totp.mjs";
 
 const LOGIN_URL = "https://partner.alps.llogis.com/main/pages/sec/authentication";
@@ -98,6 +99,31 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
+
+  // ✅ 디버깅용: 브라우저 안에서 나는 에러/콘솔 메시지를 전부 기록(클릭은 되는데 로딩이
+  //    시작을 안 하는 원인을 찾기 위함 — 2026-09-23)
+  const consoleLogPath = "/tmp/lotte-alps-console.log";
+  const consoleLines = [];
+  function logConsole(line) {
+    consoleLines.push(line);
+    try {
+      fs.writeFileSync(consoleLogPath, consoleLines.join("\n"));
+    } catch {
+      // ignore
+    }
+  }
+  context.on("page", (pg) => {
+    pg.on("console", (msg) => logConsole(`[console:${msg.type()}] ${pg.url()} :: ${msg.text()}`));
+    pg.on("pageerror", (err) => logConsole(`[pageerror] ${pg.url()} :: ${err?.message ?? err}`));
+    pg.on("requestfailed", (req) =>
+      logConsole(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText ?? ""}`)
+    );
+  });
+  page.on("console", (msg) => logConsole(`[console:${msg.type()}] ${page.url()} :: ${msg.text()}`));
+  page.on("pageerror", (err) => logConsole(`[pageerror] ${page.url()} :: ${err?.message ?? err}`));
+  page.on("requestfailed", (req) =>
+    logConsole(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText ?? ""}`)
+  );
 
   try {
     await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
