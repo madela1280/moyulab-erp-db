@@ -59,6 +59,26 @@ function cellText(cells, idx) {
   return el ? el.trim() : "";
 }
 
+// ✅ 이 사이트는 메뉴 클릭 시 새 탭의 iframe 안에 화면이 뜨는 구조라(id가 매번 달라짐),
+//    주어진 선택자가 들어있는 iframe(frame)을 모든 프레임 중에서 찾아 반환한다.
+async function findFrameContaining(page, selector, { timeoutMs = 15000, intervalMs = 500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      try {
+        const el = await frame.$(selector);
+        if (el) return frame;
+      } catch {
+        // 프레임이 막 사라지거나 교체되는 중일 수 있음 — 무시하고 계속
+      }
+    }
+    await page.waitForTimeout(intervalMs);
+  }
+
+  return null;
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.username
@@ -98,23 +118,28 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     await page.waitForLoadState("networkidle");
 
     // "통합관리 운송장출력" 화면으로 이동
-    // ✅ 2026-09-22 확인된 실제 메뉴 경로: 전체화면 → 집배달 → 통합관리 운송장출력
-    await page.click(SELECTORS.fullScreenMenuButton);
+    // ✅ 2026-09-23: "전체화면" 클릭은 불필요한 것으로 확인되어 제거함. 집배달 → 통합관리 운송장출력만 클릭.
     await page.click(SELECTORS.pickupDeliveryMenuLink);
     await page.click(SELECTORS.waybillOutputMenuLink);
     await page.waitForLoadState("networkidle");
 
-    // ✅ 집하일자 기본값이 항상 "오늘"이라, 다른 범위가 필요할 때만 날짜를 바꾼다
-    if (fromDate && SELECTORS.pickupDateFromInput) await page.fill(SELECTORS.pickupDateFromInput, fromDate);
-    if (toDate && SELECTORS.pickupDateToInput) await page.fill(SELECTORS.pickupDateToInput, toDate);
+    // ✅ 이 사이트는 메뉴를 누르면 새 탭의 iframe 안에 실제 화면이 로드되는 MDI 구조(2026-09-23 확인).
+    //    그래서 조회버튼/그리드는 최상위 page가 아니라 그 iframe 안에서 찾아야 한다.
+    //    어떤 iframe인지 미리 알 수 없으므로, 조회버튼이 들어있는 iframe을 직접 찾는다.
+    const targetFrame = await findFrameContaining(page, SELECTORS.searchButton);
+    if (!targetFrame) throw new Error("WAYBILL_SCREEN_FRAME_NOT_FOUND");
 
-    await page.click(SELECTORS.searchButton);
+    // ✅ 집하일자 기본값이 항상 "오늘"이라, 다른 범위가 필요할 때만 날짜를 바꾼다
+    if (fromDate && SELECTORS.pickupDateFromInput) await targetFrame.fill(SELECTORS.pickupDateFromInput, fromDate);
+    if (toDate && SELECTORS.pickupDateToInput) await targetFrame.fill(SELECTORS.pickupDateToInput, toDate);
+
+    await targetFrame.click(SELECTORS.searchButton);
     await page.waitForLoadState("networkidle");
 
     // ✅ 1차 시도: i-grid 컴포넌트의 실제 데이터를 JS로 직접 읽기(가장 안정적 — 화면 배치 안 타는 방식)
     //    ⚠️ 이 컴포넌트가 데이터를 어느 프로퍼티(.data/.rows/.dataset 등)에 두는지는 실행해봐야 확인 가능.
     //    아래는 흔한 패턴 3가지를 순서대로 시도하고, 다 실패하면 2차 시도(표 스크래핑)로 넘어간다.
-    const gridRows = await page.evaluate((gridId) => {
+    const gridRows = await targetFrame.evaluate((gridId) => {
       const el = document.getElementById(gridId);
       if (!el) return null;
       const candidates = [el.data, el.rows, el.dataset_, el.gridData, el.items];
@@ -148,9 +173,11 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
 
     // ✅ 2차 시도(fallback): i-grid에서 데이터를 못 읽었을 때만 일반 표처럼 스크래핑 시도
     console.warn("i-grid 데이터 직접 읽기 실패 — 표 스크래핑으로 대체 시도(정확도 낮을 수 있음)");
-    const rows = await page.$$eval(`#${SELECTORS.resultGridId} table tbody tr`, (trs) =>
-      trs.map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? ""))
-    ).catch(() => []);
+    const rows = await targetFrame
+      .$$eval(`#${SELECTORS.resultGridId} table tbody tr`, (trs) =>
+        trs.map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? ""))
+      )
+      .catch(() => []);
 
     for (const cells of rows) {
       const 운송장번호 = cellText(cells, COLUMN_INDEX_FALLBACK.운송장번호);
