@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import LotteShipmentGrid from "@/views/lotteShipment/components/LotteShipmentGrid";
+import LotteShipmentGrid, {
+  DEFAULT_LOTTE_SHIPMENT_COLUMNS,
+  type LotteShipmentColumn,
+} from "@/views/lotteShipment/components/LotteShipmentGrid";
 import {
   fetchLotteShipments,
   deleteLotteShipments,
@@ -11,6 +14,8 @@ import {
 
 export default function LotteShipmentView() {
   const [rows, setRows] = useState<LotteShipmentRow[]>([]);
+  const [columns, setColumns] = useState<LotteShipmentColumn[]>(DEFAULT_LOTTE_SHIPMENT_COLUMNS);
+  const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -121,12 +126,24 @@ export default function LotteShipmentView() {
         >
           전송 ({unsentSelectedCount})
         </button>
+        <button
+          type="button"
+          onClick={() => setIsColumnEditMode((prev) => !prev)}
+          className={`px-3 py-1.5 rounded border text-sm ${
+            isColumnEditMode ? "border-slate-700 bg-slate-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          열이동
+        </button>
       </div>
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
       <LotteShipmentGrid
         rows={displayRows}
+        columns={columns}
+        isColumnEditMode={isColumnEditMode}
+        onColumnsChange={setColumns}
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onToggleSelectAll={handleToggleSelectAll}

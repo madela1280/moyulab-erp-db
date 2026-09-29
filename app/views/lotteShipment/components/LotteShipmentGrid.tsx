@@ -3,22 +3,35 @@
 // app/views/lotteShipment/components/LotteShipmentGrid.tsx
 //
 // 롯데택배 조회 화면 표. 체크박스로 선택 -> 삭제/전송, 스캔일시 옆 ▽로 미스캔(발송 안 됨) 건을
-// 위로 정렬. 모든 칸은 읽기 전용(값 입력은 스캔 연동에서만 채워짐).
+// 위로 정렬. 열이동 모드에서는 컬럼 너비 조절 + 좌우 이동이 가능하다(환불접수 그리드와 동일 방식).
+// 모든 칸은 읽기 전용(값 입력은 스캔 연동에서만 채워짐).
 
 import type { LotteShipmentRow } from "@/views/lotteShipment/service";
 
-const COLUMNS: Array<{ key: keyof LotteShipmentRow; label: string; width: number }> = [
+export type LotteShipmentColumn = {
+  key: keyof LotteShipmentRow;
+  label: string;
+  width: number;
+};
+
+export const DEFAULT_LOTTE_SHIPMENT_COLUMNS: LotteShipmentColumn[] = [
+  { key: "등록일자", label: "등록일자", width: 120 },
   { key: "운송장번호", label: "운송장번호", width: 140 },
   { key: "주문번호", label: "주문번호", width: 160 },
   { key: "수하인명", label: "수하인명", width: 90 },
   { key: "수하인전화번호", label: "전화번호", width: 130 },
   { key: "수하인주소", label: "주소", width: 260 },
   { key: "기기번호", label: "기기번호", width: 110 },
-  { key: "스캔일시", label: "스캔일시", width: 150 },
+  { key: "스캔일시", label: "스캔일시(출고일자)", width: 150 },
   { key: "전송상태", label: "전송상태", width: 90 },
 ];
 
-function formatScannedAt(value: string | null) {
+function normalizeWidth(value: number) {
+  if (!Number.isFinite(value)) return 100;
+  return Math.min(800, Math.max(60, Math.round(value)));
+}
+
+function formatDateTime(value: string | null) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
@@ -27,6 +40,9 @@ function formatScannedAt(value: string | null) {
 
 export default function LotteShipmentGrid({
   rows,
+  columns,
+  isColumnEditMode,
+  onColumnsChange,
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
@@ -34,6 +50,9 @@ export default function LotteShipmentGrid({
   onToggleScanSort,
 }: {
   rows: LotteShipmentRow[];
+  columns: LotteShipmentColumn[];
+  isColumnEditMode: boolean;
+  onColumnsChange: (columns: LotteShipmentColumn[]) => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: (checked: boolean) => void;
@@ -41,6 +60,19 @@ export default function LotteShipmentGrid({
   onToggleScanSort: () => void;
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.운송장번호));
+
+  function moveColumn(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= columns.length) return;
+    const next = [...columns];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    onColumnsChange(next);
+  }
+
+  function handleWidthChange(col: LotteShipmentColumn, value: string) {
+    const nextWidth = normalizeWidth(Number(value));
+    onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
+  }
 
   return (
     <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
@@ -54,29 +86,71 @@ export default function LotteShipmentGrid({
               <input type="checkbox" checked={allChecked} onChange={(e) => onToggleSelectAll(e.target.checked)} title="전체 선택" />
             </th>
 
-            {COLUMNS.map((col) => (
+            {columns.map((col, index) => (
               <th
                 key={col.key}
                 className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
                 style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
               >
-                <span className="inline-flex items-center gap-1">
-                  {col.label}
-                  {col.key === "스캔일시" && (
-                    <button
-                      type="button"
-                      title={scanSortActive ? "수집순으로 되돌리기" : "미스캔(미발송) 건 위로 정렬"}
-                      className={`text-[10px] leading-none ${scanSortActive ? "text-yellow-300" : "text-white/70 hover:text-white"}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onToggleScanSort();
-                      }}
-                    >
-                      ▽
-                    </button>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="inline-flex items-center gap-1">
+                    {col.label}
+                    {col.key === "스캔일시" && (
+                      <button
+                        type="button"
+                        title={scanSortActive ? "수집순으로 되돌리기" : "미스캔(미발송) 건 위로 정렬"}
+                        className={`text-[10px] leading-none ${scanSortActive ? "text-yellow-300" : "text-white/70 hover:text-white"}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onToggleScanSort();
+                        }}
+                      >
+                        ▽
+                      </button>
+                    )}
+                  </span>
+
+                  {isColumnEditMode && (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600 disabled:opacity-30"
+                          disabled={index === 0}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            moveColumn(index, -1);
+                          }}
+                        >
+                          ←
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600 disabled:opacity-30"
+                          disabled={index === columns.length - 1}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            moveColumn(index, 1);
+                          }}
+                        >
+                          →
+                        </button>
+                      </div>
+                      <input
+                        className="h-6 w-14 rounded border border-slate-200 bg-white px-1 text-center text-[11px] text-slate-700"
+                        type="number"
+                        min={60}
+                        max={800}
+                        value={col.width}
+                        onChange={(e) => handleWidthChange(col, e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      />
+                    </div>
                   )}
-                </span>
+                </div>
               </th>
             ))}
           </tr>
@@ -92,10 +166,10 @@ export default function LotteShipmentGrid({
                   onChange={() => onToggleSelect(row.운송장번호)}
                 />
               </td>
-              {COLUMNS.map((col) => (
+              {columns.map((col) => (
                 <td key={col.key} className="border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                  {col.key === "스캔일시"
-                    ? formatScannedAt(row.스캔일시)
+                  {col.key === "등록일자" || col.key === "스캔일시"
+                    ? formatDateTime(row[col.key] as string | null)
                     : col.key === "전송상태"
                     ? (
                       <span className={row.전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-slate-400"}>
@@ -110,7 +184,7 @@ export default function LotteShipmentGrid({
 
           {rows.length === 0 && (
             <tr>
-              <td colSpan={COLUMNS.length + 1} className="px-2 py-8 text-center text-slate-400">
+              <td colSpan={columns.length + 1} className="px-2 py-8 text-center text-slate-400">
                 데이터가 없습니다.
               </td>
             </tr>
