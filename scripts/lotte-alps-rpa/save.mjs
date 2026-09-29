@@ -16,6 +16,10 @@ const SCHEMA = `
     matched_unified_id integer
   );
 
+  -- ✅ 스캔 연동(기기번호/스캔일시)용 컬럼 — 롯데택배 화면에서 사용
+  ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 기기번호 text;
+  ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 스캔일시 timestamptz;
+
   CREATE TABLE IF NOT EXISTS lotte_shipment_pull_state (
     id integer PRIMARY KEY DEFAULT 1,
     last_pulled_to_date text,

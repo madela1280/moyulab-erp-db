@@ -11,7 +11,8 @@ export type UnifiedChangeActionType =
   | "insert"
   | "restore"
   | "move_to_recovery1"
-  | "restore_from_recovery1";
+  | "restore_from_recovery1"
+  | "lotte_shipment_send";
 
 export type ChangeHistoryActor = {
   username: string | null;
