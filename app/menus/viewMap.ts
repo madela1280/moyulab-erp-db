@@ -68,6 +68,7 @@ export const VIEW_MAP: Record<string, any> = {
 
   // 롯데택배
   "롯데택배>롯데택배": dynamic(() => import("@/views/lotteShipment/LotteShipmentView")),
+  "롯데택배>스캔": dynamic(() => import("@/views/lotteShipment/ScanView")),
 
   // 카카오톡
   "카카오톡>대화조회": dynamic(() => import("@/views/kakao/KakaoConversationView")),

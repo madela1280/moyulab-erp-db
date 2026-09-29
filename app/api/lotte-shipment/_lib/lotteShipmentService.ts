@@ -70,6 +70,68 @@ export type SendResult = {
   skippedReasons: Record<string, "NOT_FOUND" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH">;
 };
 
+type MatchAndSendOutcome =
+  | { status: "SENT"; unifiedId: number; changeItems: ReturnType<typeof buildUnifiedCellChangeItems> }
+  | { status: "NOT_FOUND" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH" };
+
+// ✅ 한 건(운송장번호 1개)에 대해 통합관리 매칭+반영을 시도하는 공용 로직.
+//    bulk 전송(sendLotteShipmentsToUnified)과 스캔(scanLotteShipment) 양쪽에서 재사용.
+//    호출자가 이미 연 트랜잭션의 client를 그대로 넘겨받는다(자체적으로 BEGIN/COMMIT 하지 않음).
+async function matchAndSendOne(client: any, invoiceNo: string): Promise<MatchAndSendOutcome> {
+  const sel = await client.query(
+    `SELECT 운송장번호, 수하인명, 수하인전화번호, 기기번호, 스캔일시, matched_unified_id
+     FROM lotte_shipment_data WHERE 운송장번호 = $1 FOR UPDATE`,
+    [invoiceNo]
+  );
+  const lotteRow = sel.rows?.[0];
+  if (!lotteRow) return { status: "NOT_FOUND" };
+  if (lotteRow.matched_unified_id) return { status: "ALREADY_SENT" };
+
+  const 수취인명 = normalizeString(lotteRow.수하인명);
+  const 연락처1 = normalizeString(lotteRow.수하인전화번호);
+
+  const matchR = await client.query(
+    `SELECT id, data FROM unified
+     WHERE data->>'수취인명' = $1 AND data->>'연락처1' = $2
+     FOR UPDATE`,
+    [수취인명, 연락처1]
+  );
+
+  if (matchR.rows.length !== 1) {
+    return { status: matchR.rows.length === 0 ? "NO_MATCH" : "AMBIGUOUS_MATCH" };
+  }
+
+  const unifiedId = Number(matchR.rows[0].id);
+  const beforeData = matchR.rows[0].data && typeof matchR.rows[0].data === "object" ? matchR.rows[0].data : {};
+
+  const 기기번호 = normalizeString(lotteRow.기기번호);
+  const 발송일 = lotteRow.스캔일시
+    ? new Date(lotteRow.스캔일시).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  const afterData: Record<string, any> = {
+    ...beforeData,
+    택배발송일: 발송일,
+  };
+  if (기기번호) afterData.기기번호 = 기기번호;
+
+  await client.query(`UPDATE unified SET data = $2::jsonb WHERE id = $1`, [unifiedId, JSON.stringify(afterData)]);
+  await client.query(`UPDATE lotte_shipment_data SET matched_unified_id = $2 WHERE 운송장번호 = $1`, [
+    invoiceNo,
+    unifiedId,
+  ]);
+
+  const changeItems = buildUnifiedCellChangeItems({
+    unifiedId,
+    beforeData,
+    afterData,
+    columnKeys: ["택배발송일", "기기번호"],
+    actionType: "lotte_shipment_send",
+  });
+
+  return { status: "SENT", unifiedId, changeItems };
+}
+
 export async function sendLotteShipmentsToUnified(
   invoiceNos: string[],
   actor: { username: string | null; name: string | null }
@@ -89,71 +151,14 @@ export async function sendLotteShipmentsToUnified(
     await client.query("BEGIN");
 
     for (const invoiceNo of safe) {
-      const sel = await client.query(
-        `SELECT 운송장번호, 수하인명, 수하인전화번호, 기기번호, 스캔일시, matched_unified_id
-         FROM lotte_shipment_data WHERE 운송장번호 = $1 FOR UPDATE`,
-        [invoiceNo]
-      );
-      const lotteRow = sel.rows?.[0];
-      if (!lotteRow) {
+      const outcome = await matchAndSendOne(client, invoiceNo);
+      if (outcome.status === "SENT") {
+        sentInvoiceNos.push(invoiceNo);
+        changeItems.push(...outcome.changeItems);
+      } else {
         skippedInvoiceNos.push(invoiceNo);
-        skippedReasons[invoiceNo] = "NOT_FOUND";
-        continue;
+        skippedReasons[invoiceNo] = outcome.status;
       }
-      if (lotteRow.matched_unified_id) {
-        skippedInvoiceNos.push(invoiceNo);
-        skippedReasons[invoiceNo] = "ALREADY_SENT";
-        continue;
-      }
-
-      const 수취인명 = normalizeString(lotteRow.수하인명);
-      const 연락처1 = normalizeString(lotteRow.수하인전화번호);
-
-      const matchR = await client.query(
-        `SELECT id, data FROM unified
-         WHERE data->>'수취인명' = $1 AND data->>'연락처1' = $2
-         FOR UPDATE`,
-        [수취인명, 연락처1]
-      );
-
-      if (matchR.rows.length !== 1) {
-        skippedInvoiceNos.push(invoiceNo);
-        skippedReasons[invoiceNo] = matchR.rows.length === 0 ? "NO_MATCH" : "AMBIGUOUS_MATCH";
-        continue;
-      }
-
-      const unifiedId = Number(matchR.rows[0].id);
-      const beforeData = matchR.rows[0].data && typeof matchR.rows[0].data === "object" ? matchR.rows[0].data : {};
-
-      const 기기번호 = normalizeString(lotteRow.기기번호);
-      const 발송일 = lotteRow.스캔일시
-        ? new Date(lotteRow.스캔일시).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10);
-
-      const afterData: Record<string, any> = {
-        ...beforeData,
-        택배발송일: 발송일,
-      };
-      if (기기번호) afterData.기기번호 = 기기번호;
-
-      await client.query(`UPDATE unified SET data = $2::jsonb WHERE id = $1`, [unifiedId, JSON.stringify(afterData)]);
-
-      await client.query(`UPDATE lotte_shipment_data SET matched_unified_id = $2 WHERE 운송장번호 = $1`, [
-        invoiceNo,
-        unifiedId,
-      ]);
-
-      changeItems.push(
-        ...buildUnifiedCellChangeItems({
-          unifiedId,
-          beforeData,
-          afterData,
-          columnKeys: ["택배발송일", "기기번호"],
-          actionType: "lotte_shipment_send",
-        })
-      );
-
-      sentInvoiceNos.push(invoiceNo);
     }
 
     await client.query("COMMIT");
@@ -179,4 +184,87 @@ export async function sendLotteShipmentsToUnified(
   }
 
   return { sentCount: sentInvoiceNos.length, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
+}
+
+export type ScanResult = {
+  found: boolean;
+  row?: {
+    운송장번호: string;
+    수하인명: string;
+    수하인전화번호: string;
+    수하인주소: string;
+  };
+  sendStatus?: "SENT" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH";
+};
+
+// ✅ PM84 스캔 화면 전용: 송장번호 1건을 스캔했을 때 호출.
+//    1) 스캔일시를 항상 지금 시각으로 갱신(= "발송 확인"), 재스캔해도 그냥 갱신됨.
+//    2) 아직 통합관리에 전송 안 된 건이면 그 자리에서 매칭+반영까지 시도.
+export async function scanLotteShipment(
+  invoiceNoRaw: string,
+  actor: { username: string | null; name: string | null }
+): Promise<ScanResult> {
+  const invoiceNo = normalizeString(invoiceNoRaw);
+  if (!invoiceNo) return { found: false };
+
+  const client = await pool.connect();
+  let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
+  let sendStatus: ScanResult["sendStatus"];
+  let rowInfo: ScanResult["row"] | undefined;
+
+  try {
+    await client.query("BEGIN");
+
+    const sel = await client.query(
+      `SELECT 운송장번호, 수하인명, 수하인전화번호, 수하인주소 FROM lotte_shipment_data WHERE 운송장번호 = $1`,
+      [invoiceNo]
+    );
+    const lotteRow = sel.rows?.[0];
+    if (!lotteRow) {
+      await client.query("ROLLBACK");
+      return { found: false };
+    }
+
+    rowInfo = {
+      운송장번호: normalizeString(lotteRow.운송장번호),
+      수하인명: normalizeString(lotteRow.수하인명),
+      수하인전화번호: normalizeString(lotteRow.수하인전화번호),
+      수하인주소: normalizeString(lotteRow.수하인주소),
+    };
+
+    await client.query(`UPDATE lotte_shipment_data SET 스캔일시 = now() WHERE 운송장번호 = $1`, [invoiceNo]);
+
+    const outcome = await matchAndSendOne(client, invoiceNo);
+    if (outcome.status === "SENT") {
+      changeItems = outcome.changeItems;
+      sendStatus = "SENT";
+    } else if (outcome.status === "ALREADY_SENT") {
+      sendStatus = "ALREADY_SENT";
+    } else if (outcome.status === "AMBIGUOUS_MATCH" || outcome.status === "NO_MATCH") {
+      sendStatus = outcome.status;
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (changeItems.length) {
+    try {
+      await recordUnifiedChangeHistory({
+        action_type: "lotte_shipment_send",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `롯데택배 스캔 -> 통합관리 전송 1건 (${invoiceNo})`,
+        items: changeItems,
+      });
+    } catch (err) {
+      console.warn("lotte_shipment_send(scan) change history record failed (ignored):", err);
+    }
+  }
+
+  return { found: true, row: rowInfo, sendStatus };
 }

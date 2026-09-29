@@ -44,3 +44,24 @@ export async function sendLotteShipmentsToUnified(ids: string[]): Promise<SendTo
   if (!res.ok) throw new Error("전송하지 못했습니다.");
   return res.json();
 }
+
+export type ScanResult = {
+  found: boolean;
+  row?: {
+    운송장번호: string;
+    수하인명: string;
+    수하인전화번호: string;
+    수하인주소: string;
+  };
+  sendStatus?: "SENT" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH";
+};
+
+export async function scanLotteShipment(invoiceNo: string): Promise<ScanResult> {
+  const res = await fetch("/api/lotte-shipment/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoiceNo }),
+  });
+  if (!res.ok) throw new Error("스캔 처리하지 못했습니다.");
+  return res.json();
+}
