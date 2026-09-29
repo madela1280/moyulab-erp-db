@@ -273,19 +273,6 @@ export default function AppShell() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowSub(false);
-                  stopTimer();
-                  void handleLogout();
-                }}
-                className="ml-12 px-3 py-1 rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-200 hover:text-black text-[0.92rem] font-[660]"
-                title="로그아웃"
-              >
-                로그아웃
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
                   if (loading) return;
 
                   if (!canRead("카카오톡")) {
@@ -310,6 +297,19 @@ export default function AppShell() {
               >
                 <Image src="/kakao-icon.jpg" alt="카카오톡" width={29} height={29} className="rounded-full" />
                 <span className="text-[0.62rem] font-normal">카카오톡</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSub(false);
+                  stopTimer();
+                  void handleLogout();
+                }}
+                className="ml-12 px-3 py-1 rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-200 hover:text-black text-[0.92rem] font-[660]"
+                title="로그아웃"
+              >
+                로그아웃
               </button>
 
               {top && showSub && canRead(top) && (
