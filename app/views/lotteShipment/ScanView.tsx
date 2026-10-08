@@ -16,12 +16,10 @@ type LogEntry = {
   message: string;
 };
 
-const SEND_STATUS_LABEL: Record<string, string> = {
-  SENT: "통합관리 반영 완료",
-  ALREADY_SENT: "이미 반영된 송장",
-  AMBIGUOUS_MATCH: "통합관리에 후보가 여러 건 — 수동 확인 필요",
-  NO_MATCH: "통합관리에서 일치하는 고객을 못 찾음 — 수동 확인 필요",
-};
+// ✅ 2026-10-08: 통합관리 매칭 문구는 화면에서 숨김 — 출고(스캔) 시점엔 아직 통합관리에
+//    데이터가 안 올라와 있는 경우가 많아서, "못 찾음" 문구가 오히려 혼란을 줌. 스캔일시 기록과
+//    백그라운드 매칭 시도는 그대로 두고(나중에 통합관리 쪽에 데이터가 올라오면 롯데택배 목록의
+//    "전송" 버튼으로 수동 처리), 화면에는 수하인 정보만 보여준다.
 
 export default function ScanView() {
   const [value, setValue] = useState("");
@@ -49,9 +47,7 @@ export default function ScanView() {
       setResult(res);
       setLastScanned(invoiceNo);
 
-      const message = !res.found
-        ? "송장을 찾을 수 없음(등록 안 된 송장)"
-        : `${res.row?.수하인명 ?? ""} — ${SEND_STATUS_LABEL[res.sendStatus ?? ""] ?? ""}`;
+      const message = !res.found ? "송장을 찾을 수 없음(등록 안 된 송장)" : `${res.row?.수하인명 ?? ""} — 스캔 완료`;
 
       setLog((prev) => [{ invoiceNo, at: new Date().toLocaleTimeString("ko-KR"), ok: res.found, message }, ...prev].slice(0, 30));
     } catch (e: any) {
@@ -63,13 +59,7 @@ export default function ScanView() {
     }
   }
 
-  const cardColor = !result
-    ? "bg-slate-100 border-slate-300"
-    : !result.found
-    ? "bg-red-50 border-red-300"
-    : result.sendStatus === "SENT" || result.sendStatus === "ALREADY_SENT"
-    ? "bg-emerald-50 border-emerald-300"
-    : "bg-amber-50 border-amber-300";
+  const cardColor = !result ? "bg-slate-100 border-slate-300" : !result.found ? "bg-red-50 border-red-300" : "bg-emerald-50 border-emerald-300";
 
   return (
     <div className="w-full h-full flex flex-col p-4 gap-4 bg-white">
@@ -107,13 +97,6 @@ export default function ScanView() {
             <div className="text-sm text-slate-600 mt-1">{result.row?.수하인전화번호}</div>
             <div className="text-sm text-slate-600">{result.row?.수하인주소}</div>
             <div className="text-xs text-slate-400 mt-1">{lastScanned}</div>
-            <div
-              className={`mt-2 text-sm font-semibold ${
-                result.sendStatus === "SENT" || result.sendStatus === "ALREADY_SENT" ? "text-emerald-700" : "text-amber-700"
-              }`}
-            >
-              {SEND_STATUS_LABEL[result.sendStatus ?? ""] ?? ""}
-            </div>
           </div>
         )}
       </div>
