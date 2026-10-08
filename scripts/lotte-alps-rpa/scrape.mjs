@@ -45,7 +45,14 @@ const GRID_FIELDS = {
   수하인전화번호: "acperTelView",
   수하인기본주소: "acperBadrView",
   수하인상세주소: "acperDetcAdrView",
+  집하일자: "pickYmd", // ✅ "YYYYMMDD" 형태(예: "20260923") — ERP에서 오늘자만 걸러낼 때 기준
 };
+
+function formatPickYmd(raw) {
+  const s = String(raw ?? "").trim();
+  if (!/^\d{8}$/.test(s)) return null;
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+}
 
 // ✅ 이 사이트는 메뉴 클릭 시 "탭"처럼 보이지만 실제로는 새 브라우저 창(팝업)으로 내용이 뜨는 것으로
 //    추정됨(2026-09-23: 탭 제목은 바로 뜨는데 내용은 계속 비어있는 현상 확인) — 원래 page의 iframe뿐
@@ -285,6 +292,7 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
         수하인명: String(row?.[GRID_FIELDS.수하인명] ?? "").trim(),
         수하인전화번호: String(row?.[GRID_FIELDS.수하인전화번호] ?? "").trim(),
         수하인주소: [기본주소, 상세주소].filter(Boolean).join(" "),
+        집하일자: formatPickYmd(row?.[GRID_FIELDS.집하일자]),
       });
     }
 

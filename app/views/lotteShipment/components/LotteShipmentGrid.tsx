@@ -15,7 +15,7 @@ export type LotteShipmentColumn = {
 };
 
 export const DEFAULT_LOTTE_SHIPMENT_COLUMNS: LotteShipmentColumn[] = [
-  { key: "등록일자", label: "등록일자", width: 120 },
+  { key: "집하일자", label: "집하일자", width: 100 },
   { key: "운송장번호", label: "운송장번호", width: 140 },
   { key: "주문번호", label: "주문번호", width: 160 },
   { key: "수하인명", label: "수하인명", width: 90 },
@@ -168,8 +168,10 @@ export default function LotteShipmentGrid({
               </td>
               {columns.map((col) => (
                 <td key={col.key} className="border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                  {col.key === "등록일자" || col.key === "스캔일시"
+                  {col.key === "스캔일시"
                     ? formatDateTime(row[col.key] as string | null)
+                    : col.key === "집하일자"
+                    ? row.집하일자 ?? ""
                     : col.key === "전송상태"
                     ? (
                       <span className={row.전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-slate-400"}>

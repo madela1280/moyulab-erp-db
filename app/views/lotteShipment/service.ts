@@ -7,7 +7,7 @@ export type LotteShipmentRow = {
   수하인전화번호: string;
   수하인주소: string;
   기기번호: string;
-  등록일자: string | null;
+  집하일자: string | null;
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
 };
