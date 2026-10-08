@@ -84,7 +84,12 @@ export default function ScanView() {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       <div className={`rounded-lg border-2 p-4 min-h-[120px] flex flex-col justify-center ${cardColor}`}>
-        {!result ? (
+        {loading ? (
+          <div className="text-slate-500 text-center">
+            조회중...
+            <div className="text-xs font-normal mt-1">처음 보는 송장이면 최대 1~2분 걸릴 수 있습니다</div>
+          </div>
+        ) : !result ? (
           <div className="text-slate-400 text-center">스캔 대기중</div>
         ) : !result.found ? (
           <div className="text-red-700 text-center text-lg font-semibold">

@@ -6,6 +6,7 @@
 
 import { Pool } from "pg";
 import { buildUnifiedCellChangeItems, recordUnifiedChangeHistory } from "@/unified/change-history/serverChangeHistory";
+import { triggerLotteFetchOnce } from "@/api/lotte-shipment/_lib/triggerLotteFetch";
 
 export const SEND_BATCH_MAX = 300;
 
@@ -211,6 +212,16 @@ export async function scanLotteShipment(
 ): Promise<ScanResult> {
   const invoiceNo = normalizeString(invoiceNoRaw);
   if (!invoiceNo) return { found: false };
+
+  // ✅ 가벼운 사전 확인(트랜잭션 없음) — 없으면 그 자리에서 RPA를 1회 호출해 즉시 가져와본다.
+  //    DB 커넥션을 붙잡은 채로 수십 초짜리 RPA 호출을 기다리면 커넥션 풀이 막히므로, 트랜잭션
+  //    시작 전에 먼저 확인한다.
+  const preCheck = await pool.query(`SELECT 1 FROM lotte_shipment_data WHERE 운송장번호 = $1`, [invoiceNo]);
+  if (!preCheck.rows.length) {
+    await triggerLotteFetchOnce();
+    const recheck = await pool.query(`SELECT 1 FROM lotte_shipment_data WHERE 운송장번호 = $1`, [invoiceNo]);
+    if (!recheck.rows.length) return { found: false };
+  }
 
   const client = await pool.connect();
   let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
