@@ -34,9 +34,14 @@ export type LotteShipmentRow = {
 };
 
 export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
+  // ✅ 집하일자는 "날짜만" 있는 값이라 JS Date로 왕복시키면 서버 시간대(KST, UTC+9) 때문에
+  //    UTC 변환 시 하루 밀리는 문제가 있었음(2026-10-08 → 2026-10-07로 표시됨) — SQL에서
+  //    바로 텍스트로 캐스팅해서 시간대 변환 자체를 거치지 않게 한다.
   const r = await pool.query(
     `
-    SELECT 운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 기기번호, 스캔일시, 집하일자, matched_unified_id
+    SELECT 운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 기기번호, 스캔일시,
+           집하일자::text AS 집하일자,
+           matched_unified_id
     FROM lotte_shipment_data
     ORDER BY 집하일자 DESC NULLS LAST, scraped_at DESC
     `
@@ -49,7 +54,7 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
     수하인전화번호: normalizeString(row.수하인전화번호),
     수하인주소: normalizeString(row.수하인주소),
     기기번호: normalizeString(row.기기번호),
-    집하일자: row.집하일자 ? new Date(row.집하일자).toISOString().slice(0, 10) : null,
+    집하일자: row.집하일자 || null,
     스캔일시: row.스캔일시 ? new Date(row.스캔일시).toISOString() : null,
     전송상태: row.matched_unified_id ? "전송완료" : "미전송",
   }));
