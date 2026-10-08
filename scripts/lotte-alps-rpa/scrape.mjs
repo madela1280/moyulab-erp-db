@@ -202,7 +202,10 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     }
 
     let targetFrame = null;
-    const MAX_NAV_ATTEMPTS = 1; // ✅ 재시도해도 결과가 같아서 일단 1회만 하고 단계별로 원인 확인
+    // ✅ 2026-10-08 확인: "집하지시" 요소는 존재하지만 "보이지 않음"으로 클릭 타임아웃되는
+    //    현상 발생(실제 사람이 수동으로 하면 동일 경로가 정상 동작 — 일회성 타이밍 문제로 추정).
+    //    hover로 먼저 메뉴를 펼친 뒤 클릭하고, 실패 시 1회 재시도한다.
+    const MAX_NAV_ATTEMPTS = 2;
 
     for (let attempt = 1; attempt <= MAX_NAV_ATTEMPTS && !targetFrame; attempt++) {
       await debugShot("0-before-click");
@@ -211,6 +214,8 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
       await debugShot("1-after-집배달");
 
+      await page.hover(SELECTORS.pickupInstructionMenuLink);
+      await page.waitForTimeout(500);
       await page.click(SELECTORS.pickupInstructionMenuLink);
       await page.waitForTimeout(2000); // 하위메뉴 렌더링 대기
       await debugShot("2-after-집하지시");
