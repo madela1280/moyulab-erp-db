@@ -284,3 +284,99 @@ export async function scanLotteShipment(
 
   return { found: true, row: rowInfo, sendStatus };
 }
+
+export type RfidRegisterResult =
+  | { ok: false; reason: "NO_RECENT_SCAN" }
+  | { ok: true; invoiceNo: string; sendStatus?: ScanResult["sendStatus"] };
+
+// ✅ RF88(RFID) 태그를 읽었을 때 호출 — PM84+RF88 전용 중계 앱에서 호출한다.
+//    "가장 최근에 스캔한 송장"(스캔일시 DESC 1건)에 기기번호를 채워 넣는다.
+//    스캐너는 1대만 운영한다는 전제(순서: 바코드 스캔 -> 곧바로 태그 스캔)로, 별도 세션/상태
+//    전달 없이 "최근 스캔" 기준으로 매칭한다.
+export async function registerRfidTagToLatestScan(
+  tagIdRaw: string,
+  actor: { username: string | null; name: string | null }
+): Promise<RfidRegisterResult> {
+  const 기기번호 = normalizeString(tagIdRaw);
+  if (!기기번호) return { ok: false, reason: "NO_RECENT_SCAN" };
+
+  const client = await pool.connect();
+  let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
+  let sendStatus: ScanResult["sendStatus"];
+  let invoiceNo = "";
+
+  try {
+    await client.query("BEGIN");
+
+    const sel = await client.query(
+      `SELECT 운송장번호 FROM lotte_shipment_data
+       WHERE 스캔일시 IS NOT NULL
+       ORDER BY 스캔일시 DESC
+       LIMIT 1
+       FOR UPDATE`
+    );
+    const row = sel.rows?.[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "NO_RECENT_SCAN" };
+    }
+    invoiceNo = normalizeString(row.운송장번호);
+
+    await client.query(`UPDATE lotte_shipment_data SET 기기번호 = $2 WHERE 운송장번호 = $1`, [invoiceNo, 기기번호]);
+
+    // 이미 통합관리로 전송된 건이면, 그 unified row의 기기번호도 바로 갱신한다.
+    const matchedSel = await client.query(
+      `SELECT matched_unified_id FROM lotte_shipment_data WHERE 운송장번호 = $1`,
+      [invoiceNo]
+    );
+    const matchedUnifiedId = matchedSel.rows?.[0]?.matched_unified_id;
+
+    if (matchedUnifiedId) {
+      const unifiedSel = await client.query(`SELECT data FROM unified WHERE id = $1 FOR UPDATE`, [matchedUnifiedId]);
+      const beforeData = unifiedSel.rows?.[0]?.data && typeof unifiedSel.rows[0].data === "object" ? unifiedSel.rows[0].data : {};
+      const afterData = { ...beforeData, 기기번호 };
+      await client.query(`UPDATE unified SET data = $2::jsonb WHERE id = $1`, [matchedUnifiedId, JSON.stringify(afterData)]);
+
+      changeItems = buildUnifiedCellChangeItems({
+        unifiedId: Number(matchedUnifiedId),
+        beforeData,
+        afterData,
+        columnKeys: ["기기번호"],
+        actionType: "lotte_shipment_send",
+      });
+      sendStatus = "SENT";
+    } else {
+      // 아직 통합관리에 없는 건 -> 지금 바로 매칭 시도(가능하면 기기번호까지 같이 반영됨)
+      const outcome = await matchAndSendOne(client, invoiceNo);
+      if (outcome.status === "SENT") {
+        changeItems = outcome.changeItems;
+        sendStatus = "SENT";
+      } else if (outcome.status === "AMBIGUOUS_MATCH" || outcome.status === "NO_MATCH" || outcome.status === "ALREADY_SENT") {
+        sendStatus = outcome.status;
+      }
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (changeItems.length) {
+    try {
+      await recordUnifiedChangeHistory({
+        action_type: "lotte_shipment_send",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `롯데택배 RFID 태그 등록 -> 통합관리 기기번호 반영 (${invoiceNo})`,
+        items: changeItems,
+      });
+    } catch (err) {
+      console.warn("lotte_shipment_send(rfid) change history record failed (ignored):", err);
+    }
+  }
+
+  return { ok: true, invoiceNo, sendStatus };
+}
