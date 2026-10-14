@@ -22,7 +22,6 @@ type LogEntry = {
 //    "전송" 버튼으로 수동 처리), 화면에는 수하인 정보만 보여준다.
 
 const DEVICE_NO_POLL_INTERVAL_MS = 2000;
-const DEVICE_NO_POLL_MAX_ATTEMPTS = 15; // 약 30초
 
 export default function ScanView() {
   const [value, setValue] = useState("");
@@ -38,6 +37,7 @@ export default function ScanView() {
   //    않도록 막는 용도. 버튼을 누르거나 새 스캔을 시작할 때마다 증가시킨다.
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInvoiceRef = useRef<{ invoiceNo: string; requestId: number } | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -46,36 +46,48 @@ export default function ScanView() {
     };
   }, []);
 
+  useEffect(() => {
+    // ✅ Chrome은 탭이 안 보이는 동안(다른 앱 보는 동안) setInterval을 느리게 돌리거나 멈춘다.
+    //    탭이 다시 보이는 순간 바로 한 번 더 확인해서, 화면 전환 후에도 금방 반영되게 한다.
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      const current = pollInvoiceRef.current;
+      if (!current) return;
+      checkDeviceNo(current.invoiceNo, current.requestId);
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   function stopDeviceNoPolling() {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    pollInvoiceRef.current = null;
+  }
+
+  async function checkDeviceNo(invoiceNo: string, myRequestId: number) {
+    if (requestIdRef.current !== myRequestId) return;
+    try {
+      const found = await fetchLotteShipmentDeviceNo(invoiceNo);
+      if (requestIdRef.current !== myRequestId) return; // 그 사이 다시시작/재스캔됨 -> 무시
+      if (found) {
+        setDeviceNo(found);
+        stopDeviceNoPolling();
+      }
+    } catch {
+      // 폴링 실패는 조용히 무시하고 다음 주기에 재시도
+    }
   }
 
   function startDeviceNoPolling(invoiceNo: string, myRequestId: number) {
     stopDeviceNoPolling();
-    let attempts = 0;
-    pollTimerRef.current = setInterval(async () => {
-      attempts += 1;
-      if (requestIdRef.current !== myRequestId) {
-        stopDeviceNoPolling();
-        return;
-      }
-      if (attempts > DEVICE_NO_POLL_MAX_ATTEMPTS) {
-        stopDeviceNoPolling();
-        return;
-      }
-      try {
-        const found = await fetchLotteShipmentDeviceNo(invoiceNo);
-        if (requestIdRef.current !== myRequestId) return; // 그 사이 다시시작/재스캔됨 -> 무시
-        if (found) {
-          setDeviceNo(found);
-          stopDeviceNoPolling();
-        }
-      } catch {
-        // 폴링 실패는 조용히 무시하고 다음 주기에 재시도
-      }
+    pollInvoiceRef.current = { invoiceNo, requestId: myRequestId };
+    // ✅ 더 이상 횟수 제한 없음 — 다음 스캔을 하거나 "다시시작"을 누르기 전까지 계속 확인한다.
+    //    (바코드 스캔과 태그 등록 사이 시간이 얼마나 걸릴지 알 수 없어서 짧게 끊으면 안 됨)
+    pollTimerRef.current = setInterval(() => {
+      checkDeviceNo(invoiceNo, myRequestId);
     }, DEVICE_NO_POLL_INTERVAL_MS);
   }
 
