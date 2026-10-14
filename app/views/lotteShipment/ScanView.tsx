@@ -136,7 +136,7 @@ export default function ScanView() {
         <button
           type="button"
           onClick={handleRestart}
-          className="text-sm px-3 py-1.5 rounded-md border border-slate-300 text-slate-600 active:bg-slate-100"
+          className="text-sm px-3 py-1.5 rounded-md border border-red-600 bg-red-600 text-white active:bg-red-700"
         >
           다시시작
         </button>
@@ -150,8 +150,14 @@ export default function ScanView() {
           if (e.key === "Enter") handleSubmit();
         }}
         onBlur={() => {
-          // PM84 스캐너 사용 중 포커스가 빠지면 다시 잡아준다(다음 스캔이 바로 되도록)
-          setTimeout(() => inputRef.current?.focus(), 100);
+          // PM84 스캐너 사용 중 포커스가 빠지면 다시 잡아준다(다음 스캔이 바로 되도록).
+          // 단, "다시시작" 버튼 등 다른 요소로 포커스가 옮겨간 거면 그 클릭을 방해하지 않도록
+          // 완전히 포커스가 빠져나간 경우(activeElement가 body)에만 되돌린다.
+          setTimeout(() => {
+            if (!document.activeElement || document.activeElement === document.body) {
+              inputRef.current?.focus();
+            }
+          }, 100);
         }}
         placeholder="여기에 송장번호를 스캔하세요"
         className="w-full text-2xl px-4 py-4 border-2 border-slate-400 rounded-lg text-center"
