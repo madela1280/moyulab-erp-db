@@ -74,3 +74,17 @@ export async function fetchLotteShipmentDeviceNo(invoiceNo: string): Promise<str
   const data = await res.json();
   return data.deviceNo || "";
 }
+
+export type RecentScanRow = {
+  운송장번호: string;
+  수하인명: string;
+  기기번호: string;
+  스캔일시: string;
+};
+
+export async function fetchRecentLotteScans(): Promise<RecentScanRow[]> {
+  const res = await fetch("/api/lotte-shipment/scan/recent", { cache: "no-store" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.rows ?? [];
+}

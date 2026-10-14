@@ -285,6 +285,33 @@ export async function scanLotteShipment(
   return { found: true, row: rowInfo, sendStatus };
 }
 
+export type RecentScanRow = {
+  운송장번호: string;
+  수하인명: string;
+  기기번호: string;
+  스캔일시: string;
+};
+
+// ✅ PM84 스캔 화면의 "최근 로그" 표를 서버 데이터로 채운다. PM84 Chrome이 백그라운드 탭을
+//    메모리 절약 목적으로 새로고침시켜버리는 경우가 있어서(화면에 있던 스캔 기록이 사라짐),
+//    화면이 다시 열릴 때마다 서버에서 다시 불러와 복구할 수 있게 한다.
+export async function listRecentScans(limit = 30): Promise<RecentScanRow[]> {
+  const r = await pool.query(
+    `SELECT 운송장번호, 수하인명, 기기번호, 스캔일시
+     FROM lotte_shipment_data
+     WHERE 스캔일시 IS NOT NULL
+     ORDER BY 스캔일시 DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return (r.rows || []).map((row: any) => ({
+    운송장번호: normalizeString(row.운송장번호),
+    수하인명: normalizeString(row.수하인명),
+    기기번호: normalizeString(row.기기번호),
+    스캔일시: row.스캔일시 ? new Date(row.스캔일시).toISOString() : "",
+  }));
+}
+
 // ✅ PM84 스캔 화면에서, 방금 스캔한 송장의 기기번호가 등록됐는지 짧게 주기적으로 확인(polling)할 때 쓴다.
 //    기기번호는 RFID 태그를 별도 기기(RF88+중계 앱)에서 읽어 비동기로 채워지므로, 이 화면이
 //    직접 알 방법이 없어 짧은 간격으로 물어보는 방식을 쓴다.

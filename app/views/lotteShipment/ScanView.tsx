@@ -7,21 +7,26 @@
 // 그래서 이 화면은 입력창 자동 포커스 + Enter 감지만으로 동작하고, 네이티브 앱이 필요 없다.
 
 import { useEffect, useRef, useState } from "react";
-import { scanLotteShipment, fetchLotteShipmentDeviceNo, type ScanResult } from "@/views/lotteShipment/service";
-
-type LogEntry = {
-  invoiceNo: string;
-  at: string;
-  ok: boolean;
-  message: string;
-};
+import {
+  scanLotteShipment,
+  fetchLotteShipmentDeviceNo,
+  fetchRecentLotteScans,
+  type ScanResult,
+  type RecentScanRow,
+} from "@/views/lotteShipment/service";
 
 // ✅ 2026-10-08: 통합관리 매칭 문구는 화면에서 숨김 — 출고(스캔) 시점엔 아직 통합관리에
 //    데이터가 안 올라와 있는 경우가 많아서, "못 찾음" 문구가 오히려 혼란을 줌. 스캔일시 기록과
 //    백그라운드 매칭 시도는 그대로 두고(나중에 통합관리 쪽에 데이터가 올라오면 롯데택배 목록의
 //    "전송" 버튼으로 수동 처리), 화면에는 수하인 정보만 보여준다.
 
+// ✅ 2026-10-14: "최근 로그" 표는 화면에서만 기억하던 걸 서버 데이터(최근 스캔 기록)로 바꿨다.
+//    PM84 Chrome이 백그라운드 탭을 메모리 절약 목적으로 새로고침시켜버리는 경우가 있는데,
+//    그때마다 화면에 쌓아둔 기록이 통째로 사라지는 문제가 있었다. 서버에서 다시 불러오면
+//    새로고침이 돼도 기록(+ 기기번호)이 그대로 복구된다.
+
 const DEVICE_NO_POLL_INTERVAL_MS = 2000;
+const RECENT_SCANS_REFRESH_MS = 3000;
 
 export default function ScanView() {
   const [value, setValue] = useState("");
@@ -30,7 +35,7 @@ export default function ScanView() {
   const [deviceNo, setDeviceNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [log, setLog] = useState<LogEntry[]>([]);
+  const [recentScans, setRecentScans] = useState<RecentScanRow[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ✅ "다시시작" 버튼으로 중간에 취소했을 때, 늦게 돌아온 이전 요청/폴링 결과가 화면에 반영되지
@@ -44,6 +49,19 @@ export default function ScanView() {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    function loadRecentScans() {
+      fetchRecentLotteScans()
+        .then(setRecentScans)
+        .catch(() => {
+          // 조회 실패는 조용히 무시하고 다음 주기에 재시도
+        });
+    }
+    loadRecentScans(); // ✅ 화면이 (새로고침 포함) 열릴 때마다 서버에서 다시 불러온다
+    const timer = setInterval(loadRecentScans, RECENT_SCANS_REFRESH_MS);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -113,13 +131,11 @@ export default function ScanView() {
 
       setResult(res);
 
-      const message = !res.found ? "송장을 찾을 수 없음(등록 안 된 송장)" : `${res.row?.수하인명 ?? ""} — 스캔 완료`;
-      setLog((prev) => [{ invoiceNo, at: new Date().toLocaleTimeString("ko-KR"), ok: res.found, message }, ...prev].slice(0, 30));
-
       if (res.found) {
         const baseline = await fetchLotteShipmentDeviceNo(invoiceNo).catch(() => "");
         if (requestIdRef.current !== myRequestId) return; // 다시시작/재스캔됨 -> 무시
         startDeviceNoPolling(invoiceNo, myRequestId, baseline);
+        fetchRecentLotteScans().then(setRecentScans).catch(() => {}); // 표에 바로 반영
       }
     } catch (e: any) {
       if (requestIdRef.current !== myRequestId) return;
@@ -216,20 +232,24 @@ export default function ScanView() {
             <tr>
               <th className="px-2 py-1 text-left">시각</th>
               <th className="px-2 py-1 text-left">송장번호</th>
-              <th className="px-2 py-1 text-left">결과</th>
+              <th className="px-2 py-1 text-left">수하인명</th>
+              <th className="px-2 py-1 text-left">기기번호</th>
             </tr>
           </thead>
           <tbody>
-            {log.map((entry, i) => (
-              <tr key={i} className={entry.ok ? "" : "bg-red-50"}>
-                <td className="px-2 py-1 whitespace-nowrap">{entry.at}</td>
-                <td className="px-2 py-1 whitespace-nowrap">{entry.invoiceNo}</td>
-                <td className="px-2 py-1">{entry.message}</td>
+            {recentScans.map((row) => (
+              <tr key={row.운송장번호}>
+                <td className="px-2 py-1 whitespace-nowrap">
+                  {row.스캔일시 ? new Date(row.스캔일시).toLocaleTimeString("ko-KR") : ""}
+                </td>
+                <td className="px-2 py-1 whitespace-nowrap">{row.운송장번호}</td>
+                <td className="px-2 py-1">{row.수하인명}</td>
+                <td className="px-2 py-1">{row.기기번호 || <span className="text-slate-400">-</span>}</td>
               </tr>
             ))}
-            {log.length === 0 && (
+            {recentScans.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-2 py-4 text-center text-slate-400">
+                <td colSpan={4} className="px-2 py-4 text-center text-slate-400">
                   아직 스캔 기록이 없습니다.
                 </td>
               </tr>
