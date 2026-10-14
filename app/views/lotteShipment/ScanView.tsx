@@ -37,7 +37,7 @@ export default function ScanView() {
   //    않도록 막는 용도. 버튼을 누르거나 새 스캔을 시작할 때마다 증가시킨다.
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollInvoiceRef = useRef<{ invoiceNo: string; requestId: number } | null>(null);
+  const pollInvoiceRef = useRef<{ invoiceNo: string; requestId: number; baseline: string } | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -53,7 +53,7 @@ export default function ScanView() {
       if (document.visibilityState !== "visible") return;
       const current = pollInvoiceRef.current;
       if (!current) return;
-      checkDeviceNo(current.invoiceNo, current.requestId);
+      checkDeviceNo(current.invoiceNo, current.requestId, current.baseline);
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
@@ -67,12 +67,14 @@ export default function ScanView() {
     pollInvoiceRef.current = null;
   }
 
-  async function checkDeviceNo(invoiceNo: string, myRequestId: number) {
+  async function checkDeviceNo(invoiceNo: string, myRequestId: number, baseline: string) {
     if (requestIdRef.current !== myRequestId) return;
     try {
       const found = await fetchLotteShipmentDeviceNo(invoiceNo);
       if (requestIdRef.current !== myRequestId) return; // 그 사이 다시시작/재스캔됨 -> 무시
-      if (found) {
+      // ✅ 스캔 당시 이미 있던 값(baseline)과 똑같으면 아직 "이번에" 새로 등록된 게 아니다 —
+      //    예전 테스트 등에서 남아있던 값을 "찾았다"고 착각해서 폴링을 멈추는 걸 방지한다.
+      if (found && found !== baseline) {
         setDeviceNo(found);
         stopDeviceNoPolling();
       }
@@ -81,13 +83,13 @@ export default function ScanView() {
     }
   }
 
-  function startDeviceNoPolling(invoiceNo: string, myRequestId: number) {
+  function startDeviceNoPolling(invoiceNo: string, myRequestId: number, baseline: string) {
     stopDeviceNoPolling();
-    pollInvoiceRef.current = { invoiceNo, requestId: myRequestId };
+    pollInvoiceRef.current = { invoiceNo, requestId: myRequestId, baseline };
     // ✅ 더 이상 횟수 제한 없음 — 다음 스캔을 하거나 "다시시작"을 누르기 전까지 계속 확인한다.
     //    (바코드 스캔과 태그 등록 사이 시간이 얼마나 걸릴지 알 수 없어서 짧게 끊으면 안 됨)
     pollTimerRef.current = setInterval(() => {
-      checkDeviceNo(invoiceNo, myRequestId);
+      checkDeviceNo(invoiceNo, myRequestId, baseline);
     }, DEVICE_NO_POLL_INTERVAL_MS);
   }
 
@@ -114,7 +116,11 @@ export default function ScanView() {
       const message = !res.found ? "송장을 찾을 수 없음(등록 안 된 송장)" : `${res.row?.수하인명 ?? ""} — 스캔 완료`;
       setLog((prev) => [{ invoiceNo, at: new Date().toLocaleTimeString("ko-KR"), ok: res.found, message }, ...prev].slice(0, 30));
 
-      if (res.found) startDeviceNoPolling(invoiceNo, myRequestId);
+      if (res.found) {
+        const baseline = await fetchLotteShipmentDeviceNo(invoiceNo).catch(() => "");
+        if (requestIdRef.current !== myRequestId) return; // 다시시작/재스캔됨 -> 무시
+        startDeviceNoPolling(invoiceNo, myRequestId, baseline);
+      }
     } catch (e: any) {
       if (requestIdRef.current !== myRequestId) return;
       setError(e?.message || "스캔 처리하지 못했습니다.");
