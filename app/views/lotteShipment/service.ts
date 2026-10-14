@@ -65,3 +65,12 @@ export async function scanLotteShipment(invoiceNo: string): Promise<ScanResult> 
   if (!res.ok) throw new Error("스캔 처리하지 못했습니다.");
   return res.json();
 }
+
+export async function fetchLotteShipmentDeviceNo(invoiceNo: string): Promise<string> {
+  const res = await fetch(`/api/lotte-shipment/scan/device-no?invoiceNo=${encodeURIComponent(invoiceNo)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return "";
+  const data = await res.json();
+  return data.deviceNo || "";
+}

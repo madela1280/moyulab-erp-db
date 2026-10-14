@@ -7,7 +7,7 @@
 // 그래서 이 화면은 입력창 자동 포커스 + Enter 감지만으로 동작하고, 네이티브 앱이 필요 없다.
 
 import { useEffect, useRef, useState } from "react";
-import { scanLotteShipment, type ScanResult } from "@/views/lotteShipment/service";
+import { scanLotteShipment, fetchLotteShipmentDeviceNo, type ScanResult } from "@/views/lotteShipment/service";
 
 type LogEntry = {
   invoiceNo: string;
@@ -21,49 +21,126 @@ type LogEntry = {
 //    백그라운드 매칭 시도는 그대로 두고(나중에 통합관리 쪽에 데이터가 올라오면 롯데택배 목록의
 //    "전송" 버튼으로 수동 처리), 화면에는 수하인 정보만 보여준다.
 
+const DEVICE_NO_POLL_INTERVAL_MS = 2000;
+const DEVICE_NO_POLL_MAX_ATTEMPTS = 15; // 약 30초
+
 export default function ScanView() {
   const [value, setValue] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [lastScanned, setLastScanned] = useState("");
+  const [deviceNo, setDeviceNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [log, setLog] = useState<LogEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ "다시시작" 버튼으로 중간에 취소했을 때, 늦게 돌아온 이전 요청/폴링 결과가 화면에 반영되지
+  //    않도록 막는 용도. 버튼을 누르거나 새 스캔을 시작할 때마다 증가시킨다.
+  const requestIdRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     inputRef.current?.focus();
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
   }, []);
+
+  function stopDeviceNoPolling() {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
+
+  function startDeviceNoPolling(invoiceNo: string, myRequestId: number) {
+    stopDeviceNoPolling();
+    let attempts = 0;
+    pollTimerRef.current = setInterval(async () => {
+      attempts += 1;
+      if (requestIdRef.current !== myRequestId) {
+        stopDeviceNoPolling();
+        return;
+      }
+      if (attempts > DEVICE_NO_POLL_MAX_ATTEMPTS) {
+        stopDeviceNoPolling();
+        return;
+      }
+      try {
+        const found = await fetchLotteShipmentDeviceNo(invoiceNo);
+        if (requestIdRef.current !== myRequestId) return; // 그 사이 다시시작/재스캔됨 -> 무시
+        if (found) {
+          setDeviceNo(found);
+          stopDeviceNoPolling();
+        }
+      } catch {
+        // 폴링 실패는 조용히 무시하고 다음 주기에 재시도
+      }
+    }, DEVICE_NO_POLL_INTERVAL_MS);
+  }
 
   async function handleSubmit() {
     const invoiceNo = value.trim();
     if (!invoiceNo || loading) return;
 
+    const myRequestId = ++requestIdRef.current;
+    stopDeviceNoPolling();
+
     setLoading(true);
     setError("");
     setValue("");
+    setResult(null);
+    setDeviceNo("");
+    setLastScanned(invoiceNo); // ✅ 조회 끝나기 전에 바로 보여줘서, 잘못 스캔한 걸 기다리지 않고 바로 알 수 있게 함
 
     try {
       const res = await scanLotteShipment(invoiceNo);
+      if (requestIdRef.current !== myRequestId) return; // 다시시작으로 취소된 요청 -> 무시
+
       setResult(res);
-      setLastScanned(invoiceNo);
 
       const message = !res.found ? "송장을 찾을 수 없음(등록 안 된 송장)" : `${res.row?.수하인명 ?? ""} — 스캔 완료`;
-
       setLog((prev) => [{ invoiceNo, at: new Date().toLocaleTimeString("ko-KR"), ok: res.found, message }, ...prev].slice(0, 30));
+
+      if (res.found) startDeviceNoPolling(invoiceNo, myRequestId);
     } catch (e: any) {
+      if (requestIdRef.current !== myRequestId) return;
       setError(e?.message || "스캔 처리하지 못했습니다.");
       setResult(null);
     } finally {
-      setLoading(false);
-      inputRef.current?.focus();
+      if (requestIdRef.current === myRequestId) {
+        setLoading(false);
+        inputRef.current?.focus();
+      }
     }
+  }
+
+  function handleRestart() {
+    requestIdRef.current += 1; // 진행 중이던 요청/폴링을 전부 무효화
+    stopDeviceNoPolling();
+    setLoading(false);
+    setResult(null);
+    setLastScanned("");
+    setDeviceNo("");
+    setError("");
+    setValue("");
+    inputRef.current?.focus();
   }
 
   const cardColor = !result ? "bg-slate-100 border-slate-300" : !result.found ? "bg-red-50 border-red-300" : "bg-emerald-50 border-emerald-300";
 
   return (
     <div className="w-full h-full flex flex-col p-4 gap-4 bg-white">
-      <div className="text-lg font-semibold text-slate-800">롯데택배 스캔</div>
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold text-slate-800">롯데택배 스캔</div>
+        <button
+          type="button"
+          onClick={handleRestart}
+          className="text-sm px-3 py-1.5 rounded-md border border-slate-300 text-slate-600 active:bg-slate-100"
+        >
+          다시시작
+        </button>
+      </div>
 
       <input
         ref={inputRef}
@@ -86,7 +163,7 @@ export default function ScanView() {
       <div className={`rounded-lg border-2 p-4 min-h-[120px] flex flex-col justify-center ${cardColor}`}>
         {loading ? (
           <div className="text-slate-500 text-center">
-            조회중...
+            조회중... <span className="font-mono">{lastScanned}</span>
             <div className="text-xs font-normal mt-1">처음 보는 송장이면 최대 1~2분 걸릴 수 있습니다</div>
           </div>
         ) : !result ? (
@@ -101,6 +178,9 @@ export default function ScanView() {
             <div className="text-xl font-bold text-slate-800">{result.row?.수하인명}</div>
             <div className="text-sm text-slate-600 mt-1">{result.row?.수하인전화번호}</div>
             <div className="text-sm text-slate-600">{result.row?.수하인주소}</div>
+            <div className="text-sm font-semibold mt-2">
+              {deviceNo ? <span className="text-blue-700">기기번호: {deviceNo}</span> : <span className="text-slate-400">기기번호 대기중...</span>}
+            </div>
             <div className="text-xs text-slate-400 mt-1">{lastScanned}</div>
           </div>
         )}

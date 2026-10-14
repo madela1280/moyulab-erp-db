@@ -285,6 +285,16 @@ export async function scanLotteShipment(
   return { found: true, row: rowInfo, sendStatus };
 }
 
+// ✅ PM84 스캔 화면에서, 방금 스캔한 송장의 기기번호가 등록됐는지 짧게 주기적으로 확인(polling)할 때 쓴다.
+//    기기번호는 RFID 태그를 별도 기기(RF88+중계 앱)에서 읽어 비동기로 채워지므로, 이 화면이
+//    직접 알 방법이 없어 짧은 간격으로 물어보는 방식을 쓴다.
+export async function getDeviceNoForInvoice(invoiceNoRaw: string): Promise<string> {
+  const invoiceNo = normalizeString(invoiceNoRaw);
+  if (!invoiceNo) return "";
+  const r = await pool.query(`SELECT 기기번호 FROM lotte_shipment_data WHERE 운송장번호 = $1`, [invoiceNo]);
+  return normalizeString(r.rows?.[0]?.기기번호);
+}
+
 export type RfidRegisterResult =
   | { ok: false; reason: "NO_RECENT_SCAN" }
   | { ok: true; invoiceNo: string; sendStatus?: ScanResult["sendStatus"] };
