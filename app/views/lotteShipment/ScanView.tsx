@@ -7,13 +7,7 @@
 // 그래서 이 화면은 입력창 자동 포커스 + Enter 감지만으로 동작하고, 네이티브 앱이 필요 없다.
 
 import { useEffect, useRef, useState } from "react";
-import {
-  scanLotteShipment,
-  fetchLotteShipmentDeviceNo,
-  fetchRecentLotteScans,
-  type ScanResult,
-  type RecentScanRow,
-} from "@/views/lotteShipment/service";
+import { scanLotteShipment, fetchRecentLotteScans, type ScanResult, type RecentScanRow } from "@/views/lotteShipment/service";
 
 // ✅ 2026-10-08: 통합관리 매칭 문구는 화면에서 숨김 — 출고(스캔) 시점엔 아직 통합관리에
 //    데이터가 안 올라와 있는 경우가 많아서, "못 찾음" 문구가 오히려 혼란을 줌. 스캔일시 기록과
@@ -24,41 +18,37 @@ import {
 //    PM84 Chrome이 백그라운드 탭을 메모리 절약 목적으로 새로고침시켜버리는 경우가 있는데,
 //    그때마다 화면에 쌓아둔 기록이 통째로 사라지는 문제가 있었다. 서버에서 다시 불러오면
 //    새로고침이 돼도 기록(+ 기기번호)이 그대로 복구된다.
+//    위쪽 카드의 기기번호도 원래는 따로 폴링했는데, 표 폴링이랑 따로 놀면서 표에는 떴는데
+//    카드에는 안 뜨는 문제가 생겨서 — 표 데이터(recentScans)에서 그대로 가져다 쓰도록 단순화했다.
 
-const DEVICE_NO_POLL_INTERVAL_MS = 2000;
 const RECENT_SCANS_REFRESH_MS = 3000;
 
 export default function ScanView() {
   const [value, setValue] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [lastScanned, setLastScanned] = useState("");
-  const [deviceNo, setDeviceNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [recentScans, setRecentScans] = useState<RecentScanRow[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ "다시시작" 버튼으로 중간에 취소했을 때, 늦게 돌아온 이전 요청/폴링 결과가 화면에 반영되지
+  // ✅ "다시시작" 버튼으로 중간에 취소했을 때, 늦게 돌아온 이전 요청 결과가 화면에 반영되지
   //    않도록 막는 용도. 버튼을 누르거나 새 스캔을 시작할 때마다 증가시킨다.
   const requestIdRef = useRef(0);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollInvoiceRef = useRef<{ invoiceNo: string; requestId: number; baseline: string } | null>(null);
+
+  function loadRecentScans() {
+    fetchRecentLotteScans()
+      .then(setRecentScans)
+      .catch(() => {
+        // 조회 실패는 조용히 무시하고 다음 주기에 재시도
+      });
+  }
 
   useEffect(() => {
     inputRef.current?.focus();
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    };
   }, []);
 
   useEffect(() => {
-    function loadRecentScans() {
-      fetchRecentLotteScans()
-        .then(setRecentScans)
-        .catch(() => {
-          // 조회 실패는 조용히 무시하고 다음 주기에 재시도
-        });
-    }
     loadRecentScans(); // ✅ 화면이 (새로고침 포함) 열릴 때마다 서버에서 다시 불러온다
     const timer = setInterval(loadRecentScans, RECENT_SCANS_REFRESH_MS);
     return () => clearInterval(timer);
@@ -66,63 +56,27 @@ export default function ScanView() {
 
   useEffect(() => {
     // ✅ Chrome은 탭이 안 보이는 동안(다른 앱 보는 동안) setInterval을 느리게 돌리거나 멈춘다.
-    //    탭이 다시 보이는 순간 바로 한 번 더 확인해서, 화면 전환 후에도 금방 반영되게 한다.
+    //    탭이 다시 보이는 순간 바로 한 번 더 불러와서, 화면 전환 후에도 금방 반영되게 한다.
     function onVisible() {
-      if (document.visibilityState !== "visible") return;
-      const current = pollInvoiceRef.current;
-      if (!current) return;
-      checkDeviceNo(current.invoiceNo, current.requestId, current.baseline);
+      if (document.visibilityState === "visible") loadRecentScans();
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  function stopDeviceNoPolling() {
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-    pollInvoiceRef.current = null;
-  }
-
-  async function checkDeviceNo(invoiceNo: string, myRequestId: number, baseline: string) {
-    if (requestIdRef.current !== myRequestId) return;
-    try {
-      const found = await fetchLotteShipmentDeviceNo(invoiceNo);
-      if (requestIdRef.current !== myRequestId) return; // 그 사이 다시시작/재스캔됨 -> 무시
-      // ✅ 스캔 당시 이미 있던 값(baseline)과 똑같으면 아직 "이번에" 새로 등록된 게 아니다 —
-      //    예전 테스트 등에서 남아있던 값을 "찾았다"고 착각해서 폴링을 멈추는 걸 방지한다.
-      if (found && found !== baseline) {
-        setDeviceNo(found);
-        stopDeviceNoPolling();
-      }
-    } catch {
-      // 폴링 실패는 조용히 무시하고 다음 주기에 재시도
-    }
-  }
-
-  function startDeviceNoPolling(invoiceNo: string, myRequestId: number, baseline: string) {
-    stopDeviceNoPolling();
-    pollInvoiceRef.current = { invoiceNo, requestId: myRequestId, baseline };
-    // ✅ 더 이상 횟수 제한 없음 — 다음 스캔을 하거나 "다시시작"을 누르기 전까지 계속 확인한다.
-    //    (바코드 스캔과 태그 등록 사이 시간이 얼마나 걸릴지 알 수 없어서 짧게 끊으면 안 됨)
-    pollTimerRef.current = setInterval(() => {
-      checkDeviceNo(invoiceNo, myRequestId, baseline);
-    }, DEVICE_NO_POLL_INTERVAL_MS);
-  }
+  // ✅ 지금 화면에 보여주고 있는 송장의 기기번호 — 표(recentScans)에서 바로 찾아서 쓴다.
+  const deviceNo = recentScans.find((row) => row.운송장번호 === lastScanned)?.기기번호 ?? "";
 
   async function handleSubmit() {
     const invoiceNo = value.trim();
     if (!invoiceNo || loading) return;
 
     const myRequestId = ++requestIdRef.current;
-    stopDeviceNoPolling();
 
     setLoading(true);
     setError("");
     setValue("");
     setResult(null);
-    setDeviceNo("");
     setLastScanned(invoiceNo); // ✅ 조회 끝나기 전에 바로 보여줘서, 잘못 스캔한 걸 기다리지 않고 바로 알 수 있게 함
 
     try {
@@ -130,13 +84,7 @@ export default function ScanView() {
       if (requestIdRef.current !== myRequestId) return; // 다시시작으로 취소된 요청 -> 무시
 
       setResult(res);
-
-      if (res.found) {
-        const baseline = await fetchLotteShipmentDeviceNo(invoiceNo).catch(() => "");
-        if (requestIdRef.current !== myRequestId) return; // 다시시작/재스캔됨 -> 무시
-        startDeviceNoPolling(invoiceNo, myRequestId, baseline);
-        fetchRecentLotteScans().then(setRecentScans).catch(() => {}); // 표에 바로 반영
-      }
+      if (res.found) loadRecentScans(); // 표에 바로 반영(기기번호는 아직 없을 수 있음 -> 이후 3초 주기로 갱신)
     } catch (e: any) {
       if (requestIdRef.current !== myRequestId) return;
       setError(e?.message || "스캔 처리하지 못했습니다.");
@@ -150,12 +98,10 @@ export default function ScanView() {
   }
 
   function handleRestart() {
-    requestIdRef.current += 1; // 진행 중이던 요청/폴링을 전부 무효화
-    stopDeviceNoPolling();
+    requestIdRef.current += 1; // 진행 중이던 요청을 전부 무효화
     setLoading(false);
     setResult(null);
     setLastScanned("");
-    setDeviceNo("");
     setError("");
     setValue("");
     inputRef.current?.focus();
