@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LotteShipmentGrid, {
   DEFAULT_LOTTE_SHIPMENT_COLUMNS,
+  formatDateTime,
   type LotteShipmentColumn,
 } from "@/views/lotteShipment/components/LotteShipmentGrid";
 import {
@@ -11,6 +12,14 @@ import {
   sendLotteShipmentsToUnified,
   type LotteShipmentRow,
 } from "@/views/lotteShipment/service";
+import FilterButton from "@/views/lotteShipment/filter/FilterButton";
+import {
+  applyLotteFilter,
+  applyLotteSearch,
+  createEmptyFilterState,
+  isFilterActive,
+  type ColumnFilterState,
+} from "@/views/lotteShipment/filter/useLotteShipmentFilter";
 
 export default function LotteShipmentView() {
   const [rows, setRows] = useState<LotteShipmentRow[]>([]);
@@ -20,6 +29,11 @@ export default function LotteShipmentView() {
   const [error, setError] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [scanSortActive, setScanSortActive] = useState(false);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterMode, setFilterMode] = useState(false);
+  const [filterState, setFilterState] = useState<ColumnFilterState>(createEmptyFilterState());
 
   async function loadRows() {
     setLoading(true);
@@ -39,15 +53,21 @@ export default function LotteShipmentView() {
     loadRows();
   }, []);
 
+  const searchedRows = useMemo(() => applyLotteSearch(rows, searchQuery, formatDateTime), [rows, searchQuery]);
+  const filteredRows = useMemo(
+    () => applyLotteFilter(searchedRows, filterState, formatDateTime),
+    [searchedRows, filterState]
+  );
+
   const displayRows = useMemo(() => {
-    if (!scanSortActive) return rows;
+    if (!scanSortActive) return filteredRows;
     // 스캔일시가 비어있는(미발송) 행을 위로, 그 안에서는 원래 순서 유지
-    return [...rows].sort((a, b) => {
+    return [...filteredRows].sort((a, b) => {
       const av = a.스캔일시 ? 1 : 0;
       const bv = b.스캔일시 ? 1 : 0;
       return av - bv;
     });
-  }, [rows, scanSortActive]);
+  }, [filteredRows, scanSortActive]);
 
   function handleToggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -101,6 +121,25 @@ export default function LotteShipmentView() {
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">
       <div className="flex items-center gap-2">
         <div className="text-base font-semibold text-slate-800">롯데택배</div>
+        <button
+          type="button"
+          onClick={() => setSearchOpen((prev) => !prev)}
+          className={`px-3 py-1.5 rounded border text-sm ${
+            searchOpen ? "border-slate-700 bg-slate-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          검색
+        </button>
+        {searchOpen && (
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="운송장번호, 수하인명, 전화번호, 주소, 기기번호 등으로 검색"
+            className="w-72 px-2 py-1.5 text-sm border border-slate-300 rounded"
+          />
+        )}
+        <FilterButton active={filterMode || isFilterActive(filterState)} onClick={() => setFilterMode((prev) => !prev)} />
         <div className="flex-1" />
         <button
           type="button"
@@ -149,6 +188,10 @@ export default function LotteShipmentView() {
         onToggleSelectAll={handleToggleSelectAll}
         scanSortActive={scanSortActive}
         onToggleScanSort={() => setScanSortActive((prev) => !prev)}
+        filterMode={filterMode}
+        filterState={filterState}
+        onFilterStateChange={setFilterState}
+        allRowsForFilter={searchedRows}
       />
     </div>
   );

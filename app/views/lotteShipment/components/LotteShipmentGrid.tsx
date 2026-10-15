@@ -6,7 +6,13 @@
 // 위로 정렬. 열이동 모드에서는 컬럼 너비 조절 + 좌우 이동이 가능하다(환불접수 그리드와 동일 방식).
 // 모든 칸은 읽기 전용(값 입력은 스캔 연동에서만 채워짐).
 
+import { useState } from "react";
 import type { LotteShipmentRow } from "@/views/lotteShipment/service";
+import ColumnFilterPopover from "@/views/lotteShipment/filter/ColumnFilterPopover";
+import {
+  getUniqueValuesForColumn,
+  type ColumnFilterState,
+} from "@/views/lotteShipment/filter/useLotteShipmentFilter";
 
 export type LotteShipmentColumn = {
   key: keyof LotteShipmentRow;
@@ -31,11 +37,12 @@ function normalizeWidth(value: number) {
   return Math.min(800, Math.max(60, Math.round(value)));
 }
 
-function formatDateTime(value: string | null) {
+export function formatDateTime(value: string | null) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function LotteShipmentGrid({
@@ -48,6 +55,10 @@ export default function LotteShipmentGrid({
   onToggleSelectAll,
   scanSortActive,
   onToggleScanSort,
+  filterMode = false,
+  filterState,
+  onFilterStateChange,
+  allRowsForFilter,
 }: {
   rows: LotteShipmentRow[];
   columns: LotteShipmentColumn[];
@@ -58,8 +69,16 @@ export default function LotteShipmentGrid({
   onToggleSelectAll: (checked: boolean) => void;
   scanSortActive: boolean;
   onToggleScanSort: () => void;
+  filterMode?: boolean;
+  filterState?: ColumnFilterState;
+  onFilterStateChange?: (next: ColumnFilterState) => void;
+  allRowsForFilter?: LotteShipmentRow[];
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.운송장번호));
+
+  const [popoverColKey, setPopoverColKey] = useState<string | null>(null);
+  const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [popoverSearch, setPopoverSearch] = useState("");
 
   function moveColumn(index: number, direction: -1 | 1) {
     const nextIndex = index + direction;
@@ -73,6 +92,54 @@ export default function LotteShipmentGrid({
     const nextWidth = normalizeWidth(Number(value));
     onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
   }
+
+  function openFilterPopover(colKey: string, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setPopoverAnchor({ x: rect.left, y: rect.bottom + 4 });
+    setPopoverColKey(colKey);
+    setPopoverSearch("");
+  }
+
+  function closeFilterPopover() {
+    setPopoverColKey(null);
+    setPopoverAnchor(null);
+  }
+
+  const popoverValues = popoverColKey
+    ? getUniqueValuesForColumn(allRowsForFilter ?? rows, popoverColKey as keyof LotteShipmentRow, formatDateTime)
+    : [];
+  const popoverSelected = (popoverColKey && filterState?.selectedByKey[popoverColKey]) || new Set<string>();
+
+  function toggleFilterValue(value: string) {
+    if (!popoverColKey || !onFilterStateChange || !filterState) return;
+    const prev = filterState.selectedByKey[popoverColKey] ?? new Set<string>();
+    const next = new Set(prev);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onFilterStateChange({
+      ...filterState,
+      selectedByKey: { ...filterState.selectedByKey, [popoverColKey]: next },
+    });
+  }
+
+  function setFilterAll(values: string[]) {
+    if (!popoverColKey || !onFilterStateChange || !filterState) return;
+    onFilterStateChange({
+      ...filterState,
+      selectedByKey: { ...filterState.selectedByKey, [popoverColKey]: new Set(values) },
+    });
+  }
+
+  function clearFilterColumn() {
+    if (!popoverColKey || !onFilterStateChange || !filterState) return;
+    const next = { ...filterState.selectedByKey };
+    delete next[popoverColKey];
+    onFilterStateChange({ ...filterState, selectedByKey: next });
+  }
+
+  const columnHasFilter = (colKey: string) => !!filterState?.selectedByKey[colKey]?.size;
 
   return (
     <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
@@ -107,6 +174,18 @@ export default function LotteShipmentGrid({
                         }}
                       >
                         ▽
+                      </button>
+                    )}
+                    {filterMode && (
+                      <button
+                        type="button"
+                        title="필터"
+                        className={`text-[10px] leading-none ${
+                          columnHasFilter(col.key) ? "text-yellow-300" : "text-white/70 hover:text-white"
+                        }`}
+                        onClick={(e) => openFilterPopover(col.key, e)}
+                      >
+                        ▼
                       </button>
                     )}
                   </span>
@@ -193,6 +272,20 @@ export default function LotteShipmentGrid({
           )}
         </tbody>
       </table>
+
+      <ColumnFilterPopover
+        open={!!popoverColKey}
+        anchor={popoverAnchor}
+        columnKey={popoverColKey}
+        values={popoverValues}
+        selected={popoverSelected}
+        search={popoverSearch}
+        onClose={closeFilterPopover}
+        onSearchChange={setPopoverSearch}
+        onToggleValue={toggleFilterValue}
+        onSelectAll={() => setFilterAll(popoverValues)}
+        onClear={clearFilterColumn}
+      />
     </div>
   );
 }
