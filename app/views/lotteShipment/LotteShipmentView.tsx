@@ -24,6 +24,8 @@ import {
 
 type SortState = { key: keyof LotteShipmentRow; dir: "asc" | "desc" } | null;
 
+const AUTO_REFRESH_MS = 5000;
+
 export default function LotteShipmentView() {
   const [rows, setRows] = useState<LotteShipmentRow[]>([]);
   const [columns, setColumns] = useState<LotteShipmentColumn[]>(DEFAULT_LOTTE_SHIPMENT_COLUMNS);
@@ -39,22 +41,37 @@ export default function LotteShipmentView() {
   const [filterState, setFilterState] = useState<ColumnFilterState>(createEmptyFilterState());
   const [sortState, setSortState] = useState<SortState>(null);
 
-  async function loadRows() {
-    setLoading(true);
+  // ✅ silent=true면 배경 자동 새로고침용 — 로딩 스피너를 안 띄우고, 선택해둔 체크박스도
+  //    안 지운다(삭제/전송 중 선택이 갑자기 풀리지 않게). 삭제된 행이 있으면 선택에서만 뺀다.
+  async function loadRows(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) setLoading(true);
     setError("");
     try {
       const nextRows = await fetchLotteShipments();
       setRows(nextRows);
-      setSelectedIds(new Set());
+      if (opts.silent) {
+        setSelectedIds((prev) => {
+          const validIds = new Set(nextRows.map((r) => r.운송장번호));
+          return new Set(Array.from(prev).filter((id) => validIds.has(id)));
+        });
+      } else {
+        setSelectedIds(new Set());
+      }
     } catch (e: any) {
-      setError(e?.message || "롯데택배 목록을 불러오지 못했습니다.");
+      if (!opts.silent) setError(e?.message || "롯데택배 목록을 불러오지 못했습니다.");
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     loadRows();
+  }, []);
+
+  useEffect(() => {
+    // ✅ 기기번호태그 앱이 보낸 값이 전송되는 즉시(몇 초 안에) 화면에 보이도록 자동 새로고침.
+    const timer = setInterval(() => loadRows({ silent: true }), AUTO_REFRESH_MS);
+    return () => clearInterval(timer);
   }, []);
 
   const searchedRows = useMemo(() => applyLotteSearch(rows, searchQuery, formatDateTime), [rows, searchQuery]);
@@ -168,7 +185,7 @@ export default function LotteShipmentView() {
         <div className="flex-1" />
         <button
           type="button"
-          onClick={loadRows}
+          onClick={() => loadRows()}
           disabled={loading}
           className="px-3 py-1.5 rounded border border-slate-300 bg-white text-sm hover:bg-slate-50 disabled:opacity-50"
         >
