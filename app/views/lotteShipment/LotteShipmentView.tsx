@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import LotteShipmentGrid, {
   DEFAULT_LOTTE_SHIPMENT_COLUMNS,
   formatDateTime,
@@ -80,7 +80,7 @@ export default function LotteShipmentView() {
     [searchedRows, filterState]
   );
 
-  const displayRows = useMemo(() => {
+  const sortedRows = useMemo(() => {
     // 컬럼 필터 팝오버의 "텍스트 오름차순/내림차순 정렬"이 켜져 있으면 그게 우선.
     if (sortState) {
       const { key, dir } = sortState;
@@ -101,6 +101,41 @@ export default function LotteShipmentView() {
       return av - bv;
     });
   }, [filteredRows, scanSortActive, sortState]);
+
+  // ✅ 화면을 보고 있는 중에 스캔/태그 등록으로 값이 바뀌어도(자동 새로고침) 행 순서가 갑자기
+  //    안 바뀌게 고정해둔다 — 예를 들어 "미스캔 위로" 정렬 중에 스캔을 하면 그 즉시 해당 행이
+  //    아래로 튀어서 기기번호를 확인하기 어려웠던 문제. 행이 새로 생기거나 없어질 때(검색/필터/
+  //    정렬 기준이 바뀔 때 포함)만 순서를 다시 계산하고, 그 외에는 값만 갱신한다.
+  const rowsById = useMemo(() => {
+    const map = new Map<string, LotteShipmentRow>();
+    for (const r of rows) map.set(r.운송장번호, r);
+    return map;
+  }, [rows]);
+
+  // 순서를 다시 계산할 "이유"가 생겼을 때만의 키 — 행 구성(검색/필터로 걸러진 집합)이 바뀌었거나
+  // 사용자가 직접 정렬 기준을 바꿨을 때만 바뀐다. 값만 조용히 갱신되는 건(자동 새로고침) 여기
+  // 반영 안 됨 -> 순서 유지.
+  const filteredIdsKey = useMemo(
+    () => filteredRows.map((r) => r.운송장번호).slice().sort().join(","),
+    [filteredRows]
+  );
+  const orderTriggerKey = `${filteredIdsKey}|${sortState ? `${sortState.key}:${sortState.dir}` : ""}|${scanSortActive}`;
+
+  const [orderIds, setOrderIds] = useState<string[]>([]);
+  const lastOrderTriggerRef = useRef<string>("");
+
+  useEffect(() => {
+    if (orderTriggerKey !== lastOrderTriggerRef.current) {
+      lastOrderTriggerRef.current = orderTriggerKey;
+      setOrderIds(sortedRows.map((r) => r.운송장번호));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderTriggerKey]);
+
+  const displayRows = useMemo(
+    () => orderIds.map((id) => rowsById.get(id)).filter((r): r is LotteShipmentRow => !!r),
+    [orderIds, rowsById]
+  );
 
   function handleToggleSelect(id: string) {
     setSelectedIds((prev) => {
