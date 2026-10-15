@@ -155,7 +155,16 @@ export default function LotteShipmentView() {
             className="w-72 px-2 py-1.5 text-sm border border-slate-300 rounded"
           />
         )}
-        <FilterButton active={filterMode || isFilterActive(filterState)} onClick={() => setFilterMode((prev) => !prev)} />
+        <FilterButton
+          active={filterMode || isFilterActive(filterState)}
+          onClick={() => {
+            setFilterMode((prev) => {
+              const next = !prev;
+              if (!next) setFilterState(createEmptyFilterState()); // 필터 버튼 다시 누르면 꺼지면서 필터도 해제
+              return next;
+            });
+          }}
+        />
         <div className="flex-1" />
         <button
           type="button"
