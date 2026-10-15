@@ -143,7 +143,7 @@ export default function LotteShipmentGrid({
 
   return (
     <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
-      <table className="border-collapse text-xs text-slate-900 font-normal w-full">
+      <table className="border-collapse text-xs text-slate-900 font-normal w-full" style={{ tableLayout: "fixed" }}>
         <thead className="sticky top-0 z-10">
           <tr>
             <th
