@@ -17,9 +17,12 @@ import {
   applyLotteFilter,
   applyLotteSearch,
   createEmptyFilterState,
+  getLotteFilterValueForColumn,
   isFilterActive,
   type ColumnFilterState,
 } from "@/views/lotteShipment/filter/useLotteShipmentFilter";
+
+type SortState = { key: keyof LotteShipmentRow; dir: "asc" | "desc" } | null;
 
 export default function LotteShipmentView() {
   const [rows, setRows] = useState<LotteShipmentRow[]>([]);
@@ -34,6 +37,7 @@ export default function LotteShipmentView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState(false);
   const [filterState, setFilterState] = useState<ColumnFilterState>(createEmptyFilterState());
+  const [sortState, setSortState] = useState<SortState>(null);
 
   async function loadRows() {
     setLoading(true);
@@ -60,6 +64,18 @@ export default function LotteShipmentView() {
   );
 
   const displayRows = useMemo(() => {
+    // 컬럼 필터 팝오버의 "텍스트 오름차순/내림차순 정렬"이 켜져 있으면 그게 우선.
+    if (sortState) {
+      const { key, dir } = sortState;
+      const sorted = [...filteredRows].sort((a, b) =>
+        getLotteFilterValueForColumn(key, a, formatDateTime).localeCompare(
+          getLotteFilterValueForColumn(key, b, formatDateTime),
+          "ko-KR"
+        )
+      );
+      return dir === "desc" ? sorted.reverse() : sorted;
+    }
+
     if (!scanSortActive) return filteredRows;
     // 스캔일시가 비어있는(미발송) 행을 위로, 그 안에서는 원래 순서 유지
     return [...filteredRows].sort((a, b) => {
@@ -67,7 +83,7 @@ export default function LotteShipmentView() {
       const bv = b.스캔일시 ? 1 : 0;
       return av - bv;
     });
-  }, [filteredRows, scanSortActive]);
+  }, [filteredRows, scanSortActive, sortState]);
 
   function handleToggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -192,6 +208,7 @@ export default function LotteShipmentView() {
         filterState={filterState}
         onFilterStateChange={setFilterState}
         allRowsForFilter={searchedRows}
+        onSortChange={(key, dir) => setSortState({ key, dir })}
       />
     </div>
   );

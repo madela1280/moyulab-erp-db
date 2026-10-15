@@ -59,6 +59,7 @@ export default function LotteShipmentGrid({
   filterState,
   onFilterStateChange,
   allRowsForFilter,
+  onSortChange,
 }: {
   rows: LotteShipmentRow[];
   columns: LotteShipmentColumn[];
@@ -73,6 +74,7 @@ export default function LotteShipmentGrid({
   filterState?: ColumnFilterState;
   onFilterStateChange?: (next: ColumnFilterState) => void;
   allRowsForFilter?: LotteShipmentRow[];
+  onSortChange?: (key: keyof LotteShipmentRow, dir: "asc" | "desc") => void;
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.운송장번호));
 
@@ -140,6 +142,18 @@ export default function LotteShipmentGrid({
   }
 
   const columnHasFilter = (colKey: string) => !!filterState?.selectedByKey[colKey]?.size;
+
+  function sortAsc() {
+    if (!popoverColKey || !onSortChange) return;
+    onSortChange(popoverColKey as keyof LotteShipmentRow, "asc");
+    closeFilterPopover();
+  }
+
+  function sortDesc() {
+    if (!popoverColKey || !onSortChange) return;
+    onSortChange(popoverColKey as keyof LotteShipmentRow, "desc");
+    closeFilterPopover();
+  }
 
   return (
     <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
@@ -285,6 +299,8 @@ export default function LotteShipmentGrid({
         onToggleValue={toggleFilterValue}
         onSelectAll={() => setFilterAll(popoverValues)}
         onClear={clearFilterColumn}
+        onSortAsc={sortAsc}
+        onSortDesc={sortDesc}
       />
     </div>
   );

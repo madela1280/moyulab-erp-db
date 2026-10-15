@@ -17,6 +17,9 @@ type Props = {
   onToggleValue: (value: string) => void;
   onSelectAll: () => void;
   onClear: () => void;
+
+  onSortAsc: () => void;
+  onSortDesc: () => void;
 };
 
 export default function ColumnFilterPopover({
@@ -31,6 +34,8 @@ export default function ColumnFilterPopover({
   onToggleValue,
   onSelectAll,
   onClear,
+  onSortAsc,
+  onSortDesc,
 }: Props) {
   const filteredValues = useMemo(() => {
     const q = (search || "").trim().toLowerCase();
@@ -48,6 +53,15 @@ export default function ColumnFilterPopover({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-2 border-b font-semibold text-slate-700">{columnKey}</div>
+
+      <div className="px-2 py-2 flex flex-col gap-1 border-b">
+        <button className="text-left px-2 py-1 hover:bg-gray-100 rounded" onClick={onSortAsc}>
+          텍스트 오름차순 정렬
+        </button>
+        <button className="text-left px-2 py-1 hover:bg-gray-100 rounded" onClick={onSortDesc}>
+          텍스트 내림차순 정렬
+        </button>
+      </div>
 
       <div className="px-2 py-2 border-b">
         <input
