@@ -215,9 +215,11 @@ export default function AppShell() {
   };
 
   return (
-    // 화면 전체를 쓰되, 내부에서만 스크롤 나도록
-    <div className="w-full h-screen bg-gray-50 flex flex-col overflow-hidden">
-      <header className="w-full bg-gray-100 border-b px-8 py-3 relative">
+    // 화면 전체를 쓰되, 세로는 내부에서만 스크롤. 가로는 화면(PC 모니터 등)보다 넓으면
+    // (태블릿처럼 좁은 화면) 잘리지 않고 옆으로 스크롤되게 overflow-x-auto를 둔다 — PC처럼
+    // 어차피 다 들어가는 화면에서는 스크롤이 생기지 않아 기존과 동일하게 보인다.
+    <div className="w-full h-screen bg-gray-50 flex flex-col overflow-y-hidden overflow-x-auto">
+      <header className="w-full min-w-max bg-gray-100 border-b px-8 py-3 relative">
         <div className="flex items-center">
           <div className="flex items-center gap-3 mr-12">
             <Image src="/logo.png" alt="logo" width={36} height={36} />
