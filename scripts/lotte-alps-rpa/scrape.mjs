@@ -46,6 +46,10 @@ const GRID_FIELDS = {
   수하인기본주소: "acperBadrView",
   수하인상세주소: "acperDetcAdrView",
   집하일자: "pickYmd", // ✅ "YYYYMMDD" 형태(예: "20260923") — ERP에서 오늘자만 걸러낼 때 기준
+  // ✅ 2026-10-16 실제 응답 캡처로 확인: 상품명/상품옵션명. 한 운송장번호에 상품이 여러 개면
+  //    (합포장) 줄이 여러 개로 나뉘어 온다 — 아래 results 조립 시 전부 모아서 합친다.
+  상품명: "gdsNm",
+  상품옵션명: "gdsOptNm",
 };
 
 function formatPickYmd(raw) {
@@ -274,27 +278,40 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     const searchJson = await searchResponse.json();
     const rowsRaw = Array.isArray(searchJson?.dsRsrvList) ? searchJson.dsRsrvList : [];
 
-    const results = [];
-    const seenInvoiceNos = new Set();
+    // ✅ 합포장(한 운송장번호에 상품 여러 개)이면 롯데 응답에 줄이 여러 개로 나뉘어 온다.
+    //    예전엔 첫 줄만 쓰고 나머지를 버렸는데, 이제 운송장번호 기준으로 모아서 상품명/상품옵션명을
+    //    전부 합친다. 상품이 1개면 "상품명/상품옵션명", 여러 개면 "상품명/상품옵션명, 상품명/상품옵션명, ...".
+    const grouped = new Map();
 
     for (const row of rowsRaw) {
       const 운송장번호 = String(row?.[GRID_FIELDS.운송장번호] ?? "").trim();
       if (!운송장번호) continue;
-      if (seenInvoiceNos.has(운송장번호)) continue; // 합포장 중복 제거
-      seenInvoiceNos.add(운송장번호);
 
-      const 기본주소 = String(row?.[GRID_FIELDS.수하인기본주소] ?? "").trim();
-      const 상세주소 = String(row?.[GRID_FIELDS.수하인상세주소] ?? "").trim();
+      if (!grouped.has(운송장번호)) {
+        const 기본주소 = String(row?.[GRID_FIELDS.수하인기본주소] ?? "").trim();
+        const 상세주소 = String(row?.[GRID_FIELDS.수하인상세주소] ?? "").trim();
 
-      results.push({
-        운송장번호,
-        주문번호: String(row?.[GRID_FIELDS.주문번호] ?? "").trim(),
-        수하인명: String(row?.[GRID_FIELDS.수하인명] ?? "").trim(),
-        수하인전화번호: String(row?.[GRID_FIELDS.수하인전화번호] ?? "").trim(),
-        수하인주소: [기본주소, 상세주소].filter(Boolean).join(" "),
-        집하일자: formatPickYmd(row?.[GRID_FIELDS.집하일자]),
-      });
+        grouped.set(운송장번호, {
+          운송장번호,
+          주문번호: String(row?.[GRID_FIELDS.주문번호] ?? "").trim(),
+          수하인명: String(row?.[GRID_FIELDS.수하인명] ?? "").trim(),
+          수하인전화번호: String(row?.[GRID_FIELDS.수하인전화번호] ?? "").trim(),
+          수하인주소: [기본주소, 상세주소].filter(Boolean).join(" "),
+          집하일자: formatPickYmd(row?.[GRID_FIELDS.집하일자]),
+          products: [],
+        });
+      }
+
+      const 상품명 = String(row?.[GRID_FIELDS.상품명] ?? "").trim();
+      const 상품옵션명 = String(row?.[GRID_FIELDS.상품옵션명] ?? "").trim();
+      const productEntry = [상품명, 상품옵션명].filter(Boolean).join("/");
+      if (productEntry) grouped.get(운송장번호).products.push(productEntry);
     }
+
+    const results = Array.from(grouped.values()).map(({ products, ...rest }) => ({
+      ...rest,
+      상품명: products.join(", "),
+    }));
 
     return results;
   } catch (err) {

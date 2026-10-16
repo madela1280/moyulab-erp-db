@@ -22,6 +22,8 @@ const SCHEMA = `
   -- ✅ 2026-10-08: scraped_at(스크랩 실행 시각)과 실제 집하일자가 달라서 혼동이 있었음(한 번에 여러
   --    날짜 범위를 긁어오면 전부 같은 scraped_at을 가짐). 롯데 응답의 실제 집하일자를 별도 저장.
   ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 집하일자 date;
+  -- ✅ 2026-10-16: 상품명/상품옵션명 — 합포장(상품 여러 개)이면 "상품명/상품옵션명, ..." 형태로 합쳐서 저장.
+  ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 상품명 text;
 
   CREATE TABLE IF NOT EXISTS lotte_shipment_pull_state (
     id integer PRIMARY KEY DEFAULT 1,
@@ -43,17 +45,18 @@ export async function saveShipmentRows(rows, { toDate } = {}) {
     for (const row of rows) {
       await client.query(
         `
-        INSERT INTO lotte_shipment_data (운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 집하일자, scraped_at)
-        VALUES ($1, $2, $3, $4, $5, $6::date, now())
+        INSERT INTO lotte_shipment_data (운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 집하일자, 상품명, scraped_at)
+        VALUES ($1, $2, $3, $4, $5, $6::date, $7, now())
         ON CONFLICT (운송장번호) DO UPDATE SET
           주문번호 = EXCLUDED.주문번호,
           수하인명 = EXCLUDED.수하인명,
           수하인전화번호 = EXCLUDED.수하인전화번호,
           수하인주소 = EXCLUDED.수하인주소,
           집하일자 = COALESCE(EXCLUDED.집하일자, lotte_shipment_data.집하일자),
+          상품명 = EXCLUDED.상품명,
           scraped_at = now()
         `,
-        [row.운송장번호, row.주문번호, row.수하인명, row.수하인전화번호, row.수하인주소, row.집하일자 ?? null]
+        [row.운송장번호, row.주문번호, row.수하인명, row.수하인전화번호, row.수하인주소, row.집하일자 ?? null, row.상품명 ?? null]
       );
       savedCount++;
     }

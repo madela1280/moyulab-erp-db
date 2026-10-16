@@ -30,6 +30,7 @@ export const DEFAULT_LOTTE_SHIPMENT_COLUMNS: LotteShipmentColumn[] = [
   { key: "기기번호", label: "기기번호", width: 110 },
   { key: "스캔일시", label: "스캔일시(출고일자)", width: 150 },
   { key: "전송상태", label: "전송상태", width: 90 },
+  { key: "상품명", label: "상품명", width: 260 },
 ];
 
 function normalizeWidth(value: number) {

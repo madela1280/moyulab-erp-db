@@ -10,6 +10,7 @@ export type LotteShipmentRow = {
   집하일자: string | null;
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
+  상품명: string;
 };
 
 export async function fetchLotteShipments(): Promise<LotteShipmentRow[]> {

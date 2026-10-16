@@ -32,6 +32,7 @@ export type LotteShipmentRow = {
   집하일자: string | null;
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
+  상품명: string;
 };
 
 export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
@@ -40,7 +41,7 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
   //    바로 텍스트로 캐스팅해서 시간대 변환 자체를 거치지 않게 한다.
   const r = await pool.query(
     `
-    SELECT 운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 기기번호, 스캔일시,
+    SELECT 운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 기기번호, 스캔일시, 상품명,
            집하일자::text AS 집하일자,
            matched_unified_id
     FROM lotte_shipment_data
@@ -58,6 +59,7 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
     집하일자: row.집하일자 || null,
     스캔일시: row.스캔일시 ? new Date(row.스캔일시).toISOString() : null,
     전송상태: row.matched_unified_id ? "전송완료" : "미전송",
+    상품명: normalizeString(row.상품명),
   }));
 }
 
