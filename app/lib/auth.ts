@@ -5,7 +5,7 @@ const SECRET = process.env.JWT_SECRET || "moyulab_secret_key";
 
 /** ✅ 토큰 생성 (로그인 시 사용) */
 export function createToken(payload: object) {
-  return jwt.sign(payload, SECRET, { expiresIn: "7d" });
+  return jwt.sign(payload, SECRET, { expiresIn: "365d" });
 }
 
 /** ✅ 토큰 검증 */

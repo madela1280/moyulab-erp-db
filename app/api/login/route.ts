@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       path: "/",
       sameSite: "none",
       secure: true,
-      maxAge: 7 * 24 * 60 * 60,
+      maxAge: 365 * 24 * 60 * 60,
     });
 
     return res;
