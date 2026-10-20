@@ -177,7 +177,17 @@ export default function LotteShipmentGrid({
               >
                 <div className="flex flex-col items-center gap-1">
                   <span className="inline-flex items-center gap-1">
-                    {col.label}
+                    <span
+                      className={
+                        col.key === "전송상태"
+                          ? "text-blue-300"
+                          : col.key === "이카운트전송상태"
+                          ? "text-red-300"
+                          : ""
+                      }
+                    >
+                      {col.label}
+                    </span>
                     {col.key === "스캔일시" && (
                       <button
                         type="button"
@@ -275,13 +285,7 @@ export default function LotteShipmentGrid({
                     )
                     : col.key === "이카운트전송상태"
                     ? (
-                      <span
-                        className={
-                          row.이카운트전송상태 === "전송완료"
-                            ? "text-emerald-700 font-semibold"
-                            : "text-red-600"
-                        }
-                      >
+                      <span className={row.이카운트전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-red-600"}>
                         {row.이카운트전송상태}
                       </span>
                     )
