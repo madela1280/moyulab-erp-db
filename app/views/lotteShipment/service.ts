@@ -11,7 +11,7 @@ export type LotteShipmentRow = {
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
   상품명: string;
-  이카운트전송상태: "전송완료" | "미전송(미스캔)" | "미전송(상품명불일치)";
+  이카운트전송상태: "전송완료" | "미전송" | "미매핑";
 };
 
 export async function fetchLotteShipments(): Promise<LotteShipmentRow[]> {

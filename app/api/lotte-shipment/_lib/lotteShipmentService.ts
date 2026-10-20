@@ -34,8 +34,8 @@ export type LotteShipmentRow = {
   전송상태: "전송완료" | "미전송";
   상품명: string;
   // ✅ 이카운트 매출 전송 상태. 상품명 -> 이카운트 품목코드 매핑표가 아직 없어서
-  //    지금은 "전송완료"가 나올 일이 없고 전부 미전송 상태로만 계산된다(매핑 추가 예정).
-  이카운트전송상태: "전송완료" | "미전송(미스캔)" | "미전송(상품명불일치)";
+  //    지금은 "전송완료"가 나올 일이 없고 전부 미전송/미매핑 상태로만 계산된다(매핑 추가 예정).
+  이카운트전송상태: "전송완료" | "미전송" | "미매핑";
 };
 
 export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
@@ -66,8 +66,8 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
     이카운트전송상태: row.이카운트전표번호
       ? "전송완료"
       : row.스캔일시
-      ? "미전송(상품명불일치)"
-      : "미전송(미스캔)",
+      ? "미매핑"
+      : "미전송",
   }));
 }
 
