@@ -15,7 +15,7 @@ type Props = {
   onClose: () => void;
   onSearchChange: (next: string) => void;
   onToggleValue: (value: string) => void;
-  onSelectAll: () => void;
+  onSelectAll: (values: string[]) => void;
   onClear: () => void;
 
   onSortAsc: () => void;
@@ -73,7 +73,7 @@ export default function ColumnFilterPopover({
       </div>
 
       <div className="px-2 py-2 flex items-center justify-between border-b">
-        <button className="px-2 py-1 border rounded hover:bg-gray-100" onClick={onSelectAll}>
+        <button className="px-2 py-1 border rounded hover:bg-gray-100" onClick={() => onSelectAll(filteredValues)}>
           모두선택
         </button>
         <button className="px-2 py-1 border rounded hover:bg-gray-100" onClick={onClear}>

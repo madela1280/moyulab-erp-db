@@ -315,7 +315,7 @@ export default function LotteShipmentGrid({
         onClose={closeFilterPopover}
         onSearchChange={setPopoverSearch}
         onToggleValue={toggleFilterValue}
-        onSelectAll={() => setFilterAll(popoverValues)}
+        onSelectAll={setFilterAll}
         onClear={clearFilterColumn}
         onSortAsc={sortAsc}
         onSortDesc={sortDesc}
