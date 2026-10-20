@@ -30,8 +30,8 @@ export const DEFAULT_LOTTE_SHIPMENT_COLUMNS: LotteShipmentColumn[] = [
   { key: "기기번호", label: "기기번호", width: 110 },
   { key: "스캔일시", label: "스캔일시(출고일자)", width: 150 },
   { key: "전송상태", label: "통합관리 전송상태", width: 110 },
-  { key: "상품명", label: "상품명", width: 260 },
   { key: "이카운트전송상태", label: "이카운트 전송", width: 130 },
+  { key: "상품명", label: "상품명", width: 260 },
 ];
 
 function normalizeWidth(value: number) {
@@ -279,9 +279,7 @@ export default function LotteShipmentGrid({
                         className={
                           row.이카운트전송상태 === "전송완료"
                             ? "text-emerald-700 font-semibold"
-                            : row.이카운트전송상태 === "미전송(상품명불일치)"
-                            ? "text-amber-600"
-                            : "text-slate-400"
+                            : "text-red-600"
                         }
                       >
                         {row.이카운트전송상태}
