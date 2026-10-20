@@ -48,7 +48,7 @@ async function main() {
   console.log("1) Zone API 호출...");
   const zoneResult = await callZone();
 
-  if (zoneResult.Status !== "200" || !zoneResult.Data?.ZONE) {
+  if (String(zoneResult.Status) !== "200" || !zoneResult.Data?.ZONE) {
     console.error("[중단] Zone API 실패. 재시도하지 않습니다.");
     console.error(JSON.stringify(zoneResult, null, 2));
     process.exit(1);
@@ -60,7 +60,7 @@ async function main() {
   console.log("2) Login API 호출...");
   const loginResult = await callLogin(zone);
 
-  if (loginResult.Status !== "200" || !loginResult.Data?.Datas?.SESSION_ID) {
+  if (String(loginResult.Status) !== "200" || !loginResult.Data?.Datas?.SESSION_ID) {
     console.error("[중단] Login API 실패. 재시도하지 않습니다.");
     console.error(JSON.stringify(loginResult, null, 2));
     process.exit(1);
