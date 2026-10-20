@@ -33,6 +33,9 @@ export type LotteShipmentRow = {
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
   상품명: string;
+  // ✅ 이카운트 매출 전송 상태. 상품명 -> 이카운트 품목코드 매핑표가 아직 없어서
+  //    지금은 "전송완료"가 나올 일이 없고 전부 미전송 상태로만 계산된다(매핑 추가 예정).
+  이카운트전송상태: "전송완료" | "미전송(미스캔)" | "미전송(상품명불일치)";
 };
 
 export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
@@ -43,7 +46,7 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
     `
     SELECT 운송장번호, 주문번호, 수하인명, 수하인전화번호, 수하인주소, 기기번호, 스캔일시, 상품명,
            집하일자::text AS 집하일자,
-           matched_unified_id
+           matched_unified_id, 이카운트전표번호
     FROM lotte_shipment_data
     ORDER BY 집하일자 DESC NULLS LAST, scraped_at DESC
     `
@@ -60,6 +63,11 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
     스캔일시: row.스캔일시 ? new Date(row.스캔일시).toISOString() : null,
     전송상태: row.matched_unified_id ? "전송완료" : "미전송",
     상품명: normalizeString(row.상품명),
+    이카운트전송상태: row.이카운트전표번호
+      ? "전송완료"
+      : row.스캔일시
+      ? "미전송(상품명불일치)"
+      : "미전송(미스캔)",
   }));
 }
 
@@ -194,6 +202,61 @@ export async function sendLotteShipmentsToUnified(
   return { sentCount: sentInvoiceNos.length, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
 }
 
+export type EcountSendResult = {
+  sentCount: number;
+  sentInvoiceNos: string[];
+  skippedInvoiceNos: string[];
+  skippedReasons: Record<string, "NOT_FOUND" | "ALREADY_SENT" | "NOT_SCANNED" | "PRODUCT_NOT_MATCHED">;
+};
+
+// ✅ "이카운트 전송" 버튼(수동) 전용. 상품명 -> 이카운트 품목코드 매핑표가 아직 없어서
+//    지금 단계에서는 실제 SaveSale API를 호출하지 않고 전부 PRODUCT_NOT_MATCHED로 보류 처리한다.
+//    매핑표가 추가되면 이 함수 안에서 매핑 조회 -> 실제 전송으로 교체하면 된다.
+export async function sendLotteShipmentsToEcount(invoiceNos: string[]): Promise<EcountSendResult> {
+  const safe = Array.from(new Set(invoiceNos.map(normalizeString).filter(Boolean))).slice(0, SEND_BATCH_MAX);
+
+  const sentInvoiceNos: string[] = [];
+  const skippedInvoiceNos: string[] = [];
+  const skippedReasons: EcountSendResult["skippedReasons"] = {};
+
+  if (!safe.length) return { sentCount: 0, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
+
+  const r = await pool.query(
+    `SELECT 운송장번호, 스캔일시, 이카운트전표번호 FROM lotte_shipment_data WHERE 운송장번호 = ANY($1::text[])`,
+    [safe]
+  );
+  const rowsByInvoice = new Map<string, any>(r.rows.map((row: any) => [normalizeString(row.운송장번호), row]));
+
+  for (const invoiceNo of safe) {
+    const row = rowsByInvoice.get(invoiceNo);
+    if (!row) {
+      skippedInvoiceNos.push(invoiceNo);
+      skippedReasons[invoiceNo] = "NOT_FOUND";
+      continue;
+    }
+    if (row.이카운트전표번호) {
+      skippedInvoiceNos.push(invoiceNo);
+      skippedReasons[invoiceNo] = "ALREADY_SENT";
+      continue;
+    }
+    if (!row.스캔일시) {
+      skippedInvoiceNos.push(invoiceNo);
+      skippedReasons[invoiceNo] = "NOT_SCANNED";
+      continue;
+    }
+    skippedInvoiceNos.push(invoiceNo);
+    skippedReasons[invoiceNo] = "PRODUCT_NOT_MATCHED";
+  }
+
+  return { sentCount: sentInvoiceNos.length, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
+}
+
+// ✅ 스캔 시 이카운트 자동 전송을 시도하는 자리. 상품명 매핑표가 생기기 전까지는
+//    항상 보류(아무 것도 하지 않음) 상태로 둔다 — 매핑표 추가되면 여기서 실제 전송을 건다.
+async function attemptEcountAutoSend(_invoiceNo: string): Promise<void> {
+  return;
+}
+
 export type ScanResult = {
   found: boolean;
   row?: {
@@ -251,6 +314,7 @@ export async function scanLotteShipment(
     };
 
     await client.query(`UPDATE lotte_shipment_data SET 스캔일시 = now() WHERE 운송장번호 = $1`, [invoiceNo]);
+    await attemptEcountAutoSend(invoiceNo);
 
     const outcome = await matchAndSendOne(client, invoiceNo);
     if (outcome.status === "SENT") {

@@ -10,6 +10,7 @@ import {
   fetchLotteShipments,
   deleteLotteShipments,
   sendLotteShipmentsToUnified,
+  sendLotteShipmentsToEcount,
   type LotteShipmentRow,
 } from "@/views/lotteShipment/service";
 import FilterButton from "@/views/lotteShipment/filter/FilterButton";
@@ -181,8 +182,30 @@ export default function LotteShipmentView() {
     }
   }
 
+  async function handleSendEcount() {
+    if (selectedIds.size === 0) return;
+
+    setError("");
+    try {
+      const result = await sendLotteShipmentsToEcount(Array.from(selectedIds));
+      if (result.skippedInvoiceNos.length > 0) {
+        window.alert(
+          `이카운트 전송 완료: ${result.sentCount}건\n보류: ${result.skippedInvoiceNos.length}건\n` +
+            `(스캔 안 됐거나, 상품명이 이카운트 품목코드와 아직 매핑되지 않은 건입니다)`
+        );
+      }
+      await loadRows();
+    } catch (e: any) {
+      setError(e?.message || "이카운트로 전송하지 못했습니다.");
+    }
+  }
+
   const unsentSelectedCount = Array.from(selectedIds).filter(
     (id) => rows.find((r) => r.운송장번호 === id)?.전송상태 === "미전송"
+  ).length;
+
+  const unsentEcountSelectedCount = Array.from(selectedIds).filter(
+    (id) => rows.find((r) => r.운송장번호 === id)?.이카운트전송상태 !== "전송완료"
   ).length;
 
   return (
@@ -240,7 +263,15 @@ export default function LotteShipmentView() {
           disabled={unsentSelectedCount === 0}
           className="px-3 py-1.5 rounded border border-blue-300 bg-white text-sm text-blue-600 hover:bg-blue-50 disabled:opacity-50"
         >
-          전송 ({unsentSelectedCount})
+          통합관리전송 ({unsentSelectedCount})
+        </button>
+        <button
+          type="button"
+          onClick={handleSendEcount}
+          disabled={unsentEcountSelectedCount === 0}
+          className="px-3 py-1.5 rounded border border-purple-300 bg-white text-sm text-purple-600 hover:bg-purple-50 disabled:opacity-50"
+        >
+          이카운트 전송 ({unsentEcountSelectedCount})
         </button>
         <button
           type="button"

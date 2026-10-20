@@ -11,6 +11,7 @@ export type LotteShipmentRow = {
   스캔일시: string | null;
   전송상태: "전송완료" | "미전송";
   상품명: string;
+  이카운트전송상태: "전송완료" | "미전송(미스캔)" | "미전송(상품명불일치)";
 };
 
 export async function fetchLotteShipments(): Promise<LotteShipmentRow[]> {
@@ -43,6 +44,23 @@ export async function sendLotteShipmentsToUnified(ids: string[]): Promise<SendTo
     body: JSON.stringify({ ids }),
   });
   if (!res.ok) throw new Error("전송하지 못했습니다.");
+  return res.json();
+}
+
+export type EcountSendResult = {
+  sentCount: number;
+  sentInvoiceNos: string[];
+  skippedInvoiceNos: string[];
+  skippedReasons: Record<string, "NOT_FOUND" | "ALREADY_SENT" | "NOT_SCANNED" | "PRODUCT_NOT_MATCHED">;
+};
+
+export async function sendLotteShipmentsToEcount(ids: string[]): Promise<EcountSendResult> {
+  const res = await fetch("/api/lotte-shipment/send-to-ecount", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) throw new Error("이카운트로 전송하지 못했습니다.");
   return res.json();
 }
 

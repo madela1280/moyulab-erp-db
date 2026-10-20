@@ -24,6 +24,8 @@ const SCHEMA = `
   ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 집하일자 date;
   -- ✅ 2026-10-16: 상품명/상품옵션명 — 합포장(상품 여러 개)이면 "상품명/상품옵션명, ..." 형태로 합쳐서 저장.
   ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 상품명 text;
+  -- ✅ 2026-10-20: 이카운트 매출 전송 성공 시 받은 전표번호. NULL이면 미전송 상태로 간주.
+  ALTER TABLE lotte_shipment_data ADD COLUMN IF NOT EXISTS 이카운트전표번호 text;
 
   CREATE TABLE IF NOT EXISTS lotte_shipment_pull_state (
     id integer PRIMARY KEY DEFAULT 1,
