@@ -278,6 +278,12 @@ export async function scrapeAlpsWaybills({ username, password, totpSecret, fromD
     const searchJson = await searchResponse.json();
     const rowsRaw = Array.isArray(searchJson?.dsRsrvList) ? searchJson.dsRsrvList : [];
 
+    // ✅ 2026-10-21: 하루 물량이 많을 때 일부(보건소 등)가 누락되는 문제 진단용 — 페이지네이션/총건수
+    //    관련 필드가 응답에 있는지 확인하기 위해 1회성으로 추가. 동작에는 영향 없음(로그만 남김).
+    console.log("[디버그] 검색 요청 URL:", searchResponse.url());
+    console.log("[디버그] 응답 최상위 키 목록:", Object.keys(searchJson || {}));
+    console.log("[디버그] dsRsrvList 길이:", rowsRaw.length);
+
     // ✅ 합포장(한 운송장번호에 상품 여러 개)이면 롯데 응답에 줄이 여러 개로 나뉘어 온다.
     //    예전엔 첫 줄만 쓰고 나머지를 버렸는데, 이제 운송장번호 기준으로 모아서 상품명/상품옵션명을
     //    전부 합친다. 상품이 1개면 "상품명/상품옵션명", 여러 개면 "상품명/상품옵션명, 상품명/상품옵션명, ...".
