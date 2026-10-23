@@ -62,6 +62,7 @@ export default function LotteShipmentGrid({
   onFilterStateChange,
   allRowsForFilter,
   onSortChange,
+  onUpdateProductName,
 }: {
   rows: LotteShipmentRow[];
   columns: LotteShipmentColumn[];
@@ -77,12 +78,30 @@ export default function LotteShipmentGrid({
   onFilterStateChange?: (next: ColumnFilterState) => void;
   allRowsForFilter?: LotteShipmentRow[];
   onSortChange?: (key: keyof LotteShipmentRow, dir: "asc" | "desc") => void;
+  // ✅ 상품명 수정(이카운트 매칭 실패 건을 수동으로 고쳐서 재전송할 수 있게). 전송완료 건은 수정 불가.
+  onUpdateProductName?: (invoiceNo: string, newValue: string) => void;
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.운송장번호));
 
   const [popoverColKey, setPopoverColKey] = useState<string | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
   const [popoverSearch, setPopoverSearch] = useState("");
+
+  const [editingInvoice, setEditingInvoice] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+
+  function startEditProductName(row: LotteShipmentRow) {
+    if (row.이카운트전송상태 === "전송완료") return; // 이미 전송된 건은 수정 불가
+    setEditingInvoice(row.운송장번호);
+    setEditingValue(row.상품명 ?? "");
+  }
+
+  function commitEditProductName() {
+    if (editingInvoice && onUpdateProductName) {
+      onUpdateProductName(editingInvoice, editingValue);
+    }
+    setEditingInvoice(null);
+  }
 
   function moveColumn(index: number, direction: -1 | 1) {
     const nextIndex = index + direction;
@@ -287,6 +306,35 @@ export default function LotteShipmentGrid({
                     ? (
                       <span className={row.이카운트전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-red-600"}>
                         {row.이카운트전송상태}
+                      </span>
+                    )
+                    : col.key === "상품명" && editingInvoice === row.운송장번호
+                    ? (
+                      <input
+                        autoFocus
+                        className="w-full h-6 px-1 text-xs border border-blue-400 rounded"
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={commitEditProductName}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitEditProductName();
+                          } else if (e.key === "Escape") {
+                            setEditingInvoice(null);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )
+                    : col.key === "상품명"
+                    ? (
+                      <span
+                        title={row.이카운트전송상태 === "전송완료" ? "" : "더블클릭해서 상품명 수정"}
+                        className={row.이카운트전송상태 === "전송완료" ? "" : "cursor-text hover:bg-yellow-50"}
+                        onDoubleClick={() => startEditProductName(row)}
+                      >
+                        {row.상품명}
                       </span>
                     )
                     : String(row[col.key] ?? "")}

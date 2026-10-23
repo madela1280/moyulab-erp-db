@@ -21,6 +21,15 @@ export async function fetchLotteShipments(): Promise<LotteShipmentRow[]> {
   return data.rows ?? [];
 }
 
+export async function updateLotteShipmentProductName(invoiceNo: string, 상품명: string): Promise<void> {
+  const res = await fetch("/api/lotte-shipment/update-product-name", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoiceNo, 상품명 }),
+  });
+  if (!res.ok) throw new Error("상품명을 수정하지 못했습니다.");
+}
+
 export async function deleteLotteShipments(ids: string[]): Promise<void> {
   const res = await fetch("/api/lotte-shipment", {
     method: "DELETE",

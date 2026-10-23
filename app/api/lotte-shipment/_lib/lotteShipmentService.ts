@@ -73,6 +73,27 @@ export async function listLotteShipments(): Promise<LotteShipmentRow[]> {
   }));
 }
 
+export type UpdateProductNameResult = { ok: true } | { ok: false; reason: "NOT_FOUND" | "ALREADY_SENT" };
+
+// ✅ 이카운트 매칭 실패 건을 사용자가 상품명을 직접 고쳐서 재전송할 수 있게. 이미 전송완료된 건은 금지
+//    (전표가 이미 생성된 뒤 상품명을 바꾸면 전표 내용과 안 맞게 되므로).
+export async function updateLotteShipmentProductName(
+  invoiceNoRaw: string,
+   상품명Raw: string
+): Promise<UpdateProductNameResult> {
+  const invoiceNo = normalizeString(invoiceNoRaw);
+  const 상품명 = normalizeString(상품명Raw);
+  if (!invoiceNo) return { ok: false, reason: "NOT_FOUND" };
+
+  const r = await pool.query(`SELECT 이카운트전표번호 FROM lotte_shipment_data WHERE 운송장번호 = $1`, [invoiceNo]);
+  const row = r.rows?.[0];
+  if (!row) return { ok: false, reason: "NOT_FOUND" };
+  if (row.이카운트전표번호) return { ok: false, reason: "ALREADY_SENT" };
+
+  await pool.query(`UPDATE lotte_shipment_data SET 상품명 = $2 WHERE 운송장번호 = $1`, [invoiceNo, 상품명]);
+  return { ok: true };
+}
+
 export async function deleteLotteShipments(invoiceNos: string[]): Promise<{ deletedCount: number }> {
   const safe = Array.from(new Set(invoiceNos.map(normalizeString).filter(Boolean)));
   if (!safe.length) return { deletedCount: 0 };
