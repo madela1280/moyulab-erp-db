@@ -46,7 +46,7 @@ function sanitizeWidthByKey(input: any) {
   for (const [k, v] of Object.entries(input)) {
     const n = Number(v);
     if (!Number.isFinite(n)) continue;
-    out[k] = Math.min(800, Math.max(60, Math.round(n)));
+    out[k] = Math.min(2000, Math.max(60, Math.round(n)));
   }
   return out;
 }

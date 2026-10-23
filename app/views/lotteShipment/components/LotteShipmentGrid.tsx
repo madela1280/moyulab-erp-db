@@ -36,7 +36,7 @@ export const DEFAULT_LOTTE_SHIPMENT_COLUMNS: LotteShipmentColumn[] = [
 
 function normalizeWidth(value: number) {
   if (!Number.isFinite(value)) return 100;
-  return Math.min(800, Math.max(60, Math.round(value)));
+  return Math.min(2000, Math.max(60, Math.round(value)));
 }
 
 export function formatDateTime(value: string | null) {
@@ -312,7 +312,7 @@ export default function LotteShipmentGrid({
                         className="h-6 w-14 rounded border border-slate-200 bg-white px-1 text-center text-[11px] text-slate-700"
                         type="number"
                         min={60}
-                        max={800}
+                        max={2000}
                         value={widthInputValue(col)}
                         onChange={(e) => handleWidthInputChange(col, e.target.value)}
                         onBlur={() => commitWidthDraft(col)}
