@@ -7,6 +7,8 @@
 import { Pool } from "pg";
 import { buildUnifiedCellChangeItems, recordUnifiedChangeHistory } from "@/unified/change-history/serverChangeHistory";
 import { triggerLotteFetchOnce } from "@/api/lotte-shipment/_lib/triggerLotteFetch";
+import { matchAmoenaLines, AMOENA_CUST, AMOENA_WH_CD } from "@/api/lotte-shipment/_lib/ecountAmoenaMatcher";
+import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 
 export const SEND_BATCH_MAX = 300;
 
@@ -209,9 +211,36 @@ export type EcountSendResult = {
   skippedReasons: Record<string, "NOT_FOUND" | "ALREADY_SENT" | "NOT_SCANNED" | "PRODUCT_NOT_MATCHED">;
 };
 
-// ✅ "이카운트 전송" 버튼(수동) 전용. 상품명 -> 이카운트 품목코드 매핑표가 아직 없어서
-//    지금 단계에서는 실제 SaveSale API를 호출하지 않고 전부 PRODUCT_NOT_MATCHED로 보류 처리한다.
-//    매핑표가 추가되면 이 함수 안에서 매핑 조회 -> 실제 전송으로 교체하면 된다.
+// ✅ 1건(운송장번호 1개)에 대해 이카운트 매출 등록을 실제로 시도하는 공용 로직.
+//    지금은 아모에나/장루(거래처 00043) 매핑만 구현돼 있음 — 보건소/일반고객은 상품명 매칭이
+//    안 돼서 그대로 PRODUCT_NOT_MATCHED로 남는다(설계대로).
+async function attemptEcountSendOne(
+  invoiceNo: string
+): Promise<{ status: "SENT"; slipNo: string } | { status: "NOT_FOUND" | "ALREADY_SENT" | "NOT_SCANNED" | "PRODUCT_NOT_MATCHED" | "SEND_FAILED" }> {
+  const r = await pool.query(
+    `SELECT 운송장번호, 상품명, 스캔일시, 이카운트전표번호 FROM lotte_shipment_data WHERE 운송장번호 = $1`,
+    [invoiceNo]
+  );
+  const row = r.rows?.[0];
+  if (!row) return { status: "NOT_FOUND" };
+  if (row.이카운트전표번호) return { status: "ALREADY_SENT" };
+  if (!row.스캔일시) return { status: "NOT_SCANNED" };
+
+  const lines = matchAmoenaLines(normalizeString(row.상품명));
+  if (!lines.length) return { status: "PRODUCT_NOT_MATCHED" };
+
+  const result = await registerEcountSale({ cust: AMOENA_CUST, whCd: AMOENA_WH_CD, lines });
+  if (!result.ok || !result.slipNos.length) {
+    console.error(`이카운트 매출 등록 실패(${invoiceNo}):`, !result.ok ? result.reason : "슬립번호 없음");
+    return { status: "SEND_FAILED" };
+  }
+
+  const slipNo = result.slipNos.join(",");
+  await pool.query(`UPDATE lotte_shipment_data SET 이카운트전표번호 = $2 WHERE 운송장번호 = $1`, [invoiceNo, slipNo]);
+  return { status: "SENT", slipNo };
+}
+
+// ✅ "이카운트 전송" 버튼(수동) 전용.
 export async function sendLotteShipmentsToEcount(invoiceNos: string[]): Promise<EcountSendResult> {
   const safe = Array.from(new Set(invoiceNos.map(normalizeString).filter(Boolean))).slice(0, SEND_BATCH_MAX);
 
@@ -221,40 +250,29 @@ export async function sendLotteShipmentsToEcount(invoiceNos: string[]): Promise<
 
   if (!safe.length) return { sentCount: 0, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
 
-  const r = await pool.query(
-    `SELECT 운송장번호, 스캔일시, 이카운트전표번호 FROM lotte_shipment_data WHERE 운송장번호 = ANY($1::text[])`,
-    [safe]
-  );
-  const rowsByInvoice = new Map<string, any>(r.rows.map((row: any) => [normalizeString(row.운송장번호), row]));
-
   for (const invoiceNo of safe) {
-    const row = rowsByInvoice.get(invoiceNo);
-    if (!row) {
+    const outcome = await attemptEcountSendOne(invoiceNo);
+    if (outcome.status === "SENT") {
+      sentInvoiceNos.push(invoiceNo);
+    } else {
       skippedInvoiceNos.push(invoiceNo);
-      skippedReasons[invoiceNo] = "NOT_FOUND";
-      continue;
+      // ✅ SEND_FAILED(네트워크/이카운트 쪽 오류)는 화면에는 PRODUCT_NOT_MATCHED와 동일하게
+      //    "미매핑"으로만 보여준다 — 상세 사유는 서버 로그에서 확인.
+      skippedReasons[invoiceNo] = outcome.status === "SEND_FAILED" ? "PRODUCT_NOT_MATCHED" : outcome.status;
     }
-    if (row.이카운트전표번호) {
-      skippedInvoiceNos.push(invoiceNo);
-      skippedReasons[invoiceNo] = "ALREADY_SENT";
-      continue;
-    }
-    if (!row.스캔일시) {
-      skippedInvoiceNos.push(invoiceNo);
-      skippedReasons[invoiceNo] = "NOT_SCANNED";
-      continue;
-    }
-    skippedInvoiceNos.push(invoiceNo);
-    skippedReasons[invoiceNo] = "PRODUCT_NOT_MATCHED";
   }
 
   return { sentCount: sentInvoiceNos.length, sentInvoiceNos, skippedInvoiceNos, skippedReasons };
 }
 
-// ✅ 스캔 시 이카운트 자동 전송을 시도하는 자리. 상품명 매핑표가 생기기 전까지는
-//    항상 보류(아무 것도 하지 않음) 상태로 둔다 — 매핑표 추가되면 여기서 실제 전송을 건다.
-async function attemptEcountAutoSend(_invoiceNo: string): Promise<void> {
-  return;
+// ✅ 스캔 시 이카운트 자동 전송을 시도한다. 매칭 안 되거나 실패하면 그냥 미매핑 상태로 남고,
+//    이 함수 자체는 예외를 던지지 않는다(스캔 흐름을 막으면 안 되므로).
+async function attemptEcountAutoSend(invoiceNo: string): Promise<void> {
+  try {
+    await attemptEcountSendOne(invoiceNo);
+  } catch (err) {
+    console.error(`attemptEcountAutoSend(${invoiceNo}) 실패(무시하고 계속):`, err);
+  }
 }
 
 export type ScanResult = {
