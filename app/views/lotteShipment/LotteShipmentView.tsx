@@ -24,6 +24,7 @@ import {
   isFilterActive,
   type ColumnFilterState,
 } from "@/views/lotteShipment/filter/useLotteShipmentFilter";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
 type SortState = { key: keyof LotteShipmentRow; dir: "asc" | "desc" } | null;
 
@@ -178,6 +179,9 @@ export default function LotteShipmentView() {
             `(수취인명+전화번호가 통합관리와 정확히 일치하는 행이 없거나 여러 건인 경우입니다)`
         );
       }
+      // ✅ 통합관리 DB는 서버에서 직접 갱신되고 소켓 emit이 없어서, 열려있는 통합관리 화면이
+      //    새로고침 전까지 반영을 못 받던 문제 — 여기서 신호만 쏴준다(DB 쓰기는 이미 끝남).
+      if (result.sentCount > 0) syncEmitUnifiedUpdate();
       await loadRows();
     } catch (e: any) {
       setError(e?.message || "전송하지 못했습니다.");

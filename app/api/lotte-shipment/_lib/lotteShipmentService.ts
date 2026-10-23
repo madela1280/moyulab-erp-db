@@ -425,7 +425,6 @@ export async function scanLotteShipment(
     };
 
     await client.query(`UPDATE lotte_shipment_data SET 스캔일시 = now() WHERE 운송장번호 = $1`, [invoiceNo]);
-    await attemptEcountAutoSend(invoiceNo);
 
     const outcome = await matchAndSendOne(client, invoiceNo);
     if (outcome.status === "SENT") {
@@ -444,6 +443,12 @@ export async function scanLotteShipment(
   } finally {
     client.release();
   }
+
+  // ✅ 커밋 이후에 호출해야 한다 — attemptEcountAutoSend는 별도 pool 커넥션으로 스캔일시를
+  //    조회하는데, 트랜잭션 안(커밋 전)에서 부르면 방금 쓴 스캔일시가 아직 안 보여서
+  //    매번 NOT_SCANNED로 조용히 실패했었다(재시도 없음 정책이라 그걸로 끝 — 스캔으로는 절대
+  //    자동전송이 안 되고 수동 "이카운트 전송" 버튼으로만 되던 버그).
+  await attemptEcountAutoSend(invoiceNo);
 
   if (changeItems.length) {
     try {

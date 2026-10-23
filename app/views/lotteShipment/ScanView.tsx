@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { scanLotteShipment, fetchRecentLotteScans, type ScanResult, type RecentScanRow } from "@/views/lotteShipment/service";
+import { syncEmitUnifiedUpdate } from "@/global-sync/sync-engine";
 
 // ✅ 2026-10-08: 통합관리 매칭 문구는 화면에서 숨김 — 출고(스캔) 시점엔 아직 통합관리에
 //    데이터가 안 올라와 있는 경우가 많아서, "못 찾음" 문구가 오히려 혼란을 줌. 스캔일시 기록과
@@ -85,6 +86,9 @@ export default function ScanView() {
 
       setResult(res);
       if (res.found) loadRecentScans(); // 표에 바로 반영(기기번호는 아직 없을 수 있음 -> 이후 3초 주기로 갱신)
+      // ✅ 스캔으로 통합관리에 바로 매칭+반영된 경우, 열려있는 통합관리 화면에 신호를 쏴서
+      //    새로고침 없이 바로 보이게 한다(DB 쓰기는 서버에서 이미 끝남).
+      if (res.sendStatus === "SENT") syncEmitUnifiedUpdate();
     } catch (e: any) {
       if (requestIdRef.current !== myRequestId) return;
       setError(e?.message || "스캔 처리하지 못했습니다.");
