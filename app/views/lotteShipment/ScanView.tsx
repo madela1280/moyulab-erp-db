@@ -37,9 +37,35 @@ export default function ScanView() {
   //    않도록 막는 용도. 버튼을 누르거나 새 스캔을 시작할 때마다 증가시킨다.
   const requestIdRef = useRef(0);
 
+  // ✅ 기기번호(RFID) 등록은 중계 앱이 서버를 직접 호출하는 경로라 브라우저에서 바로 알 방법이
+  //    없다 — 이미 돌고 있는 이 폴링에서 "미전송 -> 전송완료"로 바뀐 송장을 감지하면, 그때
+  //    통합관리 화면에 syncEmitUnifiedUpdate()로 신호를 보내서 새로고침 없이 반영되게 한다.
+  //    (같은 송장에 중복으로 신호를 보내지 않도록 이미 감지한 송장은 기록해둔다.)
+  const notifiedSentInvoicesRef = useRef<Set<string>>(new Set());
+  const hasLoadedOnceRef = useRef(false);
+
   function loadRecentScans() {
     fetchRecentLotteScans()
-      .then(setRecentScans)
+      .then((rows) => {
+        setRecentScans(rows);
+
+        // ✅ 화면을 처음 여는 순간 이미 전송완료인 건들까지 전부 재신호를 보내면 의미 없는
+        //    emit이 쌓이므로, 최초 로드 때는 "이미 전송완료"인 송장을 조용히 기록만 해둔다.
+        if (!hasLoadedOnceRef.current) {
+          hasLoadedOnceRef.current = true;
+          for (const row of rows) {
+            if (row.전송상태 === "전송완료") notifiedSentInvoicesRef.current.add(row.운송장번호);
+          }
+          return;
+        }
+
+        for (const row of rows) {
+          if (row.전송상태 !== "전송완료") continue;
+          if (notifiedSentInvoicesRef.current.has(row.운송장번호)) continue;
+          notifiedSentInvoicesRef.current.add(row.운송장번호);
+          syncEmitUnifiedUpdate();
+        }
+      })
       .catch(() => {
         // 조회 실패는 조용히 무시하고 다음 주기에 재시도
       });
@@ -86,9 +112,6 @@ export default function ScanView() {
 
       setResult(res);
       if (res.found) loadRecentScans(); // 표에 바로 반영(기기번호는 아직 없을 수 있음 -> 이후 3초 주기로 갱신)
-      // ✅ 스캔으로 통합관리에 바로 매칭+반영된 경우, 열려있는 통합관리 화면에 신호를 쏴서
-      //    새로고침 없이 바로 보이게 한다(DB 쓰기는 서버에서 이미 끝남).
-      if (res.sendStatus === "SENT") syncEmitUnifiedUpdate();
     } catch (e: any) {
       if (requestIdRef.current !== myRequestId) return;
       setError(e?.message || "스캔 처리하지 못했습니다.");

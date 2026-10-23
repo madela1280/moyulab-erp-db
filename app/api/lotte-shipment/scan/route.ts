@@ -1,6 +1,7 @@
 // app/api/lotte-shipment/scan/route.ts
 //
-// PM84 스캔 화면 전용. 송장번호 1건 스캔 -> 스캔일시 기록 + (가능하면) 통합관리 자동 전송.
+// PM84 스캔 화면 전용. 송장번호 1건 스캔 -> 스캔일시 기록 + (가능하면) 이카운트 자동 전송.
+// 통합관리 자동 전송은 여기서 하지 않는다 — 기기번호(RFID) 등록 이후에만 일어난다.
 // POST { invoiceNo: string }
 
 import { NextResponse } from "next/server";

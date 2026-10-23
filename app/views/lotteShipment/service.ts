@@ -90,7 +90,6 @@ export type ScanResult = {
     수하인전화번호: string;
     수하인주소: string;
   };
-  sendStatus?: "SENT" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH";
 };
 
 export async function scanLotteShipment(invoiceNo: string): Promise<ScanResult> {
@@ -117,6 +116,7 @@ export type RecentScanRow = {
   수하인명: string;
   기기번호: string;
   스캔일시: string;
+  전송상태: "전송완료" | "미전송";
 };
 
 export async function fetchRecentLotteScans(): Promise<RecentScanRow[]> {

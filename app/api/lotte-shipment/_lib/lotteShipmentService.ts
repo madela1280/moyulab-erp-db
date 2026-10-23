@@ -376,12 +376,14 @@ export type ScanResult = {
     수하인전화번호: string;
     수하인주소: string;
   };
-  sendStatus?: "SENT" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH";
 };
 
 // ✅ PM84 스캔 화면 전용: 송장번호 1건을 스캔했을 때 호출.
-//    1) 스캔일시를 항상 지금 시각으로 갱신(= "발송 확인"), 재스캔해도 그냥 갱신됨.
-//    2) 아직 통합관리에 전송 안 된 건이면 그 자리에서 매칭+반영까지 시도.
+//    스캔일시를 항상 지금 시각으로 갱신(= "발송 확인"), 재스캔해도 그냥 갱신됨.
+//    ⚠️ 통합관리 매칭+전송(matchAndSendOne)은 여기서 하지 않는다 — 통합관리 전송은 "기기번호가
+//    등록된 뒤"에만 일어나야 하는데(사용자 요구사항), 바코드 스캔 시점엔 기기번호가 아직 없다.
+//    실제 통합관리 전송은 registerRfidTagToLatestScan(기기번호 RFID 등록) 또는 수동 "통합관리
+//    전송" 버튼(sendLotteShipmentsToUnified)에서만 일어난다.
 export async function scanLotteShipment(
   invoiceNoRaw: string,
   actor: { username: string | null; name: string | null }
@@ -400,8 +402,6 @@ export async function scanLotteShipment(
   }
 
   const client = await pool.connect();
-  let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
-  let sendStatus: ScanResult["sendStatus"];
   let rowInfo: ScanResult["row"] | undefined;
 
   try {
@@ -426,16 +426,6 @@ export async function scanLotteShipment(
 
     await client.query(`UPDATE lotte_shipment_data SET 스캔일시 = now() WHERE 운송장번호 = $1`, [invoiceNo]);
 
-    const outcome = await matchAndSendOne(client, invoiceNo);
-    if (outcome.status === "SENT") {
-      changeItems = outcome.changeItems;
-      sendStatus = "SENT";
-    } else if (outcome.status === "ALREADY_SENT") {
-      sendStatus = "ALREADY_SENT";
-    } else if (outcome.status === "AMBIGUOUS_MATCH" || outcome.status === "NO_MATCH") {
-      sendStatus = outcome.status;
-    }
-
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -450,21 +440,7 @@ export async function scanLotteShipment(
   //    자동전송이 안 되고 수동 "이카운트 전송" 버튼으로만 되던 버그).
   await attemptEcountAutoSend(invoiceNo);
 
-  if (changeItems.length) {
-    try {
-      await recordUnifiedChangeHistory({
-        action_type: "lotte_shipment_send",
-        changed_by_username: actor.username,
-        changed_by_name: actor.name,
-        description: `롯데택배 스캔 -> 통합관리 전송 1건 (${invoiceNo})`,
-        items: changeItems,
-      });
-    } catch (err) {
-      console.warn("lotte_shipment_send(scan) change history record failed (ignored):", err);
-    }
-  }
-
-  return { found: true, row: rowInfo, sendStatus };
+  return { found: true, row: rowInfo };
 }
 
 export type RecentScanRow = {
@@ -472,6 +448,10 @@ export type RecentScanRow = {
   수하인명: string;
   기기번호: string;
   스캔일시: string;
+  // ✅ ScanView가 이 값을 폴링해서 "미전송 -> 전송완료"로 바뀐 걸 감지하면 통합관리 화면에
+  //    syncEmitUnifiedUpdate()로 신호를 쏴준다(기기번호 RFID 등록은 서버가 직접 호출받아서
+  //    브라우저에서 바로 알 방법이 없기 때문 — ScanView의 기존 폴링을 이용해 대신 신호를 보냄).
+  전송상태: "전송완료" | "미전송";
 };
 
 // ✅ PM84 스캔 화면의 "최근 로그" 표를 서버 데이터로 채운다. PM84 Chrome이 백그라운드 탭을
@@ -479,7 +459,7 @@ export type RecentScanRow = {
 //    화면이 다시 열릴 때마다 서버에서 다시 불러와 복구할 수 있게 한다.
 export async function listRecentScans(limit = 30): Promise<RecentScanRow[]> {
   const r = await pool.query(
-    `SELECT 운송장번호, 수하인명, 기기번호, 스캔일시
+    `SELECT 운송장번호, 수하인명, 기기번호, 스캔일시, matched_unified_id
      FROM lotte_shipment_data
      WHERE 스캔일시 IS NOT NULL
      ORDER BY 스캔일시 DESC
@@ -491,6 +471,7 @@ export async function listRecentScans(limit = 30): Promise<RecentScanRow[]> {
     수하인명: normalizeString(row.수하인명),
     기기번호: normalizeString(row.기기번호),
     스캔일시: row.스캔일시 ? new Date(row.스캔일시).toISOString() : "",
+    전송상태: row.matched_unified_id ? "전송완료" : "미전송",
   }));
 }
 
@@ -504,9 +485,11 @@ export async function getDeviceNoForInvoice(invoiceNoRaw: string): Promise<strin
   return normalizeString(r.rows?.[0]?.기기번호);
 }
 
+export type RfidSendStatus = "SENT" | "ALREADY_SENT" | "AMBIGUOUS_MATCH" | "NO_MATCH";
+
 export type RfidRegisterResult =
   | { ok: false; reason: "NO_RECENT_SCAN" }
-  | { ok: true; invoiceNo: string; sendStatus?: ScanResult["sendStatus"] };
+  | { ok: true; invoiceNo: string; sendStatus?: RfidSendStatus };
 
 // ✅ RF88(RFID) 태그를 읽었을 때 호출 — PM84+RF88 전용 중계 앱에서 호출한다.
 //    "가장 최근에 스캔한 송장"(스캔일시 DESC 1건)에 기기번호를 채워 넣는다.
@@ -521,7 +504,7 @@ export async function registerRfidTagToLatestScan(
 
   const client = await pool.connect();
   let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
-  let sendStatus: ScanResult["sendStatus"];
+  let sendStatus: RfidSendStatus | undefined;
   let invoiceNo = "";
 
   try {
