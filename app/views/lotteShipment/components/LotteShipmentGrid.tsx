@@ -63,6 +63,7 @@ export default function LotteShipmentGrid({
   allRowsForFilter,
   onSortChange,
   onUpdateProductName,
+  onUpdateDeviceNo,
 }: {
   rows: LotteShipmentRow[];
   columns: LotteShipmentColumn[];
@@ -80,6 +81,8 @@ export default function LotteShipmentGrid({
   onSortChange?: (key: keyof LotteShipmentRow, dir: "asc" | "desc") => void;
   // ✅ 상품명 수정(이카운트 매칭 실패 건을 수동으로 고쳐서 재전송할 수 있게). 전송완료 건은 수정 불가.
   onUpdateProductName?: (invoiceNo: string, newValue: string) => void;
+  // ✅ 기기번호 수정(RFID 오인식 등 보정용). 전송 상태와 무관하게 항상 허용.
+  onUpdateDeviceNo?: (invoiceNo: string, newValue: string) => void;
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.운송장번호));
 
@@ -87,20 +90,43 @@ export default function LotteShipmentGrid({
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
   const [popoverSearch, setPopoverSearch] = useState("");
 
-  const [editingInvoice, setEditingInvoice] = useState<string | null>(null);
+  type EditableField = "상품명" | "기기번호";
+  const [editingCell, setEditingCell] = useState<{ invoiceNo: string; field: EditableField } | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
-  function startEditProductName(row: LotteShipmentRow) {
-    if (row.이카운트전송상태 === "전송완료") return; // 이미 전송된 건은 수정 불가
-    setEditingInvoice(row.운송장번호);
-    setEditingValue(row.상품명 ?? "");
+  function canEditCell(row: LotteShipmentRow, field: EditableField) {
+    if (field === "상품명") return row.이카운트전송상태 !== "전송완료"; // 이미 이카운트 전송된 건은 수정 불가
+    return true; // 기기번호는 전송 상태와 무관하게 항상 수정 가능
   }
 
-  function commitEditProductName() {
-    if (editingInvoice && onUpdateProductName) {
-      onUpdateProductName(editingInvoice, editingValue);
+  function startEditCell(row: LotteShipmentRow, field: EditableField) {
+    if (!canEditCell(row, field)) return;
+    setEditingCell({ invoiceNo: row.운송장번호, field });
+    setEditingValue(String(row[field] ?? ""));
+  }
+
+  function commitEditCell() {
+    if (editingCell) {
+      if (editingCell.field === "상품명") onUpdateProductName?.(editingCell.invoiceNo, editingValue);
+      else onUpdateDeviceNo?.(editingCell.invoiceNo, editingValue);
     }
-    setEditingInvoice(null);
+    setEditingCell(null);
+  }
+
+  // ✅ 열 너비 입력칸: 타이핑 중엔 자유롭게 입력되게 두고, 칸을 벗어날 때(blur)만 60~800으로
+  //    보정한다 — 매 글자 입력마다 즉시 clamp하면 숫자를 지우는 순간 60으로 튕기면서 다음
+  //    입력이 거기 이어붙어 엉뚱한 값(800 등)에 고정돼버리는 문제가 있었다.
+  const [widthDraft, setWidthDraft] = useState<{ key: string; text: string } | null>(null);
+
+  function widthInputValue(col: LotteShipmentColumn) {
+    return widthDraft && widthDraft.key === col.key ? widthDraft.text : String(col.width);
+  }
+
+  function commitWidthDraft(col: LotteShipmentColumn) {
+    if (!widthDraft || widthDraft.key !== col.key) return;
+    const nextWidth = normalizeWidth(Number(widthDraft.text));
+    onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
+    setWidthDraft(null);
   }
 
   function moveColumn(index: number, direction: -1 | 1) {
@@ -109,11 +135,6 @@ export default function LotteShipmentGrid({
     const next = [...columns];
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
     onColumnsChange(next);
-  }
-
-  function handleWidthChange(col: LotteShipmentColumn, value: string) {
-    const nextWidth = normalizeWidth(Number(value));
-    onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
   }
 
   function openFilterPopover(colKey: string, e: React.MouseEvent) {
@@ -268,8 +289,15 @@ export default function LotteShipmentGrid({
                         type="number"
                         min={60}
                         max={800}
-                        value={col.width}
-                        onChange={(e) => handleWidthChange(col, e.target.value)}
+                        value={widthInputValue(col)}
+                        onChange={(e) => setWidthDraft({ key: col.key, text: e.target.value })}
+                        onBlur={() => commitWidthDraft(col)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitWidthDraft(col);
+                          }
+                        }}
                         onMouseDown={(e) => e.stopPropagation()}
                       />
                     </div>
@@ -290,56 +318,70 @@ export default function LotteShipmentGrid({
                   onChange={() => onToggleSelect(row.운송장번호)}
                 />
               </td>
-              {columns.map((col) => (
-                <td key={col.key} className="border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                  {col.key === "스캔일시"
-                    ? formatDateTime(row[col.key] as string | null)
-                    : col.key === "집하일자"
-                    ? row.집하일자 ?? ""
-                    : col.key === "전송상태"
-                    ? (
-                      <span className={row.전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-slate-400"}>
-                        {row.전송상태}
-                      </span>
-                    )
-                    : col.key === "이카운트전송상태"
-                    ? (
-                      <span className={row.이카운트전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-red-600"}>
-                        {row.이카운트전송상태}
-                      </span>
-                    )
-                    : col.key === "상품명" && editingInvoice === row.운송장번호
-                    ? (
-                      <input
-                        autoFocus
-                        className="w-full h-6 px-1 text-xs border border-blue-400 rounded"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onBlur={commitEditProductName}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitEditProductName();
-                          } else if (e.key === "Escape") {
-                            setEditingInvoice(null);
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    )
-                    : col.key === "상품명"
-                    ? (
-                      <span
-                        title={row.이카운트전송상태 === "전송완료" ? "" : "더블클릭해서 상품명 수정"}
-                        className={row.이카운트전송상태 === "전송완료" ? "" : "cursor-text hover:bg-yellow-50"}
-                        onDoubleClick={() => startEditProductName(row)}
-                      >
-                        {row.상품명}
-                      </span>
-                    )
-                    : String(row[col.key] ?? "")}
-                </td>
-              ))}
+              {columns.map((col) => {
+                const isEditableField = col.key === "상품명" || col.key === "기기번호";
+                const isEditingThisCell =
+                  isEditableField && editingCell?.invoiceNo === row.운송장번호 && editingCell.field === col.key;
+                const editable = isEditableField && canEditCell(row, col.key as EditableField);
+
+                return (
+                  <td
+                    key={col.key}
+                    className="border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis"
+                    // ✅ span이 아니라 td에 둬야 값이 빈 문자열이라 span의 면적이 0이 되는 경우에도
+                    //    더블클릭으로 다시 편집 진입할 수 있다.
+                    onDoubleClick={
+                      isEditableField && !isEditingThisCell ? () => startEditCell(row, col.key as EditableField) : undefined
+                    }
+                  >
+                    {col.key === "스캔일시"
+                      ? formatDateTime(row[col.key] as string | null)
+                      : col.key === "집하일자"
+                      ? row.집하일자 ?? ""
+                      : col.key === "전송상태"
+                      ? (
+                        <span className={row.전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-slate-400"}>
+                          {row.전송상태}
+                        </span>
+                      )
+                      : col.key === "이카운트전송상태"
+                      ? (
+                        <span className={row.이카운트전송상태 === "전송완료" ? "text-emerald-700 font-semibold" : "text-red-600"}>
+                          {row.이카운트전송상태}
+                        </span>
+                      )
+                      : isEditingThisCell
+                      ? (
+                        <input
+                          autoFocus
+                          className="w-full h-6 px-1 text-xs border border-blue-400 rounded"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onBlur={commitEditCell}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitEditCell();
+                            } else if (e.key === "Escape") {
+                              setEditingCell(null);
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )
+                      : isEditableField
+                      ? (
+                        <span
+                          title={editable ? `더블클릭해서 ${col.label} 수정` : ""}
+                          className={editable ? "cursor-text hover:bg-yellow-50" : ""}
+                        >
+                          {String(row[col.key] ?? "")}
+                        </span>
+                      )
+                      : String(row[col.key] ?? "")}
+                  </td>
+                );
+              })}
             </tr>
           ))}
 

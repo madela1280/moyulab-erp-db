@@ -94,6 +94,78 @@ export async function updateLotteShipmentProductName(
   return { ok: true };
 }
 
+export type UpdateDeviceNoResult = { ok: true } | { ok: false; reason: "NOT_FOUND" };
+
+// ✅ 기기번호를 수동으로 고칠 때(RFID 오인식 등). 이미 통합관리로 전송된 건이면 그 unified 행의
+//    기기번호도 같이 갱신한다(registerRfidTagToLatestScan의 "이미 전송된 건" 분기와 동일한 방식).
+export async function updateLotteShipmentDeviceNo(
+  invoiceNoRaw: string,
+  기기번호Raw: string,
+  actor: { username: string | null; name: string | null }
+): Promise<UpdateDeviceNoResult> {
+  const invoiceNo = normalizeString(invoiceNoRaw);
+  const 기기번호 = normalizeString(기기번호Raw);
+  if (!invoiceNo) return { ok: false, reason: "NOT_FOUND" };
+
+  const client = await pool.connect();
+  let changeItems: ReturnType<typeof buildUnifiedCellChangeItems> = [];
+
+  try {
+    await client.query("BEGIN");
+
+    const sel = await client.query(
+      `SELECT matched_unified_id FROM lotte_shipment_data WHERE 운송장번호 = $1 FOR UPDATE`,
+      [invoiceNo]
+    );
+    const row = sel.rows?.[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "NOT_FOUND" };
+    }
+
+    await client.query(`UPDATE lotte_shipment_data SET 기기번호 = $2 WHERE 운송장번호 = $1`, [invoiceNo, 기기번호]);
+
+    const matchedUnifiedId = row.matched_unified_id;
+    if (matchedUnifiedId) {
+      const unifiedSel = await client.query(`SELECT data FROM unified WHERE id = $1 FOR UPDATE`, [matchedUnifiedId]);
+      const beforeData = unifiedSel.rows?.[0]?.data && typeof unifiedSel.rows[0].data === "object" ? unifiedSel.rows[0].data : {};
+      const afterData = { ...beforeData, 기기번호 };
+      await client.query(`UPDATE unified SET data = $2::jsonb WHERE id = $1`, [matchedUnifiedId, JSON.stringify(afterData)]);
+
+      changeItems = buildUnifiedCellChangeItems({
+        unifiedId: Number(matchedUnifiedId),
+        beforeData,
+        afterData,
+        columnKeys: ["기기번호"],
+        actionType: "lotte_shipment_send",
+      });
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (changeItems.length) {
+    try {
+      await recordUnifiedChangeHistory({
+        action_type: "lotte_shipment_send",
+        changed_by_username: actor.username,
+        changed_by_name: actor.name,
+        description: `롯데택배 기기번호 수동 수정 -> 통합관리 반영 (${invoiceNo})`,
+        items: changeItems,
+      });
+    } catch (err) {
+      console.warn("lotte_shipment_send(device-no edit) change history record failed (ignored):", err);
+    }
+  }
+
+  return { ok: true };
+}
+
 export async function deleteLotteShipments(invoiceNos: string[]): Promise<{ deletedCount: number }> {
   const safe = Array.from(new Set(invoiceNos.map(normalizeString).filter(Boolean)));
   if (!safe.length) return { deletedCount: 0 };

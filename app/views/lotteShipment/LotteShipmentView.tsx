@@ -12,6 +12,7 @@ import {
   sendLotteShipmentsToUnified,
   sendLotteShipmentsToEcount,
   updateLotteShipmentProductName,
+  updateLotteShipmentDeviceNo,
   type LotteShipmentRow,
 } from "@/views/lotteShipment/service";
 import FilterButton from "@/views/lotteShipment/filter/FilterButton";
@@ -193,6 +194,16 @@ export default function LotteShipmentView() {
     }
   }
 
+  async function handleUpdateDeviceNo(invoiceNo: string, 기기번호: string) {
+    setError("");
+    try {
+      await updateLotteShipmentDeviceNo(invoiceNo, 기기번호);
+      await loadRows({ silent: true });
+    } catch (e: any) {
+      setError(e?.message || "기기번호를 수정하지 못했습니다.");
+    }
+  }
+
   async function handleSendEcount() {
     if (selectedIds.size === 0) return;
 
@@ -313,6 +324,7 @@ export default function LotteShipmentView() {
         allRowsForFilter={searchedRows}
         onSortChange={(key, dir) => setSortState({ key, dir })}
         onUpdateProductName={handleUpdateProductName}
+        onUpdateDeviceNo={handleUpdateDeviceNo}
       />
     </div>
   );

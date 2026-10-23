@@ -30,6 +30,15 @@ export async function updateLotteShipmentProductName(invoiceNo: string, 상품�
   if (!res.ok) throw new Error("상품명을 수정하지 못했습니다.");
 }
 
+export async function updateLotteShipmentDeviceNo(invoiceNo: string, 기기번호: string): Promise<void> {
+  const res = await fetch("/api/lotte-shipment/update-device-no", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoiceNo, 기기번호 }),
+  });
+  if (!res.ok) throw new Error("기기번호를 수정하지 못했습니다.");
+}
+
 export async function deleteLotteShipments(ids: string[]): Promise<void> {
   const res = await fetch("/api/lotte-shipment", {
     method: "DELETE",
