@@ -113,20 +113,29 @@ export default function LotteShipmentGrid({
     setEditingCell(null);
   }
 
-  // ✅ 열 너비 입력칸: 타이핑 중엔 자유롭게 입력되게 두고, 칸을 벗어날 때(blur)만 60~800으로
-  //    보정한다 — 매 글자 입력마다 즉시 clamp하면 숫자를 지우는 순간 60으로 튕기면서 다음
-  //    입력이 거기 이어붙어 엉뚱한 값(800 등)에 고정돼버리는 문제가 있었다.
+  // ✅ 열 너비 입력칸: 입력한 글자 자체는 그대로 보여주면서(widthDraft), 유효한 숫자가 될 때마다
+  //    즉시 반영해서 표가 바로바로 미세조절되게 한다(기존 방식과 동일한 느낌). 다만 필드가
+  //    잠시 비었을 때는(숫자를 지우는 중) 60으로 강제 clamp하지 않고 직전 값을 그대로 유지한다
+  //    — 그래야 숫자를 지우고 새로 입력할 때 "60"에 이어붙어 엉뚱한 값에 고정되는 문제가 없다.
   const [widthDraft, setWidthDraft] = useState<{ key: string; text: string } | null>(null);
 
   function widthInputValue(col: LotteShipmentColumn) {
     return widthDraft && widthDraft.key === col.key ? widthDraft.text : String(col.width);
   }
 
+  function handleWidthInputChange(col: LotteShipmentColumn, value: string) {
+    setWidthDraft({ key: col.key, text: value });
+    const trimmed = value.trim();
+    if (!trimmed) return; // 비어있는 동안은 직전 폭을 그대로 유지(강제 clamp 안 함)
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return;
+    const nextWidth = normalizeWidth(parsed);
+    onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
+  }
+
   function commitWidthDraft(col: LotteShipmentColumn) {
     if (!widthDraft || widthDraft.key !== col.key) return;
-    const nextWidth = normalizeWidth(Number(widthDraft.text));
-    onColumnsChange(columns.map((c) => (c.key === col.key ? { ...c, width: nextWidth } : c)));
-    setWidthDraft(null);
+    setWidthDraft(null); // col.width는 이미 handleWidthInputChange에서 실시간 반영됨 — draft만 정리
   }
 
   function moveColumn(index: number, direction: -1 | 1) {
@@ -290,7 +299,7 @@ export default function LotteShipmentGrid({
                         min={60}
                         max={800}
                         value={widthInputValue(col)}
-                        onChange={(e) => setWidthDraft({ key: col.key, text: e.target.value })}
+                        onChange={(e) => handleWidthInputChange(col, e.target.value)}
                         onBlur={() => commitWidthDraft(col)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {

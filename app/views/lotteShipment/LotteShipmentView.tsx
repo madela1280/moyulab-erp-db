@@ -184,23 +184,29 @@ export default function LotteShipmentView() {
     }
   }
 
+  // ✅ 서버 응답(왕복)을 기다리지 않고 화면에 바로 반영(낙관적 업데이트) — 수정 직후 반박자
+  //    늦게 보이던 문제. 실패하면 silent reload로 서버 실제 값으로 되돌린다.
   async function handleUpdateProductName(invoiceNo: string, 상품명: string) {
     setError("");
+    setRows((prev) => prev.map((r) => (r.운송장번호 === invoiceNo ? { ...r, 상품명 } : r)));
     try {
       await updateLotteShipmentProductName(invoiceNo, 상품명);
       await loadRows({ silent: true });
     } catch (e: any) {
       setError(e?.message || "상품명을 수정하지 못했습니다.");
+      await loadRows({ silent: true });
     }
   }
 
   async function handleUpdateDeviceNo(invoiceNo: string, 기기번호: string) {
     setError("");
+    setRows((prev) => prev.map((r) => (r.운송장번호 === invoiceNo ? { ...r, 기기번호 } : r)));
     try {
       await updateLotteShipmentDeviceNo(invoiceNo, 기기번호);
       await loadRows({ silent: true });
     } catch (e: any) {
       setError(e?.message || "기기번호를 수정하지 못했습니다.");
+      await loadRows({ silent: true });
     }
   }
 
