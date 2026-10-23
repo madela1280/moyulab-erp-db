@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import LotteShipmentGrid, {
-  DEFAULT_LOTTE_SHIPMENT_COLUMNS,
   formatDateTime,
-  type LotteShipmentColumn,
 } from "@/views/lotteShipment/components/LotteShipmentGrid";
+import { useLotteShipmentColumnConfig } from "@/views/lotteShipment/column-config/useLotteShipmentColumnConfig";
 import {
   fetchLotteShipments,
   deleteLotteShipments,
@@ -32,7 +31,7 @@ const AUTO_REFRESH_MS = 5000;
 
 export default function LotteShipmentView() {
   const [rows, setRows] = useState<LotteShipmentRow[]>([]);
-  const [columns, setColumns] = useState<LotteShipmentColumn[]>(DEFAULT_LOTTE_SHIPMENT_COLUMNS);
+  const { columns, setColumns } = useLotteShipmentColumnConfig();
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

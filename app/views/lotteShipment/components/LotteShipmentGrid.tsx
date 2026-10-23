@@ -206,9 +206,24 @@ export default function LotteShipmentGrid({
     closeFilterPopover();
   }
 
+  // ✅ table-layout:fixed의 열 너비는 <col>이 있으면 그걸 기준으로 고정된다(통합관리 그리드와 동일 방식).
+  //    <th>에만 width를 주던 기존 방식은 헤더 편집모드의 버튼/입력칸 때문에 일부 열(수하인명, 주소)이
+  //    지정한 너비대로 줄어들지 않는 문제가 있었다 — <col>을 추가해서 해결.
+  const checkboxColWidth = 40;
+  const tableWidth = checkboxColWidth + columns.reduce((sum, c) => sum + c.width, 0);
+
   return (
     <div className="flex-1 min-h-0 rounded border border-slate-300 bg-white overflow-auto">
-      <table className="border-collapse text-xs text-slate-900 font-normal" style={{ tableLayout: "fixed" }}>
+      <table
+        className="border-collapse text-xs text-slate-900 font-normal"
+        style={{ tableLayout: "fixed", width: tableWidth }}
+      >
+        <colgroup>
+          <col style={{ width: checkboxColWidth }} />
+          {columns.map((col) => (
+            <col key={col.key} style={{ width: col.width }} />
+          ))}
+        </colgroup>
         <thead className="sticky top-0 z-10">
           <tr>
             <th
