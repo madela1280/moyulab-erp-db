@@ -22,6 +22,7 @@ import { NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import { parseDepositSms } from "@/api/kakao/_lib/sms-parse";
 import { sendPaymentConfirmAlimtalk } from "@/lib/alimtalk/paymentConfirmAlimtalk";
+import { syncExtendOrderToUnified } from "@/api/customer-reception/_lib/syncExtendOrderToUnified";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,20 @@ export async function POST(req: NextRequest) {
     );
     await query(`UPDATE sms_inbound SET matched_id = $1 WHERE id = $2`, [orderId, smsId]);
     await sendPaymentConfirmAlimtalk(order);
+
+    // ✅ 연장/연체료 건이면, 사람이 "연장·연체료" 화면을 열 때까지 기다리지 않고 서버가
+    //    즉시 통합관리(1~20차연장)에 반영한다. 실패해도(1~20차연장 칸이 꽉 참 등) 이미
+    //    입금확인 알림톡은 나간 뒤라 SMS 처리 자체는 막지 않고 로그만 남긴다.
+    if (order.order_type === "extend" || order.order_type === "overdue") {
+      try {
+        const synced = await syncExtendOrderToUnified(orderId);
+        if (!synced.ok) {
+          console.error("[SMS_MATCH] 통합관리 자동반영 실패:", JSON.stringify({ orderId, reason: synced.reason }));
+        }
+      } catch (e) {
+        console.error("[SMS_MATCH] 통합관리 자동반영 중 예외:", orderId, e);
+      }
+    }
 
     console.log("[SMS_MATCH]", JSON.stringify({ orderId, amount: parsed.amount }));
     return Response.json({ ok: true, matched: true, orderId });
