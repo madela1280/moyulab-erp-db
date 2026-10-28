@@ -34,6 +34,7 @@ export type MarketSalesRow = {
   부가세: number;
   합계: number;
   이카운트전송상태: "전송완료" | "미전송" | "미매핑";
+  로켓재고: number | null; // 제이컴퍼니만 해당, 나머지 채널/미수집 품목은 null
 };
 
 let ensured = false;
@@ -66,6 +67,8 @@ async function ensureTables() {
   `);
   // ✅ 2026-10-28 추가: 채널 원본 상품명(마켓상품명)을 품목/품목명과 분리 보관.
   await query(`ALTER TABLE market_sales_data ADD COLUMN IF NOT EXISTS market_item_name TEXT NOT NULL DEFAULT '';`);
+  // ✅ 2026-10-28 추가: 로켓창고 재고(제이컴퍼니 전용, 단순 체크용 — 이카운트 전송과 무관).
+  await query(`ALTER TABLE market_sales_data ADD COLUMN IF NOT EXISTS stock_qty INTEGER;`);
   ensured = true;
 }
 
@@ -83,6 +86,7 @@ function toRow(r: any): MarketSalesRow {
     부가세: Number(r.vat_amt) || 0,
     합계: Number(r.total_amt) || 0,
     이카운트전송상태: r.ecount_status,
+    로켓재고: r.stock_qty == null ? null : Number(r.stock_qty),
   };
 }
 
@@ -91,7 +95,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
   const r = await query(
     `
     SELECT id, channel, sale_date::text AS sale_date, market_item_name, item_code, item_name, qty, unit_price,
-           supply_amt, vat_amt, total_amt, ecount_status
+           supply_amt, vat_amt, total_amt, ecount_status, stock_qty
     FROM market_sales_data
     WHERE channel = $1
     ORDER BY sale_date DESC NULLS LAST, id DESC
@@ -189,6 +193,11 @@ export async function sendMarketSalesToEcount(
 
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
+    // ✅ 로켓재고 체크용 0매출 행은 이카운트 전송과 전혀 무관 — 보낼 게 없으니 조용히 건너뛴다.
+    if ((Number(row.qty) || 0) <= 0) {
+      skippedCount++;
+      continue;
+    }
 
     // ✅ 품목(item_code)이 이미 채워져 있으면(매칭 성공했거나, 미매핑 건을 사용자가 직접 수정한 경우)
     //    그 값을 그대로 쓴다 — 비어 있을 때만 옵션ID(external_id)로 자동매칭을 다시 시도한다.

@@ -65,3 +65,18 @@ export function matchMarketSalesItem(channel: MarketSalesChannel, vendorItemId: 
   if (!entry) return null;
   return { PROD_CD: entry.PROD_CD, NAME: entry.NAME, baseQty: entry.baseQty };
 }
+
+export type ProductGroup = { PROD_CD: string; NAME: string; vendorItemIds: string[] };
+
+// ✅ 로켓재고 조회용 — 같은 PROD_CD에 여러 옵션ID(vendorItemId)가 묶여있을 수 있어서
+//    PROD_CD 기준으로 묶어서 반환한다(재고는 물리적 상품 기준이라 옵션ID별로 따로 안 보여줌).
+export function getProductGroupsForChannel(channel: MarketSalesChannel): ProductGroup[] {
+  const table = PRODUCT_TABLE[channel] || [];
+  const byProdCd = new Map<string, ProductGroup>();
+  for (const entry of table) {
+    const group = byProdCd.get(entry.PROD_CD);
+    if (group) group.vendorItemIds.push(entry.vendorItemId);
+    else byProdCd.set(entry.PROD_CD, { PROD_CD: entry.PROD_CD, NAME: entry.NAME, vendorItemIds: [entry.vendorItemId] });
+  }
+  return Array.from(byProdCd.values());
+}

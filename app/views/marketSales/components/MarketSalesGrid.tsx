@@ -31,6 +31,7 @@ export const DEFAULT_MARKET_SALES_COLUMNS: MarketSalesColumn[] = [
   { key: "부가세", label: "부가세", width: 100 },
   { key: "합계", label: "합계", width: 110 },
   { key: "이카운트전송상태", label: "이카운트전송", width: 110 },
+  { key: "로켓재고", label: "로켓재고", width: 90 },
 ];
 
 function normalizeWidth(value: number) {
@@ -304,7 +305,7 @@ export default function MarketSalesGrid({
                   <td
                     key={col.key}
                     className={`border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis ${
-                      numericKeys.includes(col.key) ? "text-right" : ""
+                      numericKeys.includes(col.key) || col.key === "로켓재고" ? "text-right" : ""
                     }`}
                     onDoubleClick={
                       isEditableField && !isEditingThisCell
@@ -324,6 +325,8 @@ export default function MarketSalesGrid({
                       >
                         {row.이카운트전송상태}
                       </span>
+                    ) : col.key === "로켓재고" ? (
+                      row.로켓재고 == null ? <span className="text-slate-300">-</span> : formatNumber(row.로켓재고)
                     ) : isEditingThisCell ? (
                       <input
                         autoFocus

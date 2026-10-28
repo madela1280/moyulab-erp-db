@@ -144,9 +144,11 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
     }
   }
 
-  const unsentEcountSelectedCount = Array.from(selectedIds).filter(
-    (id) => rows.find((r) => r.id === id)?.이카운트전송상태 !== "전송완료"
-  ).length;
+  // ✅ 로켓재고 체크용 0매출 행은 전송 대상에서 제외(이카운트 전송과 무관).
+  const unsentEcountSelectedCount = Array.from(selectedIds).filter((id) => {
+    const row = rows.find((r) => r.id === id);
+    return row && row.이카운트전송상태 !== "전송완료" && row.수량 > 0;
+  }).length;
 
   return (
     <div className="w-full h-full flex flex-col p-3 gap-3 bg-white">

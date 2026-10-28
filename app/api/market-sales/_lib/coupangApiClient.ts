@@ -10,6 +10,7 @@ import type { MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChan
 const BASE_URL = "https://api-gateway.coupang.com";
 const REVENUE_HISTORY_PATH = "/v2/providers/openapi/apis/api/v1/revenue-history";
 const ROCKET_GROWTH_ORDERS_PATH_TMPL = "/v2/providers/rg_open_api/apis/api/v1/vendors/{vendorId}/rg/orders";
+const ROCKET_GROWTH_INVENTORY_PATH_TMPL = "/v2/providers/rg_open_api/apis/api/v1/vendors/{vendorId}/rg/inventory/summaries";
 
 export type CoupangCredentials = { vendorId: string; accessKey: string; secretKey: string };
 
@@ -222,4 +223,57 @@ export async function fetchCoupangRocketGrowthOrders(
   }
 
   return { ok: true, entries };
+}
+
+export type RocketGrowthInventoryItem = { vendorItemId: string; totalOrderableQuantity: number };
+export type RocketGrowthInventoryResult =
+  | { ok: true; items: RocketGrowthInventoryItem[] }
+  | { ok: false; reason: string };
+
+// ✅ 로켓창고 재고 API. vendorItemId 생략 -> 전체 품목 재고 조회(페이징). 날짜 개념 없는 현재 시점 스냅샷.
+export async function fetchCoupangRocketGrowthInventory(creds: CoupangCredentials): Promise<RocketGrowthInventoryResult> {
+  const path = ROCKET_GROWTH_INVENTORY_PATH_TMPL.replace("{vendorId}", creds.vendorId);
+  const items: RocketGrowthInventoryItem[] = [];
+  let nextToken = "";
+  let guard = 0;
+
+  while (guard < 200) {
+    guard++;
+    const queryObj: Record<string, string> = {};
+    if (nextToken) queryObj.nextToken = nextToken;
+    const queryStr = new URLSearchParams(queryObj).toString();
+
+    const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
+
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}${path}${queryStr ? `?${queryStr}` : ""}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json;charset=UTF-8",
+          Authorization: authorization,
+        },
+      });
+    } catch (e: any) {
+      return { ok: false, reason: `NETWORK_ERROR: ${e?.message || e}` };
+    }
+
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok || !json || Number(json.code) !== 200) {
+      return { ok: false, reason: `API_ERROR(${res.status}): ${JSON.stringify(json)}` };
+    }
+
+    const data: any[] = Array.isArray(json.data) ? json.data : [];
+    for (const row of data) {
+      items.push({
+        vendorItemId: String(row.vendorItemId),
+        totalOrderableQuantity: Number(row.inventoryDetails?.totalOrderableQuantity) || 0,
+      });
+    }
+
+    if (!json.nextToken) break;
+    nextToken = json.nextToken;
+  }
+
+  return { ok: true, items };
 }

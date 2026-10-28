@@ -15,4 +15,5 @@ export type MarketSalesRow = {
   부가세: number;
   합계: number;
   이카운트전송상태: "전송완료" | "미전송" | "미매핑";
+  로켓재고: number | null;
 };
