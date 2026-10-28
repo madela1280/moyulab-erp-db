@@ -26,5 +26,7 @@ export const SUB_MENUS: Record<TopMenu, string[]> = {
 
   롯데택배: ["롯데택배", "스캔"],
 
+  이카운트: ["쿠팡", "스마트스토어"],
+
   카카오톡: ["대화조회"],
 };
