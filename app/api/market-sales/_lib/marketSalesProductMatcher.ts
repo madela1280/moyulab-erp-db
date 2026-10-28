@@ -6,19 +6,20 @@
 
 import type { MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 
-export type MatchedLine = { PROD_CD: string; PRICE: number };
+export type MatchedLine = { PROD_CD: string; PRICE: number; NAME: string };
 
-const PRODUCT_TABLE: Record<MarketSalesChannel, { key: string; PROD_CD: string; PRICE: number }[]> = {
+const PRODUCT_TABLE: Record<MarketSalesChannel, { key: string; PROD_CD: string; PRICE: number; NAME: string }[]> = {
   coupang_jcompany: [],
   coupang_hanmojeong: [],
   smartstore: [],
 };
 
-export function matchMarketSalesItem(channel: MarketSalesChannel, itemName: string): MatchedLine | null {
+// ✅ 매칭 입력값은 "마켓상품명"(채널 원본 상품명, market_item_name) — 매칭된 PROD_CD/공식 품목명을 돌려준다.
+export function matchMarketSalesItem(channel: MarketSalesChannel, marketItemName: string): MatchedLine | null {
   const table = PRODUCT_TABLE[channel] || [];
-  const name = String(itemName ?? "");
+  const name = String(marketItemName ?? "");
   for (const entry of table) {
-    if (name.includes(entry.key)) return { PROD_CD: entry.PROD_CD, PRICE: entry.PRICE };
+    if (name.includes(entry.key)) return { PROD_CD: entry.PROD_CD, PRICE: entry.PRICE, NAME: entry.NAME };
   }
   return null;
 }

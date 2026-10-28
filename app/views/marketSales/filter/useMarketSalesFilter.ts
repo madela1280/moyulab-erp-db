@@ -14,7 +14,7 @@ export function createEmptyFilterState(): ColumnFilterState {
   return { selectedByKey: {} };
 }
 
-export const SEARCHABLE_KEYS: (keyof MarketSalesRow)[] = ["품목", "품목명"];
+export const SEARCHABLE_KEYS: (keyof MarketSalesRow)[] = ["마켓상품명", "품목", "품목명"];
 
 export function getFilterValueForColumn(key: keyof MarketSalesRow, row: MarketSalesRow): string {
   const v = row[key];

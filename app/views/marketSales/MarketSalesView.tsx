@@ -23,9 +23,24 @@ import {
 
 type SortState = { key: keyof MarketSalesRow; dir: "asc" | "desc" } | null;
 
+// ✅ "마켓상품명" 컬럼 라벨만 채널별로 다르게 보여준다(쿠팡은 쿠팡상품명, 네이버는 네이버상품명) —
+//    순서/너비 저장은 공통 키("마켓상품명")로 그대로 하고, 화면에 보이는 글자만 바꾼다.
+const MARKET_ITEM_NAME_LABEL: Record<MarketSalesChannel, string> = {
+  coupang_jcompany: "쿠팡상품명",
+  coupang_hanmojeong: "쿠팡상품명",
+  smartstore: "네이버상품명",
+};
+
 export default function MarketSalesView({ channel, title }: { channel: MarketSalesChannel; title: string }) {
   const [rows, setRows] = useState<MarketSalesRow[]>([]);
   const { columns, setColumns } = useMarketSalesColumnConfig(channel);
+  const displayColumns = useMemo(
+    () =>
+      columns.map((c) =>
+        c.key === "마켓상품명" ? { ...c, label: MARKET_ITEM_NAME_LABEL[channel] } : c
+      ),
+    [columns, channel]
+  );
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -131,7 +146,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
             autoFocus
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="품목, 품목명으로 검색"
+            placeholder="마켓상품명, 품목, 품목명으로 검색"
             className="w-72 px-2 py-1.5 text-sm border border-slate-300 rounded"
           />
         )}
@@ -185,7 +200,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
 
       <MarketSalesGrid
         rows={sortedRows}
-        columns={columns}
+        columns={displayColumns}
         isColumnEditMode={isColumnEditMode}
         onColumnsChange={setColumns}
         selectedIds={selectedIds}

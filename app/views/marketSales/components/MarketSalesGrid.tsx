@@ -21,6 +21,7 @@ export type MarketSalesColumn = {
 
 export const DEFAULT_MARKET_SALES_COLUMNS: MarketSalesColumn[] = [
   { key: "일자", label: "일자", width: 100 },
+  { key: "마켓상품명", label: "마켓상품명", width: 280 },
   { key: "품목", label: "품목", width: 110 },
   { key: "품목명", label: "품목명", width: 280 },
   { key: "수량", label: "수량", width: 70 },

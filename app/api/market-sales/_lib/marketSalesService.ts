@@ -24,8 +24,9 @@ export type MarketSalesRow = {
   id: number;
   channel: MarketSalesChannel;
   일자: string | null;
+  마켓상품명: string; // 채널 원본 상품명(쿠팡/네이버에서 그대로 가져온 값, 매칭 입력값)
   품목: string; // 이카운트 PROD_CD (매칭 전에는 빈 값)
-  품목명: string; // 원본 상품명
+  품목명: string; // 매칭된 이카운트 공식 품목명(매칭 전에는 빈 값)
   수량: number;
   단가: number;
   공급가액: number;
@@ -43,6 +44,7 @@ async function ensureTables() {
       channel TEXT NOT NULL,
       external_id TEXT,
       sale_date DATE,
+      market_item_name TEXT NOT NULL DEFAULT '',
       item_code TEXT NOT NULL DEFAULT '',
       item_name TEXT NOT NULL DEFAULT '',
       qty NUMERIC NOT NULL DEFAULT 0,
@@ -61,6 +63,8 @@ async function ensureTables() {
       ON market_sales_data (channel, external_id)
       WHERE external_id IS NOT NULL;
   `);
+  // ✅ 2026-10-28 추가: 채널 원본 상품명(마켓상품명)을 품목/품목명과 분리 보관.
+  await query(`ALTER TABLE market_sales_data ADD COLUMN IF NOT EXISTS market_item_name TEXT NOT NULL DEFAULT '';`);
   ensured = true;
 }
 
@@ -69,6 +73,7 @@ function toRow(r: any): MarketSalesRow {
     id: Number(r.id),
     channel: r.channel,
     일자: r.sale_date ? String(r.sale_date) : null,
+    마켓상품명: normalizeString(r.market_item_name),
     품목: normalizeString(r.item_code),
     품목명: normalizeString(r.item_name),
     수량: Number(r.qty) || 0,
@@ -84,7 +89,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
   await ensureTables();
   const r = await query(
     `
-    SELECT id, channel, sale_date::text AS sale_date, item_code, item_name, qty, unit_price,
+    SELECT id, channel, sale_date::text AS sale_date, market_item_name, item_code, item_name, qty, unit_price,
            supply_amt, vat_amt, total_amt, ecount_status
     FROM market_sales_data
     WHERE channel = $1
@@ -129,7 +134,7 @@ export async function sendMarketSalesToEcount(
   if (!safeIds.length) return { sentCount: 0, skippedCount: 0 };
 
   const r = await query(
-    `SELECT id, item_name, qty, unit_price, ecount_status
+    `SELECT id, market_item_name, qty, unit_price, ecount_status
      FROM market_sales_data WHERE channel = $1 AND id = ANY($2::bigint[])`,
     [channel, safeIds]
   );
@@ -140,7 +145,7 @@ export async function sendMarketSalesToEcount(
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
 
-    const matched = matchMarketSalesItem(channel, row.item_name);
+    const matched = matchMarketSalesItem(channel, row.market_item_name);
     if (!matched) {
       await query(`UPDATE market_sales_data SET ecount_status = '미매핑', item_code = '' WHERE id = $1`, [row.id]);
       skippedCount++;
@@ -163,8 +168,8 @@ export async function sendMarketSalesToEcount(
     }
 
     await query(
-      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $2, item_code = $3 WHERE id = $1`,
-      [row.id, result.slipNos.join(","), matched.PROD_CD]
+      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $2, item_code = $3, item_name = $4 WHERE id = $1`,
+      [row.id, result.slipNos.join(","), matched.PROD_CD, matched.NAME]
     );
     sentCount++;
   }

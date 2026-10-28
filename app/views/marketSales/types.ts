@@ -6,6 +6,7 @@ export type MarketSalesRow = {
   id: number;
   channel: MarketSalesChannel;
   일자: string | null;
+  마켓상품명: string;
   품목: string;
   품목명: string;
   수량: number;
