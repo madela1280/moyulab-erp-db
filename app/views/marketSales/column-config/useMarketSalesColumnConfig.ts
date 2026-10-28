@@ -20,12 +20,18 @@ function applySavedConfig(
     DEFAULT_MARKET_SALES_COLUMNS.map((c) => [c.key as string, c])
   );
 
-  const orderedKeys = columnOrder.length
-    ? [
-        ...columnOrder.filter((k) => byKey.has(k)),
-        ...DEFAULT_MARKET_SALES_COLUMNS.map((c) => c.key).filter((k) => !columnOrder.includes(k)),
-      ]
-    : DEFAULT_MARKET_SALES_COLUMNS.map((c) => c.key);
+  // ✅ 저장된 순서에 없는 "새로 추가된 컬럼"은 맨 뒤가 아니라, 기본 배열에서의 원래 자리에 끼워 넣는다
+  //    (화면에 컬럼이 나중에 추가될 때마다 기존 사용자 저장값이 남아있으면 새 컬럼이 맨 뒤로 밀리는 문제 방지).
+  let orderedKeys: string[];
+  if (!columnOrder.length) {
+    orderedKeys = DEFAULT_MARKET_SALES_COLUMNS.map((c) => c.key as string);
+  } else {
+    const savedKnownKeys = columnOrder.filter((k) => byKey.has(k));
+    let savedIdx = 0;
+    orderedKeys = DEFAULT_MARKET_SALES_COLUMNS.map((c) => c.key as string).map((defaultKey) =>
+      columnOrder.includes(defaultKey) ? savedKnownKeys[savedIdx++] : defaultKey
+    );
+  }
 
   return orderedKeys.map((key) => {
     const base = byKey.get(key as string)!;
