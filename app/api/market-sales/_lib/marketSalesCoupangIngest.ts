@@ -19,6 +19,7 @@ import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProduct
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 import { toEcountIoDate } from "@/api/market-sales/_lib/marketSalesDate";
+import { ensureMarketSalesTables } from "@/api/market-sales/_lib/marketSalesService";
 
 export type IngestResult =
   | {
@@ -39,6 +40,8 @@ type Aggregated = {
 };
 
 export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, date: string): Promise<IngestResult> {
+  await ensureMarketSalesTables();
+
   const creds = getCoupangCredentials(channel);
   if (!creds) return { ok: false, reason: "CREDENTIALS_NOT_CONFIGURED" };
 

@@ -9,6 +9,7 @@ import { query } from "@/lib/db";
 import { getCoupangCredentials, fetchCoupangRocketGrowthInventory } from "@/api/market-sales/_lib/coupangApiClient";
 import { getProductGroupsForChannel } from "@/api/market-sales/_lib/marketSalesProductMatcher";
 import type { MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
+import { ensureMarketSalesTables } from "@/api/market-sales/_lib/marketSalesService";
 
 export type StockIngestResult =
   | { ok: true; date: string; updatedRows: number; insertedPlaceholders: number }
@@ -21,6 +22,8 @@ export async function ingestCoupangRocketGrowthStock(
   date: string
 ): Promise<StockIngestResult> {
   if (channel !== "coupang_jcompany") return { ok: false, reason: "NOT_SUPPORTED_FOR_CHANNEL" };
+
+  await ensureMarketSalesTables();
 
   const creds = getCoupangCredentials(channel);
   if (!creds) return { ok: false, reason: "CREDENTIALS_NOT_CONFIGURED" };

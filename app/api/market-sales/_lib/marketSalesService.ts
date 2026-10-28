@@ -38,7 +38,7 @@ export type MarketSalesRow = {
 };
 
 let ensured = false;
-async function ensureTables() {
+export async function ensureMarketSalesTables() {
   if (ensured) return;
   await query(`
     CREATE TABLE IF NOT EXISTS market_sales_data (
@@ -91,7 +91,7 @@ function toRow(r: any): MarketSalesRow {
 }
 
 export async function listMarketSales(channel: MarketSalesChannel): Promise<MarketSalesRow[]> {
-  await ensureTables();
+  await ensureMarketSalesTables();
   const r = await query(
     `
     SELECT id, channel, sale_date::text AS sale_date, market_item_name, item_code, item_name, qty, unit_price,
@@ -106,7 +106,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
 }
 
 export async function deleteMarketSales(channel: MarketSalesChannel, ids: number[]): Promise<{ deletedCount: number }> {
-  await ensureTables();
+  await ensureMarketSalesTables();
   const safeIds = ids.map((x) => Number(x)).filter((x) => Number.isFinite(x));
   if (!safeIds.length) return { deletedCount: 0 };
 
@@ -135,7 +135,7 @@ export async function updateMarketSalesLine(
   field: UpdateLineField,
   valueRaw: string
 ): Promise<UpdateLineResult> {
-  await ensureTables();
+  await ensureMarketSalesTables();
 
   const column = FIELD_TO_COLUMN[field];
   if (!column) return { ok: false, reason: "INVALID_FIELD" };
@@ -170,7 +170,7 @@ export async function sendMarketSalesToEcount(
   channel: MarketSalesChannel,
   ids: number[]
 ): Promise<EcountSendResult | { error: "CUST_NOT_CONFIGURED" }> {
-  await ensureTables();
+  await ensureMarketSalesTables();
 
   const cust = CHANNEL_CUST[channel];
   if (!cust) return { error: "CUST_NOT_CONFIGURED" };

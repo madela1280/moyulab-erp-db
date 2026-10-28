@@ -12,6 +12,7 @@ import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProduct
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 import { toEcountIoDate, addDaysToYYYYMMDD, epochMsToKstDateString } from "@/api/market-sales/_lib/marketSalesDate";
+import { ensureMarketSalesTables } from "@/api/market-sales/_lib/marketSalesService";
 
 export type RocketGrowthIngestResult =
   | { ok: true; date: string; insertedOrUpdated: number; autoSentCount: number; autoSkippedCount: number }
@@ -24,6 +25,8 @@ export async function ingestCoupangRocketGrowthSalesForDate(
   channel: MarketSalesChannel,
   date: string
 ): Promise<RocketGrowthIngestResult> {
+  await ensureMarketSalesTables();
+
   const creds = getCoupangCredentials(channel);
   if (!creds) return { ok: false, reason: "CREDENTIALS_NOT_CONFIGURED" };
 
