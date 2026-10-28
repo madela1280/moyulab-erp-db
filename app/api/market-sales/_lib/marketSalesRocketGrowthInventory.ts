@@ -2,8 +2,9 @@
 //
 // 로켓창고 재고 API -> market_sales_data.stock_qty 반영 ("로켓재고" 컬럼, 제이컴퍼니 전용).
 // 2026-10-28 사용자 확인: 재고는 이카운트 전송과 완전히 무관한 단순 체크용 — qty/금액은 절대 안 건드림.
-// 같은 날짜에 그 PROD_CD로 매출 행이 이미 있으면 그 행(들)에 재고만 채워넣고, 없으면
-// 수량 0짜리 "재고 확인용" 행을 새로 만든다(품목코드/품목명은 표시, 수량/금액은 0).
+// ⚠️ 2026-10-28 추가 확인: 재고행은 매출행과 항상 분리되어야 한다(같은 날짜/품목이어도 절대 합치지 않음).
+//    그래서 매출행(external_id = date:vendorItemId 또는 RG:date:vendorItemId)은 절대 건드리지 않고,
+//    항상 재고 전용 행(external_id = STOCK:date:PROD_CD)만 upsert한다 — 수량 0, 금액 0 고정.
 
 import { query } from "@/lib/db";
 import { getCoupangCredentials, fetchCoupangRocketGrowthInventory } from "@/api/market-sales/_lib/coupangApiClient";
@@ -36,20 +37,10 @@ export async function ingestCoupangRocketGrowthStock(
 
   const groups = getProductGroupsForChannel(channel);
 
-  let updatedRows = 0;
-  let insertedPlaceholders = 0;
+  let upserted = 0;
 
   for (const group of groups) {
     const stockSum = group.vendorItemIds.reduce((sum, id) => sum + (stockByVendorItem.get(id) || 0), 0);
-
-    const updateResult = await query(
-      `UPDATE market_sales_data SET stock_qty = $4 WHERE channel = $1 AND sale_date = $2 AND item_code = $3`,
-      [channel, date, group.PROD_CD, stockSum]
-    );
-    if ((updateResult.rowCount || 0) > 0) {
-      updatedRows += updateResult.rowCount || 0;
-      continue;
-    }
 
     const externalId = `STOCK:${date}:${group.PROD_CD}`;
     await query(
@@ -61,8 +52,8 @@ export async function ingestCoupangRocketGrowthStock(
       `,
       [channel, externalId, date, group.PROD_CD, group.NAME, stockSum]
     );
-    insertedPlaceholders++;
+    upserted++;
   }
 
-  return { ok: true, date, updatedRows, insertedPlaceholders };
+  return { ok: true, date, updatedRows: 0, insertedPlaceholders: upserted };
 }
