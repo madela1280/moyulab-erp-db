@@ -18,6 +18,26 @@ export async function deleteMarketSales(channel: MarketSalesChannel, ids: number
   if (!r.ok) throw new Error("삭제하지 못했습니다.");
 }
 
+export type UpdateLineField = "품목" | "품목명" | "수량" | "단가";
+
+export async function updateMarketSalesLine(
+  channel: MarketSalesChannel,
+  id: number,
+  field: UpdateLineField,
+  value: string
+): Promise<void> {
+  const r = await fetch(`/api/market-sales/update-line`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, id, field, value }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    if (j?.error === "ALREADY_SENT") throw new Error("이미 이카운트로 전송된 건은 수정할 수 없습니다.");
+    throw new Error("수정하지 못했습니다.");
+  }
+}
+
 export type SendToEcountResult = { sentCount: number; skippedCount: number };
 
 export async function sendMarketSalesToEcount(

@@ -112,6 +112,50 @@ export async function deleteMarketSales(channel: MarketSalesChannel, ids: number
   return { deletedCount: r.rowCount || 0 };
 }
 
+export type UpdateLineField = "품목" | "품목명" | "수량" | "단가";
+const FIELD_TO_COLUMN: Record<UpdateLineField, string> = {
+  품목: "item_code",
+  품목명: "item_name",
+  수량: "qty",
+  단가: "unit_price",
+};
+
+export type UpdateLineResult = { ok: true } | { ok: false; reason: "NOT_FOUND" | "ALREADY_SENT" | "INVALID_FIELD" };
+
+// ✅ 미매핑/미전송 건을 사용자가 직접 고쳐서 재전송할 수 있게. 전송완료된 건은 전표 내용과
+//    안 맞게 되므로 수정 금지(롯데택배 상품명 수정과 동일 규칙).
+export async function updateMarketSalesLine(
+  channel: MarketSalesChannel,
+  id: number,
+  field: UpdateLineField,
+  valueRaw: string
+): Promise<UpdateLineResult> {
+  await ensureTables();
+
+  const column = FIELD_TO_COLUMN[field];
+  if (!column) return { ok: false, reason: "INVALID_FIELD" };
+
+  const r = await query(`SELECT ecount_status FROM market_sales_data WHERE channel = $1 AND id = $2`, [channel, id]);
+  const row = r.rows?.[0];
+  if (!row) return { ok: false, reason: "NOT_FOUND" };
+  if (row.ecount_status === "전송완료") return { ok: false, reason: "ALREADY_SENT" };
+
+  const isNumericField = field === "수량" || field === "단가";
+  const value = isNumericField ? Number(valueRaw) || 0 : normalizeString(valueRaw);
+
+  // ✅ 품목(코드)을 직접 채워 넣으면 "미매핑" 꼬리표를 떼서 다시 전송 시도할 수 있게 한다.
+  if (field === "품목" && value) {
+    await query(
+      `UPDATE market_sales_data SET item_code = $3, ecount_status = CASE WHEN ecount_status = '미매핑' THEN '미전송' ELSE ecount_status END WHERE channel = $1 AND id = $2`,
+      [channel, id, value]
+    );
+  } else {
+    await query(`UPDATE market_sales_data SET ${column} = $3 WHERE channel = $1 AND id = $2`, [channel, id, value]);
+  }
+
+  return { ok: true };
+}
+
 export type EcountSendResult = {
   sentCount: number;
   skippedCount: number;
@@ -134,7 +178,7 @@ export async function sendMarketSalesToEcount(
   if (!safeIds.length) return { sentCount: 0, skippedCount: 0 };
 
   const r = await query(
-    `SELECT id, market_item_name, qty, unit_price, ecount_status
+    `SELECT id, external_id, item_code, item_name, qty, unit_price, ecount_status
      FROM market_sales_data WHERE channel = $1 AND id = ANY($2::bigint[])`,
     [channel, safeIds]
   );
@@ -145,20 +189,29 @@ export async function sendMarketSalesToEcount(
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
 
-    const matched = matchMarketSalesItem(channel, row.market_item_name);
-    if (!matched) {
-      await query(`UPDATE market_sales_data SET ecount_status = '미매핑', item_code = '' WHERE id = $1`, [row.id]);
-      skippedCount++;
-      continue;
+    // ✅ 품목(item_code)이 이미 채워져 있으면(매칭 성공했거나, 미매핑 건을 사용자가 직접 수정한 경우)
+    //    그 값을 그대로 쓴다 — 비어 있을 때만 옵션ID(external_id)로 자동매칭을 다시 시도한다.
+    let prodCd = normalizeString(row.item_code);
+    let prodName = normalizeString(row.item_name);
+
+    if (!prodCd) {
+      const matched = matchMarketSalesItem(channel, row.external_id);
+      if (!matched) {
+        await query(`UPDATE market_sales_data SET ecount_status = '미매핑' WHERE id = $1`, [row.id]);
+        skippedCount++;
+        continue;
+      }
+      prodCd = matched.PROD_CD;
+      prodName = matched.NAME;
     }
 
     const qty = Number(row.qty) || 0;
-    const price = matched.PRICE;
+    const price = Number(row.unit_price) || 0;
 
     const result = await registerEcountSale({
       cust,
       whCd,
-      lines: [{ PROD_CD: matched.PROD_CD, QTY: qty, PRICE: price }],
+      lines: [{ PROD_CD: prodCd, QTY: qty, PRICE: price }],
     });
 
     if (!result.ok || !result.slipNos.length) {
@@ -169,7 +222,7 @@ export async function sendMarketSalesToEcount(
 
     await query(
       `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $2, item_code = $3, item_name = $4 WHERE id = $1`,
-      [row.id, result.slipNos.join(","), matched.PROD_CD, matched.NAME]
+      [row.id, result.slipNos.join(","), prodCd, prodName]
     );
     sentCount++;
   }

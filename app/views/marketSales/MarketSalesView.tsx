@@ -9,7 +9,13 @@
 import { useEffect, useMemo, useState } from "react";
 import MarketSalesGrid from "@/views/marketSales/components/MarketSalesGrid";
 import { useMarketSalesColumnConfig } from "@/views/marketSales/column-config/useMarketSalesColumnConfig";
-import { fetchMarketSales, deleteMarketSales, sendMarketSalesToEcount } from "@/views/marketSales/service";
+import {
+  fetchMarketSales,
+  deleteMarketSales,
+  sendMarketSalesToEcount,
+  updateMarketSalesLine,
+  type UpdateLineField,
+} from "@/views/marketSales/service";
 import type { MarketSalesChannel, MarketSalesRow } from "@/views/marketSales/types";
 import FilterButton from "@/views/lotteShipment/filter/FilterButton";
 import {
@@ -124,6 +130,20 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
     }
   }
 
+  // ✅ 서버 응답을 기다리지 않고 화면에 바로 반영(낙관적 업데이트) — 실패하면 조용히 다시 불러와 되돌린다.
+  async function handleUpdateLine(id: number, field: UpdateLineField, value: string) {
+    setError("");
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: field === "수량" || field === "단가" ? Number(value) || 0 : value } : r))
+    );
+    try {
+      await updateMarketSalesLine(channel, id, field, value);
+    } catch (e: any) {
+      setError(e?.message || "수정하지 못했습니다.");
+      await loadRows();
+    }
+  }
+
   const unsentEcountSelectedCount = Array.from(selectedIds).filter(
     (id) => rows.find((r) => r.id === id)?.이카운트전송상태 !== "전송완료"
   ).length;
@@ -211,6 +231,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
         onFilterStateChange={setFilterState}
         allRowsForFilter={searchedRows}
         onSortChange={(key, dir) => setSortState({ key, dir })}
+        onUpdateLine={handleUpdateLine}
       />
     </div>
   );

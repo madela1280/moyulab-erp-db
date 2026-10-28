@@ -2,8 +2,9 @@
 
 // app/views/marketSales/components/MarketSalesGrid.tsx
 //
-// 쿠팡/스마트스토어 매출 조회 표. 읽기 전용(값 입력은 API 자동수집에서만 채워짐) —
-// 체크박스로 선택 -> 삭제/이카운트전송만 가능. 롯데택배 그리드와 동일한 열이동/필터 방식.
+// 쿠팡/스마트스토어 매출 조회 표. 체크박스로 선택 -> 삭제/이카운트전송. 롯데택배 그리드와 동일한
+// 열이동/필터 방식. 품목/품목명/수량/단가는 더블클릭으로 수정 가능(미매핑 건 수동 보정용) —
+// 단, 이미 이카운트 전송완료된 건은 전표 내용과 안 맞게 되므로 수정 금지(롯데택배 상품명 수정과 동일 규칙).
 
 import { useState } from "react";
 import type { MarketSalesRow } from "@/views/marketSales/types";
@@ -41,6 +42,10 @@ function formatNumber(v: number) {
   return Number(v ?? 0).toLocaleString("ko-KR");
 }
 
+export type EditableField = "품목" | "품목명" | "수량" | "단가";
+const EDITABLE_FIELDS: EditableField[] = ["품목", "품목명", "수량", "단가"];
+const NUMERIC_EDITABLE_FIELDS: EditableField[] = ["수량", "단가"];
+
 export default function MarketSalesGrid({
   rows,
   columns,
@@ -54,6 +59,7 @@ export default function MarketSalesGrid({
   onFilterStateChange,
   allRowsForFilter,
   onSortChange,
+  onUpdateLine,
 }: {
   rows: MarketSalesRow[];
   columns: MarketSalesColumn[];
@@ -67,6 +73,7 @@ export default function MarketSalesGrid({
   onFilterStateChange?: (next: ColumnFilterState) => void;
   allRowsForFilter?: MarketSalesRow[];
   onSortChange?: (key: keyof MarketSalesRow, dir: "asc" | "desc") => void;
+  onUpdateLine?: (id: number, field: EditableField, value: string) => void;
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
 
@@ -75,6 +82,24 @@ export default function MarketSalesGrid({
   const [popoverSearch, setPopoverSearch] = useState("");
 
   const [widthDraft, setWidthDraft] = useState<{ key: string; text: string } | null>(null);
+
+  const [editingCell, setEditingCell] = useState<{ id: number; field: EditableField } | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+
+  function canEditCell(row: MarketSalesRow) {
+    return row.이카운트전송상태 !== "전송완료"; // 이미 전송된 건은 전표와 내용이 안 맞게 되므로 수정 불가
+  }
+
+  function startEditCell(row: MarketSalesRow, field: EditableField) {
+    if (!canEditCell(row)) return;
+    setEditingCell({ id: row.id, field });
+    setEditingValue(String(row[field] ?? ""));
+  }
+
+  function commitEditCell() {
+    if (editingCell) onUpdateLine?.(editingCell.id, editingCell.field, editingValue);
+    setEditingCell(null);
+  }
 
   function widthInputValue(col: MarketSalesColumn) {
     return widthDraft && widthDraft.key === col.key ? widthDraft.text : String(col.width);
@@ -269,32 +294,69 @@ export default function MarketSalesGrid({
               <td className="border border-slate-300 px-2 py-1 text-center">
                 <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => onToggleSelect(row.id)} />
               </td>
-              {columns.map((col) => (
-                <td
-                  key={col.key}
-                  className={`border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis ${
-                    numericKeys.includes(col.key) ? "text-right" : ""
-                  }`}
-                >
-                  {col.key === "이카운트전송상태" ? (
-                    <span
-                      className={
-                        row.이카운트전송상태 === "전송완료"
-                          ? "text-emerald-700 font-semibold"
-                          : row.이카운트전송상태 === "미매핑"
-                          ? "text-orange-600 font-semibold"
-                          : "text-slate-400"
-                      }
-                    >
-                      {row.이카운트전송상태}
-                    </span>
-                  ) : numericKeys.includes(col.key) ? (
-                    formatNumber(row[col.key] as number)
-                  ) : (
-                    String(row[col.key] ?? "")
-                  )}
-                </td>
-              ))}
+              {columns.map((col) => {
+                const isEditableField = EDITABLE_FIELDS.includes(col.key as EditableField);
+                const isEditingThisCell =
+                  isEditableField && editingCell?.id === row.id && editingCell.field === col.key;
+                const editable = isEditableField && canEditCell(row);
+
+                return (
+                  <td
+                    key={col.key}
+                    className={`border border-slate-300 px-2 py-1 whitespace-nowrap overflow-hidden text-ellipsis ${
+                      numericKeys.includes(col.key) ? "text-right" : ""
+                    }`}
+                    onDoubleClick={
+                      isEditableField && !isEditingThisCell
+                        ? () => startEditCell(row, col.key as EditableField)
+                        : undefined
+                    }
+                  >
+                    {col.key === "이카운트전송상태" ? (
+                      <span
+                        className={
+                          row.이카운트전송상태 === "전송완료"
+                            ? "text-emerald-700 font-semibold"
+                            : row.이카운트전송상태 === "미매핑"
+                            ? "text-orange-600 font-semibold"
+                            : "text-slate-400"
+                        }
+                      >
+                        {row.이카운트전송상태}
+                      </span>
+                    ) : isEditingThisCell ? (
+                      <input
+                        autoFocus
+                        type={NUMERIC_EDITABLE_FIELDS.includes(col.key as EditableField) ? "number" : "text"}
+                        className="w-full h-6 px-1 text-xs border border-blue-400 rounded"
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={commitEditCell}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitEditCell();
+                          } else if (e.key === "Escape") {
+                            setEditingCell(null);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : isEditableField ? (
+                      <span
+                        title={editable ? `더블클릭해서 ${col.label} 수정` : ""}
+                        className={editable ? "cursor-text hover:bg-yellow-50" : ""}
+                      >
+                        {numericKeys.includes(col.key) ? formatNumber(row[col.key] as number) : String(row[col.key] ?? "")}
+                      </span>
+                    ) : numericKeys.includes(col.key) ? (
+                      formatNumber(row[col.key] as number)
+                    ) : (
+                      String(row[col.key] ?? "")
+                    )}
+                  </td>
+                );
+              })}
             </tr>
           ))}
 
