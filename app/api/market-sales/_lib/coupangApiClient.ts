@@ -9,6 +9,7 @@ import type { MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChan
 
 const BASE_URL = "https://api-gateway.coupang.com";
 const REVENUE_HISTORY_PATH = "/v2/providers/openapi/apis/api/v1/revenue-history";
+const ROCKET_GROWTH_ORDERS_PATH_TMPL = "/v2/providers/rg_open_api/apis/api/v1/vendors/{vendorId}/rg/orders";
 
 export type CoupangCredentials = { vendorId: string; accessKey: string; secretKey: string };
 
@@ -137,6 +138,87 @@ export async function fetchCoupangRevenueHistory(
     if (!json.hasNext) break;
     token = json.nextToken || "";
     if (!token) break;
+  }
+
+  return { ok: true, entries };
+}
+
+export type RocketGrowthOrderItem = {
+  vendorItemId: string;
+  productName: string;
+  salesQuantity: number;
+  unitSalesPrice: number;
+};
+
+export type RocketGrowthOrderEntry = {
+  orderId: number;
+  paidAt: number;
+  orderItems: RocketGrowthOrderItem[];
+};
+
+export type RocketGrowthOrdersResult =
+  | { ok: true; entries: RocketGrowthOrderEntry[] }
+  | { ok: false; reason: string };
+
+// ✅ 로켓그로스 주문 API(목록 쿼리). 매출인식일이 아니라 "결제일(paidDate)" 기준, yyyymmdd 형식,
+//    최대 30일 범위 — 정산(매출내역조회) API와 날짜 형식/기준이 다르니 섞어 쓰지 않는다.
+export async function fetchCoupangRocketGrowthOrders(
+  creds: CoupangCredentials,
+  paidDateFromYYYYMMDD: string,
+  paidDateToYYYYMMDD: string
+): Promise<RocketGrowthOrdersResult> {
+  const path = ROCKET_GROWTH_ORDERS_PATH_TMPL.replace("{vendorId}", creds.vendorId);
+  const entries: RocketGrowthOrderEntry[] = [];
+  let nextToken = "";
+  let guard = 0;
+
+  while (guard < 200) {
+    guard++;
+    const queryObj: Record<string, string> = {
+      paidDateFrom: paidDateFromYYYYMMDD,
+      paidDateTo: paidDateToYYYYMMDD,
+    };
+    if (nextToken) queryObj.nextToken = nextToken;
+    const queryStr = new URLSearchParams(queryObj).toString();
+
+    const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
+
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}${path}?${queryStr}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json;charset=UTF-8",
+          Authorization: authorization,
+        },
+      });
+    } catch (e: any) {
+      return { ok: false, reason: `NETWORK_ERROR: ${e?.message || e}` };
+    }
+
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok || !json || Number(json.code) !== 200) {
+      return { ok: false, reason: `API_ERROR(${res.status}): ${JSON.stringify(json)}` };
+    }
+
+    const data: any[] = Array.isArray(json.data) ? json.data : [];
+    for (const row of data) {
+      entries.push({
+        orderId: row.orderId,
+        paidAt: row.paidAt,
+        orderItems: Array.isArray(row.orderItems)
+          ? row.orderItems.map((it: any) => ({
+              vendorItemId: String(it.vendorItemId),
+              productName: String(it.productName ?? ""),
+              salesQuantity: Number(it.salesQuantity) || 0,
+              unitSalesPrice: Number(it.unitSalesPrice) || 0,
+            }))
+          : [],
+      });
+    }
+
+    if (!json.nextToken) break;
+    nextToken = json.nextToken;
   }
 
   return { ok: true, entries };

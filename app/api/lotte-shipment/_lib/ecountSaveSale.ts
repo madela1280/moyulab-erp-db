@@ -85,6 +85,9 @@ export async function registerEcountSale(args: {
   cust: string;
   whCd: string;
   lines: EcountSaleLine[];
+  // ✅ YYYYMMDD. 안 주면 기존 그대로 오늘 날짜(롯데택배 스캔 전송 등 기존 호출부는 영향 없음).
+  //    마켓매출(쿠팡 등)처럼 실제 판매일과 전송 시점이 다를 수 있는 경우에만 명시적으로 넘긴다.
+  ioDate?: string;
 }): Promise<EcountSaveSaleResult> {
   if (!args.lines.length) return { ok: false, reason: "NO_LINES" };
 
@@ -95,7 +98,7 @@ export async function registerEcountSale(args: {
     return { ok: false, reason: `SESSION_FAILED: ${err?.message || err}` };
   }
 
-  const ioDate = todayYYYYMMDD();
+  const ioDate = args.ioDate || todayYYYYMMDD();
   const url = `https://oapi${session.zone}.ecount.com/OAPI/V2/Sale/SaveSale?SESSION_ID=${encodeURIComponent(session.sessionId)}`;
 
   const SaleList = args.lines.map((line, idx) => {

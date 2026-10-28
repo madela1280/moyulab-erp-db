@@ -7,6 +7,7 @@
 import { query } from "@/lib/db";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProductMatcher";
+import { toEcountIoDate } from "@/api/market-sales/_lib/marketSalesDate";
 import {
   CHANNEL_CUST,
   CHANNEL_WH_CD,
@@ -178,7 +179,7 @@ export async function sendMarketSalesToEcount(
   if (!safeIds.length) return { sentCount: 0, skippedCount: 0 };
 
   const r = await query(
-    `SELECT id, external_id, item_code, item_name, qty, unit_price, ecount_status
+    `SELECT id, external_id, item_code, item_name, qty, unit_price, ecount_status, sale_date::text AS sale_date
      FROM market_sales_data WHERE channel = $1 AND id = ANY($2::bigint[])`,
     [channel, safeIds]
   );
@@ -212,6 +213,7 @@ export async function sendMarketSalesToEcount(
       cust,
       whCd,
       lines: [{ PROD_CD: prodCd, QTY: qty, PRICE: price }],
+      ioDate: toEcountIoDate(row.sale_date),
     });
 
     if (!result.ok || !result.slipNos.length) {

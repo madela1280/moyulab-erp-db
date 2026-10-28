@@ -18,6 +18,7 @@ import { getCoupangCredentials, fetchCoupangRevenueHistory } from "@/api/market-
 import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProductMatcher";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
+import { toEcountIoDate } from "@/api/market-sales/_lib/marketSalesDate";
 
 export type IngestResult =
   | {
@@ -120,7 +121,12 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     );
     if (existing.rows?.[0]?.ecount_status === "전송완료") continue;
 
-    const result = await registerEcountSale({ cust, whCd, lines: [{ PROD_CD: itemCode, QTY: finalQty, PRICE: unitPrice }] });
+    const result = await registerEcountSale({
+      cust,
+      whCd,
+      lines: [{ PROD_CD: itemCode, QTY: finalQty, PRICE: unitPrice }],
+      ioDate: toEcountIoDate(date),
+    });
     if (!result.ok || !result.slipNos.length) {
       console.error(`market-sales 자동수집 이카운트 전송 실패(channel=${channel}, externalId=${externalId}):`, !result.ok ? result.reason : "슬립번호 없음");
       autoSkippedCount++;
