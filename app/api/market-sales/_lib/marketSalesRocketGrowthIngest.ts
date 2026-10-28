@@ -11,7 +11,7 @@ import { getCoupangCredentials, fetchCoupangRocketGrowthOrders } from "@/api/mar
 import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProductMatcher";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
-import { toEcountIoDate } from "@/api/market-sales/_lib/marketSalesDate";
+import { toEcountIoDate, addDaysToYYYYMMDD, epochMsToKstDateString } from "@/api/market-sales/_lib/marketSalesDate";
 
 export type RocketGrowthIngestResult =
   | { ok: true; date: string; insertedOrUpdated: number; autoSentCount: number; autoSkippedCount: number }
@@ -30,11 +30,18 @@ export async function ingestCoupangRocketGrowthSalesForDate(
   const paidDate = toEcountIoDate(date); // yyyymmdd
   if (!paidDate) return { ok: false, reason: "INVALID_DATE" };
 
-  const fetchResult = await fetchCoupangRocketGrowthOrders(creds, paidDate, paidDate);
+  // ⚠️ 쿠팡 로켓그로스 주문 API는 from=to(하루 단일 조회)로 호출하면 결과가 빈 리스트로 돌아온다
+  //    (2026-10-28 실제 호출로 확인). 그래서 하루 전~하루 후로 넉넉히 걸쳐 조회한 다음,
+  //    실제 결제시각(paidAt)을 한국시간으로 변환해서 정확히 그 날짜인 것만 걸러낸다.
+  const fromDate = addDaysToYYYYMMDD(date, -1);
+  const toDate = addDaysToYYYYMMDD(date, 1);
+  const fetchResult = await fetchCoupangRocketGrowthOrders(creds, fromDate, toDate);
   if (!fetchResult.ok) return { ok: false, reason: fetchResult.reason };
 
+  const entriesForDate = fetchResult.entries.filter((e) => epochMsToKstDateString(e.paidAt) === date);
+
   const aggByVendorItem = new Map<string, Aggregated>();
-  for (const entry of fetchResult.entries) {
+  for (const entry of entriesForDate) {
     for (const item of entry.orderItems) {
       const prev = aggByVendorItem.get(item.vendorItemId);
       const lineAmount = item.salesQuantity * item.unitSalesPrice;
