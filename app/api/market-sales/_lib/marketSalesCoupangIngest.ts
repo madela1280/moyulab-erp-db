@@ -95,7 +95,7 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
       INSERT INTO market_sales_data
         (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      ON CONFLICT (channel, external_id) DO UPDATE SET
+      ON CONFLICT (channel, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
         market_item_name = EXCLUDED.market_item_name,
         qty = EXCLUDED.qty,
         unit_price = EXCLUDED.unit_price,
