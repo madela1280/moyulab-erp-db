@@ -42,9 +42,10 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
   const { columns, setColumns } = useMarketSalesColumnConfig(channel);
   const displayColumns = useMemo(
     () =>
-      columns.map((c) =>
-        c.key === "마켓상품명" ? { ...c, label: MARKET_ITEM_NAME_LABEL[channel] } : c
-      ),
+      columns
+        // ✅ 로켓재고는 제이컴퍼니 전용 — 다른 채널은 컬럼 자체를 안 보여준다(값이 아니라 헤더 자체 제거).
+        .filter((c) => c.key !== "로켓재고" || channel === "coupang_jcompany")
+        .map((c) => (c.key === "마켓상품명" ? { ...c, label: MARKET_ITEM_NAME_LABEL[channel] } : c)),
     [columns, channel]
   );
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
