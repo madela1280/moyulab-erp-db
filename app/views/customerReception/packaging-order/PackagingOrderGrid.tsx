@@ -231,8 +231,8 @@ export default function PackagingOrderGrid({
         <thead className="sticky top-0 z-10">
           <tr>
             <th
-              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white"
-              style={{ width: 40, minWidth: 40, backgroundColor: "#7030a0" }}
+              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100"
+              style={{ width: 40, minWidth: 40 }}
             >
               <input
                 type="checkbox"
@@ -245,8 +245,8 @@ export default function PackagingOrderGrid({
             {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
-                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
-                style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
+                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100 whitespace-nowrap"
+                style={{ width: col.width, minWidth: col.width }}
               >
                 <div className="flex flex-col items-center gap-1">
                   <div className="w-full overflow-hidden text-ellipsis whitespace-nowrap flex items-center justify-center gap-1">

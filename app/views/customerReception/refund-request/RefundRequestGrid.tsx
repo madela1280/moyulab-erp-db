@@ -172,8 +172,8 @@ export default function RefundRequestGrid({
         <thead className="sticky top-0 z-10">
           <tr>
             <th
-              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white"
-              style={{ width: 40, minWidth: 40, backgroundColor: "#7030a0" }}
+              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100"
+              style={{ width: 40, minWidth: 40 }}
             >
               <input type="checkbox" checked={allChecked} onChange={(e) => onToggleSelectAll?.(e.target.checked)} title="전체 선택" />
             </th>
@@ -181,8 +181,8 @@ export default function RefundRequestGrid({
             {displayColumns.map((col, index) => (
               <th
                 key={`${col.key}-${index}`}
-                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
-                style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
+                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100 whitespace-nowrap"
+                style={{ width: col.width, minWidth: col.width }}
               >
                 <div className="flex flex-col items-center gap-1">
                   <span className="flex w-full items-center justify-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap">
@@ -191,7 +191,7 @@ export default function RefundRequestGrid({
                       <button
                         type="button"
                         title={paymentStatusSortActive ? "접수일자순으로 되돌리기" : "입금전 → 반품전 → 입금완료 순 정렬"}
-                        className={`text-[10px] leading-none ${paymentStatusSortActive ? "text-yellow-300" : "text-white/70 hover:text-white"}`}
+                        className={`text-[10px] leading-none ${paymentStatusSortActive ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-700"}`}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();

@@ -227,8 +227,8 @@ export default function LotteShipmentGrid({
         <thead className="sticky top-0 z-10">
           <tr>
             <th
-              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white"
-              style={{ width: 40, minWidth: 40, backgroundColor: "#7030a0" }}
+              className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100"
+              style={{ width: 40, minWidth: 40 }}
             >
               <input type="checkbox" checked={allChecked} onChange={(e) => onToggleSelectAll(e.target.checked)} title="전체 선택" />
             </th>
@@ -236,17 +236,17 @@ export default function LotteShipmentGrid({
             {columns.map((col, index) => (
               <th
                 key={col.key}
-                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-white whitespace-nowrap"
-                style={{ width: col.width, minWidth: col.width, backgroundColor: "#7030a0" }}
+                className="select-none border border-slate-400 px-2 py-2 text-center font-semibold text-slate-700 bg-gray-100 whitespace-nowrap"
+                style={{ width: col.width, minWidth: col.width }}
               >
                 <div className="flex flex-col items-center gap-1">
                   <span className="inline-flex items-center gap-1">
                     <span
                       className={
                         col.key === "전송상태"
-                          ? "text-blue-300"
+                          ? "text-blue-700"
                           : col.key === "이카운트전송상태"
-                          ? "text-red-300"
+                          ? "text-red-700"
                           : ""
                       }
                     >
@@ -256,7 +256,7 @@ export default function LotteShipmentGrid({
                       <button
                         type="button"
                         title={scanSortActive ? "수집순으로 되돌리기" : "미스캔(미발송) 건 위로 정렬"}
-                        className={`text-[10px] leading-none ${scanSortActive ? "text-yellow-300" : "text-white/70 hover:text-white"}`}
+                        className={`text-[10px] leading-none ${scanSortActive ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-700"}`}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -271,7 +271,7 @@ export default function LotteShipmentGrid({
                         type="button"
                         title="필터"
                         className={`text-[10px] leading-none ${
-                          columnHasFilter(col.key) ? "text-yellow-300" : "text-white/70 hover:text-white"
+                          columnHasFilter(col.key) ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-700"
                         }`}
                         onClick={(e) => openFilterPopover(col.key, e)}
                       >
