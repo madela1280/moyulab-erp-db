@@ -22,10 +22,11 @@ export const CHANNEL_LABEL: Record<MarketSalesChannel, string> = {
 };
 
 // ✅ 2026-10-28 사용자 확인: 쿠팡(윙)-제이컴퍼니 = CUST 00053.
-// 한모정/스마트스토어는 아직 확인 안 됨 — 비워두고, 전송 시도 시 CUST_NOT_CONFIGURED로 막는다.
+// ✅ 2026-10-29 사용자 확인: 쿠팡(윙)-한모정 = CUST 00002.
+// 스마트스토어는 아직 확인 안 됨 — 비워두고, 전송 시도 시 CUST_NOT_CONFIGURED로 막는다.
 export const CHANNEL_CUST: Record<MarketSalesChannel, string> = {
   coupang_jcompany: "00053",
-  coupang_hanmojeong: "",
+  coupang_hanmojeong: "00002",
   smartstore: "",
 };
 
