@@ -317,7 +317,8 @@ async function attemptEcountSendOne(
   const row = r.rows?.[0];
   if (!row) return { status: "NOT_FOUND" };
   if (row.이카운트전표번호) return { status: "ALREADY_SENT" };
-  if (!row.스캔일시) return { status: "NOT_SCANNED" };
+  // ✅ 2026-10-29 사용자 확인: "이카운트 전송" 버튼은 스캔 여부와 무관하게 전송 시도한다
+  //    (미매핑이면 당연히 여기서 막힘 — 그건 그대로 유지. 스캔 안 됐다는 이유만으로 막던 걸 없앤 것).
 
   const lines = matchAmoenaLines(normalizeString(row.상품명));
   if (!lines.length) return { status: "PRODUCT_NOT_MATCHED" };
