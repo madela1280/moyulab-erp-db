@@ -9,6 +9,7 @@ import { buildUnifiedCellChangeItems, recordUnifiedChangeHistory } from "@/unifi
 import { triggerLotteFetchOnce } from "@/api/lotte-shipment/_lib/triggerLotteFetch";
 import { matchAmoenaLines, AMOENA_CUST, AMOENA_WH_CD } from "@/api/lotte-shipment/_lib/ecountAmoenaMatcher";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
+import { toEcountIoDate } from "@/api/market-sales/_lib/marketSalesDate";
 
 export const SEND_BATCH_MAX = 300;
 
@@ -311,7 +312,7 @@ async function attemptEcountSendOne(
   invoiceNo: string
 ): Promise<{ status: "SENT"; slipNo: string } | { status: "NOT_FOUND" | "ALREADY_SENT" | "NOT_SCANNED" | "PRODUCT_NOT_MATCHED" | "SEND_FAILED" }> {
   const r = await pool.query(
-    `SELECT 운송장번호, 상품명, 스캔일시, 이카운트전표번호 FROM lotte_shipment_data WHERE 운송장번호 = $1`,
+    `SELECT 운송장번호, 상품명, 스캔일시, 이카운트전표번호, 집하일자::text AS 집하일자 FROM lotte_shipment_data WHERE 운송장번호 = $1`,
     [invoiceNo]
   );
   const row = r.rows?.[0];
@@ -323,7 +324,13 @@ async function attemptEcountSendOne(
   const lines = matchAmoenaLines(normalizeString(row.상품명));
   if (!lines.length) return { status: "PRODUCT_NOT_MATCHED" };
 
-  const result = await registerEcountSale({ cust: AMOENA_CUST, whCd: AMOENA_WH_CD, lines });
+  // ✅ 2026-10-29 사용자 확인: 이카운트 판매일자는 전송한 날짜가 아니라 집하일자로 들어가야 한다.
+  const result = await registerEcountSale({
+    cust: AMOENA_CUST,
+    whCd: AMOENA_WH_CD,
+    lines,
+    ioDate: toEcountIoDate(row.집하일자),
+  });
   if (!result.ok || !result.slipNos.length) {
     console.error(`이카운트 매출 등록 실패(${invoiceNo}):`, !result.ok ? result.reason : "슬립번호 없음");
     return { status: "SEND_FAILED" };
