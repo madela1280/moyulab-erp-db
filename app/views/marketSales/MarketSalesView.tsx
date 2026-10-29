@@ -197,7 +197,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
           type="button"
           onClick={handleDelete}
           disabled={selectedIds.size === 0}
-          className="px-3 py-1.5 rounded border border-red-300 bg-white text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-black font-semibold hover:bg-red-700"
         >
           삭제 ({selectedIds.size})
         </button>
@@ -205,7 +205,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
           type="button"
           onClick={handleSendEcount}
           disabled={unsentEcountSelectedCount === 0}
-          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-white font-semibold hover:bg-red-700 disabled:bg-slate-200 disabled:border-slate-200 disabled:text-slate-400"
+          className="px-3 py-1.5 rounded border border-blue-600 bg-blue-600 text-sm text-white font-semibold hover:bg-blue-700"
         >
           이카운트 전송 ({unsentEcountSelectedCount})
         </button>
