@@ -292,7 +292,7 @@ export default function LotteShipmentView() {
           type="button"
           onClick={handleSend}
           disabled={unsentSelectedCount === 0}
-          className="px-3 py-1.5 rounded border border-blue-600 bg-blue-600 text-sm text-black hover:bg-blue-700 disabled:opacity-50"
+          className="px-3 py-1.5 rounded border border-blue-600 bg-blue-600 text-sm text-white font-semibold hover:bg-blue-700"
         >
           통합관리전송 ({unsentSelectedCount})
         </button>
@@ -300,7 +300,7 @@ export default function LotteShipmentView() {
           type="button"
           onClick={handleSendEcount}
           disabled={unsentEcountSelectedCount === 0}
-          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-black hover:bg-red-700 disabled:opacity-50"
+          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-black font-semibold hover:bg-red-700"
         >
           이카운트 전송 ({unsentEcountSelectedCount})
         </button>
