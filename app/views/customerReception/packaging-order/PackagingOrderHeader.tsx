@@ -29,7 +29,7 @@ export default function PackagingOrderHeader({
         type="button"
         onClick={onRefresh}
         disabled={loading}
-        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
       >
         {loading ? "불러오는 중..." : "새로고침"}
       </button>
@@ -50,7 +50,7 @@ export default function PackagingOrderHeader({
         type="button"
         onClick={onDelete}
         disabled={deleteCount === 0}
-        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
       >
         삭제{deleteCount > 0 ? ` (${deleteCount})` : ""}
       </button>

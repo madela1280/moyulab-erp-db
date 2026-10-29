@@ -189,7 +189,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
           type="button"
           onClick={() => loadRows()}
           disabled={loading}
-          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
         >
           새로고침
         </button>
@@ -197,7 +197,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
           type="button"
           onClick={handleDelete}
           disabled={selectedIds.size === 0}
-          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
         >
           삭제 ({selectedIds.size})
         </button>
