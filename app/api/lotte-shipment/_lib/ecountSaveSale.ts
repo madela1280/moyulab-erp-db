@@ -1,8 +1,11 @@
 // app/api/lotte-shipment/_lib/ecountSaveSale.ts
 //
 // 이카운트 판매입력(SaveSale) 실서버 호출 공용 모듈.
-// ⚠️ 로그인(Zone/Login) API는 실서버 기준 10분에 1회만 허용된다 — 세션을 캐싱해서 재사용하고,
-//    저장 실패해도 절대 자동 재시도하지 않는다(이카운트 IP 차단 정책).
+// ⚠️ 로그인(Zone/Login) API는 실서버 기준 10분에 1회만 허용된다 — 세션을 캐싱해서 재사용한다.
+// 2026-10-29 추가: 실패 시 딱 1회만 재시도한다(무한 재시도 금지, CLAUDE.md 원칙).
+//    - "Please login"(세션 만료 확정, 아무것도 안 만들어짐) -> 즉시 재로그인 후 재시도.
+//    - 그 외 네트워크/일시 오류 -> 로그인 API는 함부로 다시 안 부르고(10분/1회 제한), 같은 세션으로
+//      1.5초 후 한 번만 재시도.
 
 export type EcountSaleLine = {
   PROD_CD: string;
@@ -77,27 +80,21 @@ async function getOrCreateSession(): Promise<Session> {
   return session;
 }
 
-/**
- * CUST 1개 기준으로 여러 품목 라인을 한 전표(또는 묶음)로 등록한다.
- * ⚠️ 저장(쓰기) API라 호출하면 실제 전표가 생긴다. 실패해도 재시도하지 않는다.
- */
-export async function registerEcountSale(args: {
-  cust: string;
-  whCd: string;
-  lines: EcountSaleLine[];
-  // ✅ YYYYMMDD. 안 주면 기존 그대로 오늘 날짜(롯데택배 스캔 전송 등 기존 호출부는 영향 없음).
-  //    마켓매출(쿠팡 등)처럼 실제 판매일과 전송 시점이 다를 수 있는 경우에만 명시적으로 넘긴다.
-  ioDate?: string;
-}): Promise<EcountSaveSaleResult> {
-  if (!args.lines.length) return { ok: false, reason: "NO_LINES" };
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  let session: Session;
-  try {
-    session = await getOrCreateSession();
-  } catch (err: any) {
-    return { ok: false, reason: `SESSION_FAILED: ${err?.message || err}` };
-  }
+// ✅ "Please login"(세션 만료)은 이카운트가 아무것도 처리하지 않고 그 자리에서 거부한 게 확실한
+//    경우라 즉시 재로그인 후 재시도해도 중복 전표 위험이 없다. 그 외(네트워크/파싱 오류 등)는
+//    실제로 처리됐을 수도 있어 확신이 덜하지만, CLAUDE.md 원칙대로 "짧은 지연 후 딱 1회"만 재시도한다.
+function isSessionExpiredError(reason: string): boolean {
+  return /please\s*login/i.test(reason);
+}
 
+async function attemptSaveSale(
+  args: { cust: string; whCd: string; lines: EcountSaleLine[]; ioDate?: string },
+  session: Session
+): Promise<EcountSaveSaleResult> {
   const ioDate = args.ioDate || todayYYYYMMDD();
   const url = `https://oapi${session.zone}.ecount.com/OAPI/V2/Sale/SaveSale?SESSION_ID=${encodeURIComponent(session.sessionId)}`;
 
@@ -133,12 +130,57 @@ export async function registerEcountSale(args: {
 
   const data = json?.Data;
   if (String(json?.Status) !== "200" || !data || Number(data.FailCnt) > 0) {
-    // 세션 만료로 보이는 경우를 위해 캐시만 비워둔다(다음 호출에서 재로그인) — 지금 이 호출을 재시도하지는 않음.
-    const cache = getSessionCache();
-    cache.current = null;
     return { ok: false, reason: `SAVE_SALE_FAILED: ${JSON.stringify(json)}` };
   }
 
   const slipNos: string[] = Array.isArray(data.SlipNos) ? data.SlipNos.filter(Boolean) : [];
   return { ok: true, slipNos };
+}
+
+/**
+ * CUST 1개 기준으로 여러 품목 라인을 한 전표(또는 묶음)로 등록한다.
+ * ⚠️ 저장(쓰기) API라 호출하면 실제 전표가 생긴다. 실패 시 딱 1회만 재시도한다(무한 재시도 금지).
+ */
+export async function registerEcountSale(args: {
+  cust: string;
+  whCd: string;
+  lines: EcountSaleLine[];
+  // ✅ YYYYMMDD. 안 주면 기존 그대로 오늘 날짜(롯데택배 스캔 전송 등 기존 호출부는 영향 없음).
+  //    마켓매출(쿠팡 등)처럼 실제 판매일과 전송 시점이 다를 수 있는 경우에만 명시적으로 넘긴다.
+  ioDate?: string;
+}): Promise<EcountSaveSaleResult> {
+  if (!args.lines.length) return { ok: false, reason: "NO_LINES" };
+
+  let session: Session;
+  try {
+    session = await getOrCreateSession();
+  } catch (err: any) {
+    return { ok: false, reason: `SESSION_FAILED: ${err?.message || err}` };
+  }
+
+  const first = await attemptSaveSale(args, session);
+  if (first.ok) return first;
+
+  const cache = getSessionCache();
+
+  if (isSessionExpiredError(first.reason)) {
+    // ✅ 세션 만료 확정 — 아무것도 안 만들어졌으니 바로 재로그인 후 재시도.
+    cache.current = null;
+    let freshSession: Session;
+    try {
+      freshSession = await getOrCreateSession();
+    } catch (err: any) {
+      return { ok: false, reason: `SESSION_FAILED(재시도): ${err?.message || err}` };
+    }
+    const retried = await attemptSaveSale(args, freshSession);
+    if (!retried.ok) cache.current = null; // 재시도도 실패하면 다음 호출을 위해 또 비워둔다
+    return retried;
+  }
+
+  // ✅ 네트워크/일시적 오류 — 로그인 API는 10분/1회 제한이 있어서 함부로 재로그인하지 않는다.
+  //    세션은 그대로 캐시에 둔 채(아직 세션이 문제라는 증거가 없으므로) 짧게 한 번만 같은 세션으로 재시도.
+  await sleep(1500);
+  const retried = await attemptSaveSale(args, session);
+  if (!retried.ok && isSessionExpiredError(retried.reason)) cache.current = null;
+  return retried;
 }

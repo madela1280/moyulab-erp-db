@@ -122,7 +122,9 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
     try {
       const result = await sendMarketSalesToEcount(channel, Array.from(selectedIds));
       if (result.skippedCount > 0) {
-        window.alert(`이카운트 전송 완료: ${result.sentCount}건\n보류(미매핑 등): ${result.skippedCount}건`);
+        window.alert(
+          `이카운트 전송 완료: ${result.sentCount}건\n보류: ${result.skippedCount}건 (미매핑이거나, 이카운트 쪽 일시 오류일 수 있음 — 다시 전송해보세요)`
+        );
       }
       await loadRows();
     } catch (e: any) {
@@ -203,7 +205,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
           type="button"
           onClick={handleSendEcount}
           disabled={unsentEcountSelectedCount === 0}
-          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-black hover:bg-red-700 disabled:opacity-50"
+          className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-white font-semibold hover:bg-red-700 disabled:bg-slate-200 disabled:border-slate-200 disabled:text-slate-400"
         >
           이카운트 전송 ({unsentEcountSelectedCount})
         </button>
