@@ -52,7 +52,24 @@ const PRODUCT_TABLE: Record<MarketSalesChannel, ProductEntry[]> = {
     { vendorItemId: "84178524399", PROD_CD: "U0001", NAME: "제이컴퍼니 - 카베지크림", baseQty: 1 },
     { vendorItemId: "87067610952", PROD_CD: "U0001", NAME: "제이컴퍼니 - 카베지크림", baseQty: 1 },
   ],
-  coupang_hanmojeong: [],
+  // coupang_hanmojeong: 2026-10-29 "쿠팡윙 이카운트 매핑.xlsx" 15건 그대로 반영. 기본수량은 전부 1.
+  coupang_hanmojeong: [
+    { vendorItemId: "93376662960", PROD_CD: "M0001", NAME: "메델라 유두보호기 L", baseQty: 1 },
+    { vendorItemId: "90738192851", PROD_CD: "M0001", NAME: "메델라 유두보호기 L", baseQty: 1 },
+    { vendorItemId: "90586732048", PROD_CD: "M0001", NAME: "메델라 유두보호기 L", baseQty: 1 },
+    { vendorItemId: "93833804354", PROD_CD: "M0003", NAME: "메델라 유두보호기 S", baseQty: 1 },
+    { vendorItemId: "90782114534", PROD_CD: "M0003", NAME: "메델라 유두보호기 S", baseQty: 1 },
+    { vendorItemId: "70864217160", PROD_CD: "M0001", NAME: "메델라 유두보호기 L", baseQty: 1 },
+    { vendorItemId: "90586732100", PROD_CD: "M0002", NAME: "메델라 유두보호기 M", baseQty: 1 },
+    { vendorItemId: "93634724939", PROD_CD: "M0002", NAME: "메델라 유두보호기 M", baseQty: 1 },
+    { vendorItemId: "70864217141", PROD_CD: "M0002", NAME: "메델라 유두보호기 M", baseQty: 1 },
+    { vendorItemId: "87862832851", PROD_CD: "M0003", NAME: "메델라 유두보호기 S", baseQty: 1 },
+    { vendorItemId: "86472850051", PROD_CD: "E0027", NAME: "닥터브라운 와이드캡", baseQty: 1 },
+    { vendorItemId: "86472850068", PROD_CD: "E0028", NAME: "더블하트 와이드캡", baseQty: 1 },
+    { vendorItemId: "86472850036", PROD_CD: "E0029", NAME: "모윰 와이드캡", baseQty: 1 },
+    { vendorItemId: "86472850045", PROD_CD: "E0026", NAME: "스펙트라 / 아벤트 와이드캡", baseQty: 1 },
+    { vendorItemId: "86479397866", PROD_CD: "M0155", NAME: "메델라 퀵클린 5매", baseQty: 1 },
+  ],
   smartstore: [],
 };
 
