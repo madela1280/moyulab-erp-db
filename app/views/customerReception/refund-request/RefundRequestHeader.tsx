@@ -49,8 +49,7 @@ export default function RefundRequestHeader({
       <button
         type="button"
         onClick={onDelete}
-        disabled={!hasSelection}
-        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200"
       >
         삭제
       </button>

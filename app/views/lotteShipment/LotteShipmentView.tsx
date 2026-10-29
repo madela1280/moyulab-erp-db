@@ -283,15 +283,13 @@ export default function LotteShipmentView() {
         <button
           type="button"
           onClick={handleDelete}
-          disabled={selectedIds.size === 0}
-          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
+          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200"
         >
           삭제 ({selectedIds.size})
         </button>
         <button
           type="button"
           onClick={handleSend}
-          disabled={unsentSelectedCount === 0}
           className="px-3 py-1.5 rounded border border-blue-600 bg-blue-600 text-sm text-white font-semibold hover:bg-blue-700"
         >
           통합관리전송 ({unsentSelectedCount})
@@ -299,7 +297,6 @@ export default function LotteShipmentView() {
         <button
           type="button"
           onClick={handleSendEcount}
-          disabled={unsentEcountSelectedCount === 0}
           className="px-3 py-1.5 rounded border border-red-600 bg-red-600 text-sm text-black font-semibold hover:bg-red-700"
         >
           이카운트 전송 ({unsentEcountSelectedCount})

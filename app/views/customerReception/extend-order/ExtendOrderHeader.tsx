@@ -53,7 +53,7 @@ export default function ExtendOrderHeader({
       <button
         type="button"
         onClick={onSend}
-        disabled={!hasSelection || sending}
+        disabled={sending}
         className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
         title="선택한 입금확정/확인필요 건을 통합관리 n차연장에 기록합니다(입금대기 건은 제외)"
       >
@@ -63,8 +63,7 @@ export default function ExtendOrderHeader({
       <button
         type="button"
         onClick={onDelete}
-        disabled={!hasSelection}
-        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-100 disabled:cursor-not-allowed"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200"
       >
         삭제
       </button>
