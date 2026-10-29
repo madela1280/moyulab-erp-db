@@ -246,8 +246,8 @@ export default function LotteShipmentView() {
         <button
           type="button"
           onClick={() => setSearchOpen((prev) => !prev)}
-          className={`px-3 py-1.5 rounded border text-sm ${
-            searchOpen ? "border-slate-700 bg-slate-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          className={`rounded border px-2 py-1 text-xs font-medium ${
+            searchOpen ? "border-slate-300 bg-slate-300 text-slate-800" : "border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200"
           }`}
         >
           검색
@@ -276,7 +276,7 @@ export default function LotteShipmentView() {
           type="button"
           onClick={() => loadRows()}
           disabled={loading}
-          className="px-3 py-1.5 rounded border border-slate-300 bg-white text-sm hover:bg-slate-50 disabled:opacity-50"
+          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
         >
           새로고침
         </button>
@@ -284,7 +284,7 @@ export default function LotteShipmentView() {
           type="button"
           onClick={handleDelete}
           disabled={selectedIds.size === 0}
-          className="px-3 py-1.5 rounded border border-red-300 bg-white text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+          className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
         >
           삭제 ({selectedIds.size})
         </button>
@@ -307,8 +307,8 @@ export default function LotteShipmentView() {
         <button
           type="button"
           onClick={() => setIsColumnEditMode((prev) => !prev)}
-          className={`px-3 py-1.5 rounded border text-sm ${
-            isColumnEditMode ? "border-slate-700 bg-slate-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          className={`rounded border px-2 py-1 text-xs font-medium ${
+            isColumnEditMode ? "border-slate-300 bg-slate-300 text-slate-800" : "border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200"
           }`}
         >
           열이동

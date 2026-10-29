@@ -29,7 +29,7 @@ export default function PackagingOrderHeader({
         type="button"
         onClick={onRefresh}
         disabled={loading}
-        className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
       >
         {loading ? "불러오는 중..." : "새로고침"}
       </button>
@@ -37,10 +37,10 @@ export default function PackagingOrderHeader({
       <button
         type="button"
         onClick={onToggleColumnEditMode}
-        className={`rounded border px-3 py-1.5 text-xs font-medium ${
+        className={`rounded border px-2 py-1 text-xs font-medium ${
           isColumnEditMode
-            ? "border-purple-500 bg-purple-50 text-purple-700"
-            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            ? "border-slate-300 bg-slate-300 text-slate-800"
+            : "border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200"
         }`}
       >
         열 이동
@@ -50,7 +50,7 @@ export default function PackagingOrderHeader({
         type="button"
         onClick={onDelete}
         disabled={deleteCount === 0}
-        className="rounded border border-blue-600 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
       >
         삭제{deleteCount > 0 ? ` (${deleteCount})` : ""}
       </button>
