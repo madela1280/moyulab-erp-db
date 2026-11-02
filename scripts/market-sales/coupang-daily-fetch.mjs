@@ -4,6 +4,8 @@
 // 로켓재고(오늘 시점, 제이컴퍼니만)도 같이 갱신한다. 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨.
 // 채널의 API 키가 아직 없으면 CREDENTIALS_NOT_CONFIGURED로 조용히 건너뛴다(에러 아님).
 // ⚠️ 단계 하나가 실패해도(네트워크 오류 포함) 나머지 단계/채널은 계속 진행된다(safeCall로 격리).
+// ⚠️ 마지막 "미전송재시도" 단계는 오늘 가져온 건뿐 아니라 과거에 전송만 실패하고 남아있던 건까지
+//    전부 다시 전송을 시도한다 — 그래서 전송 실패가 하루 이틀 뒤에는 저절로 해소된다.
 //
 // crontab: 0 7 * * * cd /home/ubuntu/moyulab-erp-db && SERVER_ORIGIN=http://127.0.0.1:3000 \
 //   node scripts/market-sales/coupang-daily-fetch.mjs >> logs/market-sales-fetch.log 2>&1
@@ -63,6 +65,10 @@ async function main() {
     if (channel === "coupang_jcompany") {
       await safeCall("로켓재고", "/api/market-sales/coupang-rocket-stock", { channel, date: today });
     }
+
+    // ✅ 위 단계에서 이카운트 전송이 실패해 '미전송'으로 남은 과거 건까지 포함해서 매일 재시도한다
+    //    (2026-11-02: 전송 실패 건이 다음날로 안 넘어가고 그냥 쌓이던 문제 때문에 추가됨).
+    await safeCall("미전송재시도", "/api/market-sales/retry-pending", { channel });
   }
 
   console.log(`\n[${new Date().toISOString()}] 완료${anyFailure ? " (일부 실패 있음 — 위 로그 확인 필요)" : " (전부 정상)"}`);

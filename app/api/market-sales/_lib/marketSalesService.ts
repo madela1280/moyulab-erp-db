@@ -21,6 +21,10 @@ function normalizeString(v: any) {
   return String(v ?? "").trim();
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export type MarketSalesRow = {
   id: number;
   channel: MarketSalesChannel;
@@ -190,6 +194,7 @@ export async function sendMarketSalesToEcount(
 
   let sentCount = 0;
   let skippedCount = 0;
+  let isFirstSend = true;
 
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
@@ -218,6 +223,11 @@ export async function sendMarketSalesToEcount(
     const qty = Number(row.qty) || 0;
     const price = Number(row.unit_price) || 0;
 
+    // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
+    //    실사용 로그로 확인됨 — 여러 건을 한 번에 보낼 때 건 사이에 짧은 간격을 둔다.
+    if (!isFirstSend) await sleep(1200);
+    isFirstSend = false;
+
     const result = await registerEcountSale({
       cust,
       whCd,
@@ -239,6 +249,27 @@ export async function sendMarketSalesToEcount(
   }
 
   return { sentCount, skippedCount };
+}
+
+// ✅ 자동수집 시점에 이카운트 전송이 실패하면(네트워크 오류 등) 그 건은 '미전송' 상태로 남는데,
+//    크론은 "어제" 날짜만 처리하기 때문에 그 이후로는 아무도 재시도하지 않아 조용히 쌓이는 문제가
+//    있었다(2026-11-02 실사용 중 발견). 이 함수는 채널의 '미전송'(매칭 완료, 실제 매출이 있는) 건을
+//    전부 찾아서 다시 보낸다 — 매일 자동수집 뒤에 호출해서 이런 건이 다음날까지 넘어가지 않게 한다.
+export async function retryPendingMarketSales(
+  channel: MarketSalesChannel
+): Promise<(EcountSendResult & { targetCount: number }) | { error: "CUST_NOT_CONFIGURED" }> {
+  await ensureMarketSalesTables();
+
+  const r = await query(
+    `SELECT id FROM market_sales_data WHERE channel = $1 AND ecount_status = '미전송' AND qty > 0 ORDER BY id`,
+    [channel]
+  );
+  const ids = r.rows.map((row: any) => Number(row.id));
+  if (!ids.length) return { sentCount: 0, skippedCount: 0, targetCount: 0 };
+
+  const result = await sendMarketSalesToEcount(channel, ids);
+  if ("error" in result) return result;
+  return { ...result, targetCount: ids.length };
 }
 
 export { isMarketSalesChannel };
