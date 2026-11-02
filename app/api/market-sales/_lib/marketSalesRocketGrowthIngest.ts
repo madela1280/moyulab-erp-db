@@ -20,6 +20,10 @@ export type RocketGrowthIngestResult =
 
 type Aggregated = { vendorItemId: string; productName: string; qtySum: number; saleAmountSum: number };
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // date: "YYYY-MM-DD" (결제일 기준 하루치)
 export async function ingestCoupangRocketGrowthSalesForDate(
   channel: MarketSalesChannel,
@@ -68,6 +72,7 @@ export async function ingestCoupangRocketGrowthSalesForDate(
   let insertedOrUpdated = 0;
   let autoSentCount = 0;
   let autoSkippedCount = 0;
+  let isFirstSend = true;
 
   for (const agg of aggByVendorItem.values()) {
     const matched = matchMarketSalesItem(channel, agg.vendorItemId);
@@ -112,6 +117,11 @@ export async function ingestCoupangRocketGrowthSalesForDate(
       [channel, externalId]
     );
     if (existing.rows?.[0]?.ecount_status === "전송완료") continue;
+
+    // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
+    //    실사용 로그로 확인됨 — 품목 사이에 짧은 간격을 둬서 완화한다(첫 건은 대기 없이 바로 전송).
+    if (!isFirstSend) await sleep(1200);
+    isFirstSend = false;
 
     const result = await registerEcountSale({
       cust,
