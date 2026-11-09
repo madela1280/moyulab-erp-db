@@ -225,7 +225,7 @@ export async function sendMarketSalesToEcount(
 
     // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
     //    실사용 로그로 확인됨 — 여러 건을 한 번에 보낼 때 건 사이에 짧은 간격을 둔다.
-    if (!isFirstSend) await sleep(1200);
+    if (!isFirstSend) await sleep(3000);
     isFirstSend = false;
 
     const result = await registerEcountSale({

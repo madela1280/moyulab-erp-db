@@ -120,7 +120,7 @@ export async function ingestCoupangRocketGrowthSalesForDate(
 
     // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
     //    실사용 로그로 확인됨 — 품목 사이에 짧은 간격을 둬서 완화한다(첫 건은 대기 없이 바로 전송).
-    if (!isFirstSend) await sleep(1200);
+    if (!isFirstSend) await sleep(3000);
     isFirstSend = false;
 
     const result = await registerEcountSale({

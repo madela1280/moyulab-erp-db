@@ -116,16 +116,25 @@ async function attemptSaveSale(
     };
   });
 
-  let json: any;
+  let res: Response;
   try {
-    const res = await fetch(url, {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ SaleList }),
     });
-    json = await res.json();
   } catch (err: any) {
     return { ok: false, reason: `NETWORK_ERROR: ${err?.message || err}` };
+  }
+
+  const text = await res.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // ✅ 2026-11-09 추가: 이전엔 "JSON이 아니다"만 남아서 실제 원인(상태코드/본문)을 몰랐음 —
+    //    다음 발생 시 바로 원인 특정할 수 있게 상태코드+본문 앞부분을 같이 남긴다.
+    return { ok: false, reason: `NON_JSON_RESPONSE(status=${res.status}): ${text.slice(0, 300)}` };
   }
 
   const data = json?.Data;
@@ -179,7 +188,7 @@ export async function registerEcountSale(args: {
 
   // ✅ 네트워크/일시적 오류 — 로그인 API는 10분/1회 제한이 있어서 함부로 재로그인하지 않는다.
   //    세션은 그대로 캐시에 둔 채(아직 세션이 문제라는 증거가 없으므로) 짧게 한 번만 같은 세션으로 재시도.
-  await sleep(1500);
+  await sleep(3000);
   const retried = await attemptSaveSale(args, session);
   if (!retried.ok && isSessionExpiredError(retried.reason)) cache.current = null;
   return retried;
