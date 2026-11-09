@@ -1,7 +1,7 @@
 // scripts/market-sales/coupang-daily-fetch.mjs
 //
-// 매일 아침 7시 cron 전용 — 어제 쿠팡 매출(일반+로켓그로스)을 수집해서 이카운트 자동전송까지 하고,
-// 로켓재고(오늘 시점, 제이컴퍼니만)도 같이 갱신한다. 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨.
+// 매일 아침 7시 cron 전용 — 어제 쿠팡 매출(일반+로켓그로스)을 수집해서 이카운트 자동전송까지 한다.
+// 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨. (2026-11-09: 로켓재고 기능 삭제)
 // 채널의 API 키가 아직 없으면 CREDENTIALS_NOT_CONFIGURED로 조용히 건너뛴다(에러 아님).
 // ⚠️ 단계 하나가 실패해도(네트워크 오류 포함) 나머지 단계/채널은 계속 진행된다(safeCall로 격리).
 // ⚠️ 마지막 "미전송재시도" 단계는 오늘 가져온 건뿐 아니라 과거에 전송만 실패하고 남아있던 건까지
@@ -20,7 +20,6 @@ function kstDateString(d) {
 }
 
 const now = new Date();
-const today = kstDateString(now);
 const yesterday = kstDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
 async function post(path, body) {
@@ -54,17 +53,13 @@ async function safeCall(label, path, body) {
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] 시작 — 매출수집(어제=${yesterday}), 재고(오늘=${today})`);
+  console.log(`[${new Date().toISOString()}] 시작 — 매출수집(어제=${yesterday})`);
 
   for (const channel of CHANNELS) {
     console.log(`\n--- ${channel} ---`);
 
     await safeCall("일반매출", "/api/market-sales/coupang-fetch", { channel, date: yesterday });
     await safeCall("로켓그로스매출", "/api/market-sales/coupang-rocket-fetch", { channel, date: yesterday });
-
-    if (channel === "coupang_jcompany") {
-      await safeCall("로켓재고", "/api/market-sales/coupang-rocket-stock", { channel, date: today });
-    }
 
     // ✅ 위 단계에서 이카운트 전송이 실패해 '미전송'으로 남은 과거 건까지 포함해서 매일 재시도한다
     //    (2026-11-02: 전송 실패 건이 다음날로 안 넘어가고 그냥 쌓이던 문제 때문에 추가됨).

@@ -41,11 +41,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
   const [rows, setRows] = useState<MarketSalesRow[]>([]);
   const { columns, setColumns } = useMarketSalesColumnConfig(channel);
   const displayColumns = useMemo(
-    () =>
-      columns
-        // ✅ 로켓재고는 제이컴퍼니 전용 — 다른 채널은 컬럼 자체를 안 보여준다(값이 아니라 헤더 자체 제거).
-        .filter((c) => c.key !== "로켓재고" || channel === "coupang_jcompany")
-        .map((c) => (c.key === "마켓상품명" ? { ...c, label: MARKET_ITEM_NAME_LABEL[channel] } : c)),
+    () => columns.map((c) => (c.key === "마켓상품명" ? { ...c, label: MARKET_ITEM_NAME_LABEL[channel] } : c)),
     [columns, channel]
   );
   const [isColumnEditMode, setIsColumnEditMode] = useState(false);
@@ -147,7 +143,7 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
     }
   }
 
-  // ✅ 로켓재고 체크용 0매출 행은 전송 대상에서 제외(이카운트 전송과 무관).
+  // ✅ 수량 0 행은 전송 대상에서 제외.
   const unsentEcountSelectedCount = Array.from(selectedIds).filter((id) => {
     const row = rows.find((r) => r.id === id);
     return row && row.이카운트전송상태 !== "전송완료" && row.수량 > 0;
