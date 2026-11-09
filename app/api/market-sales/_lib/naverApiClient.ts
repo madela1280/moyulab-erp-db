@@ -119,13 +119,14 @@ export async function fetchNaverProductOrders(
       return { ok: false, reason: `ORDERS_NON_JSON: ${text.slice(0, 300)}` };
     }
 
-    // ✅ 응답 data 구조가 실제로 어떤 형태(배열 vs { contents, ... })인지는 실사용 테스트로 확인 필요
-    //    — 우선 흔한 두 형태(contents 배열, 또는 data 자체가 배열)를 모두 받아들이게 방어적으로 처리.
+    // ✅ 2026-11-09 실데이터 확인: data.contents[] 각 원소는 { productOrderId, content: { order, productOrder, delivery } }
+    //    형태 — 공식 문서 예시 JSON은 content 래핑 없이 보여줬지만 실제 응답은 한 단계 더 감싸져 있다.
     const list: any[] = Array.isArray(json?.data) ? json.data : Array.isArray(json?.data?.contents) ? json.data.contents : [];
 
     for (const item of list) {
-      const order = item?.order || {};
-      const po = item?.productOrder || {};
+      const content = item?.content || item || {};
+      const order = content?.order || {};
+      const po = content?.productOrder || {};
       if (!po?.productOrderId) continue;
       if (CANCELED_STATUSES.has(String(po.productOrderStatus))) continue;
 
