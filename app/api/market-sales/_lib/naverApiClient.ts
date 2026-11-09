@@ -49,7 +49,10 @@ async function getAccessToken(creds: NaverCredentials): Promise<NaverFetchResult
     type: "SELF",
   });
 
-  const res = await fetch(`${BASE_URL}${TOKEN_PATH}?${params.toString()}`, { method: "POST" });
+  const res = await fetch(`${BASE_URL}${TOKEN_PATH}?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  });
   const text = await res.text();
   if (!res.ok) return { ok: false, reason: `TOKEN_HTTP_${res.status}: ${text.slice(0, 300)}` };
 
