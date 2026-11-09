@@ -17,6 +17,14 @@ export function addDaysToYYYYMMDD(dateStr: string, days: number): string {
   return `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}`;
 }
 
+// "YYYY-MM-DD"(KST 기준 하루) -> 네이버 커머스API 날짜형식(from/to, +09:00 오프셋) 범위.
+export function toKstIsoDayRange(dateStr: string): { fromISO: string; toISO: string } {
+  return {
+    fromISO: `${dateStr}T00:00:00.000+09:00`,
+    toISO: `${dateStr}T23:59:59.999+09:00`,
+  };
+}
+
 // epoch ms -> 한국시간(Asia/Seoul) 기준 "YYYY-MM-DD"
 export function epochMsToKstDateString(epochMs: number): string {
   const d = new Date(epochMs);
