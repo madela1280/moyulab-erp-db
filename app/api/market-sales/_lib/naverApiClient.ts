@@ -37,7 +37,7 @@ function buildSignature(clientId: string, clientSecret: string, timestamp: numbe
 
 export type NaverFetchResult<T> = { ok: true; data: T } | { ok: false; reason: string };
 
-async function getAccessToken(creds: NaverCredentials): Promise<NaverFetchResult<string>> {
+export async function getAccessToken(creds: NaverCredentials): Promise<NaverFetchResult<string>> {
   const timestamp = Date.now();
   const signature = buildSignature(creds.clientId, creds.clientSecret, timestamp);
 
