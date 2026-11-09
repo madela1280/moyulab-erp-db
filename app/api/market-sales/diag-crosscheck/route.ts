@@ -33,8 +33,11 @@ export async function POST(req: NextRequest) {
     const rh = await fetchCoupangRevenueHistory(creds, date, date);
     const rhAgg = new Map<string, { qty: number; amt: number }>();
     let refundCount = 0;
+    // ✅ 진단용 — recognitionDate(조회기준)와 실제 saleDate가 얼마나 차이나는지 확인용.
+    const rhSaleDates: { orderId: number; saleType: string; saleDate: string; recognitionDate: string }[] = [];
     if (rh.ok) {
       for (const e of rh.entries) {
+        rhSaleDates.push({ orderId: e.orderId, saleType: e.saleType, saleDate: e.saleDate, recognitionDate: e.recognitionDate });
         if (e.saleType !== "SALE") {
           refundCount++;
           continue;
@@ -102,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     results.push({
       date,
-      revenueHistory: { ok: rh.ok, reason: rh.ok ? undefined : rh.reason, refundCount, itemTypeCount: rhAgg.size },
+      revenueHistory: { ok: rh.ok, reason: rh.ok ? undefined : rh.reason, refundCount, itemTypeCount: rhAgg.size, rawEntries: rhSaleDates },
       rocketGrowth: { ok: rg.ok, reason: rg.ok ? undefined : rg.reason, entriesInRange: rgEntriesTotal, entriesForDate: rgEntriesForDate, itemTypeCount: rgAgg.size },
       dbRowCount: dbRes.rows.length,
       salesCompare,
