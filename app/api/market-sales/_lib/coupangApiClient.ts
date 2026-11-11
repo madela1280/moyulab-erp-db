@@ -143,6 +143,55 @@ export async function fetchCoupangRevenueHistory(
   return { ok: true, entries };
 }
 
+// ✅ 진단 전용 — 타입 매핑 없이 원본 row를 그대로 반환한다(REFUND 건의 items가 비어있는 이유,
+//    실제 필드 구조를 확인하기 위한 용도). 기존 fetchCoupangRevenueHistory는 건드리지 않는다.
+export async function fetchCoupangRevenueHistoryRawRows(
+  creds: CoupangCredentials,
+  recognitionDateFrom: string,
+  recognitionDateTo: string
+): Promise<{ ok: true; rows: any[] } | { ok: false; reason: string }> {
+  const rows: any[] = [];
+  let token = "";
+  let guard = 0;
+
+  while (guard < 200) {
+    guard++;
+    const queryObj: Record<string, string> = {
+      vendorId: creds.vendorId,
+      recognitionDateFrom,
+      recognitionDateTo,
+      token,
+      maxPerPage: "50",
+    };
+    const query = new URLSearchParams(queryObj).toString();
+    const authorization = buildAuthorizationHeader("GET", REVENUE_HISTORY_PATH, query, creds);
+
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}${REVENUE_HISTORY_PATH}?${query}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json;charset=UTF-8", Authorization: authorization },
+      });
+    } catch (e: any) {
+      return { ok: false, reason: `NETWORK_ERROR: ${e?.message || e}` };
+    }
+
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok || !json || Number(json.code) !== 200) {
+      return { ok: false, reason: `API_ERROR(${res.status}): ${JSON.stringify(json)}` };
+    }
+
+    const data: any[] = Array.isArray(json.data) ? json.data : [];
+    rows.push(...data);
+
+    if (!json.hasNext) break;
+    token = json.nextToken || "";
+    if (!token) break;
+  }
+
+  return { ok: true, rows };
+}
+
 export type RocketGrowthOrderItem = {
   vendorItemId: string;
   productName: string;

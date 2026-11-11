@@ -5,7 +5,7 @@
 // POST { channel: "coupang_jcompany" | "coupang_hanmojeong", from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCoupangCredentials, fetchCoupangRevenueHistory } from "@/api/market-sales/_lib/coupangApiClient";
+import { getCoupangCredentials, fetchCoupangRevenueHistoryRawRows } from "@/api/market-sales/_lib/coupangApiClient";
 import { isMarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 
 export async function POST(req: NextRequest) {
@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
   const creds = getCoupangCredentials(channel);
   if (!creds) return NextResponse.json({ error: "CREDENTIALS_NOT_CONFIGURED" }, { status: 400 });
 
-  const result = await fetchCoupangRevenueHistory(creds, from, to);
+  const result = await fetchCoupangRevenueHistoryRawRows(creds, from, to);
   if (!result.ok) return NextResponse.json({ error: result.reason }, { status: 400 });
 
-  const refundEntries = result.entries.filter((e) => e.saleType !== "SALE");
+  const refundRows = result.rows.filter((r) => r.saleType !== "SALE");
 
   return NextResponse.json({
-    totalEntries: result.entries.length,
-    refundEntryCount: refundEntries.length,
-    refundEntries,
+    totalRows: result.rows.length,
+    refundRowCount: refundRows.length,
+    refundRows,
   });
 }
