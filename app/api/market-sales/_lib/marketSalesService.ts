@@ -198,8 +198,8 @@ export async function sendMarketSalesToEcount(
 
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
-    // ✅ 수량 0 행은 보낼 게 없으니 조용히 건너뛴다.
-    if ((Number(row.qty) || 0) <= 0) {
+    // ✅ 수량 0 행은 보낼 게 없으니 조용히 건너뛴다(반품은 수량이 마이너스라 0만 걸러야 함).
+    if ((Number(row.qty) || 0) === 0) {
       skippedCount++;
       continue;
     }
@@ -261,7 +261,7 @@ export async function retryPendingMarketSales(
   await ensureMarketSalesTables();
 
   const r = await query(
-    `SELECT id FROM market_sales_data WHERE channel = $1 AND ecount_status = '미전송' AND qty > 0 ORDER BY id`,
+    `SELECT id FROM market_sales_data WHERE channel = $1 AND ecount_status = '미전송' AND qty != 0 ORDER BY id`,
     [channel]
   );
   const ids = r.rows.map((row: any) => Number(row.id));

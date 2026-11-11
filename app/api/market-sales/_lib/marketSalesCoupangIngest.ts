@@ -29,6 +29,7 @@ export type IngestResult =
       autoSentCount: number;
       autoSkippedCount: number;
       refundCount: number;
+      refundProcessedCount: number;
     }
   | { ok: false; reason: string };
 
@@ -59,11 +60,36 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
 
   let refundCount = 0;
   const aggByKey = new Map<string, Aggregated>();
+  // ✅ 2026-11-11 추가: REFUND 중 items가 있는 건(실제 상품 반품)만 별도로 집계한다.
+  //    items가 비어있는 REFUND는 실제로는 배송비만 환불된 건(원본 row에 deliveryFee만 있고 상품정보
+  //    없음, 진단으로 실데이터 확인됨) — 매출표가 배송비를 애초에 안 다루므로 그냥 무시한다.
+  const refundAggByKey = new Map<string, Aggregated>();
 
   for (const entry of fetchResult.entries) {
     if (entry.saleType !== "SALE") {
       refundCount++;
-      continue; // ⚠️ 환불(REFUND) 건은 지금 단계에서 반영 안 함 — 별도 처리 필요(차감 로직 미구현).
+      if (!entry.items.length) continue; // 배송비만 환불된 건 — 상품 정보 없음, 반영할 게 없음.
+
+      const saleDateRaw = String(entry.saleDate || "").slice(0, 10);
+      const saleDate = /^\d{4}-\d{2}-\d{2}$/.test(saleDateRaw) ? saleDateRaw : date;
+
+      for (const item of entry.items) {
+        const key = `${saleDate}|${item.vendorItemId}`;
+        const prev = refundAggByKey.get(key);
+        if (prev) {
+          prev.qtySum += item.quantity;
+          prev.saleAmountSum += item.saleAmount;
+        } else {
+          refundAggByKey.set(key, {
+            saleDate,
+            vendorItemId: item.vendorItemId,
+            vendorItemName: item.vendorItemName,
+            qtySum: item.quantity,
+            saleAmountSum: item.saleAmount,
+          });
+        }
+      }
+      continue;
     }
     // 방어적으로 날짜 형식만 자르고, saleDate가 비정상이면 조회일(recognitionDate)로 대체한다.
     const saleDateRaw = String(entry.saleDate || "").slice(0, 10);
@@ -93,6 +119,7 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
   let insertedOrUpdated = 0;
   let autoSentCount = 0;
   let autoSkippedCount = 0;
+  let refundProcessedCount = 0;
   let isFirstSend = true;
 
   // ✅ (channel, external_id) 행에 이번 배치분을 "더한다"(증분). 이미 전송완료 상태면 WHERE에 걸려서
@@ -107,54 +134,59 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     supplyAmt: number,
     vatAmt: number,
     totalAmt: number,
-    ecountStatus: string
+    ecountStatus: string,
+    salesType: "매출" | "반품"
   ) {
     return query(
       `
       INSERT INTO market_sales_data
-        (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status, sales_type)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT (channel, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
         market_item_name = EXCLUDED.market_item_name,
         qty = market_sales_data.qty + EXCLUDED.qty,
         supply_amt = market_sales_data.supply_amt + EXCLUDED.supply_amt,
         vat_amt = market_sales_data.vat_amt + EXCLUDED.vat_amt,
         total_amt = market_sales_data.total_amt + EXCLUDED.total_amt,
-        unit_price = CASE WHEN (market_sales_data.qty + EXCLUDED.qty) > 0
+        unit_price = CASE WHEN (market_sales_data.qty + EXCLUDED.qty) != 0
                       THEN ROUND((market_sales_data.supply_amt + EXCLUDED.supply_amt) / (market_sales_data.qty + EXCLUDED.qty))
                       ELSE 0 END
       WHERE market_sales_data.ecount_status != '전송완료'
       RETURNING id
       `,
-      [channel, externalId, saleDate, agg.vendorItemName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
+      [channel, externalId, saleDate, agg.vendorItemName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType]
     );
   }
 
-  for (const agg of aggByKey.values()) {
+  // ✅ 매출(SALE)/반품(REFUND) 공용 처리 — externalIdBase/finalQty/supplyAmt/salesType만 다르게 넣어서 재사용.
+  //    반품은 finalQty/supplyAmt를 호출부에서 이미 마이너스로 넘긴다(단가는 둘 다 나누면 자동으로 양수가 됨).
+  async function processAggregate(
+    agg: Aggregated,
+    externalIdBase: string,
+    finalQty: number,
+    supplyAmt: number,
+    salesType: "매출" | "반품"
+  ) {
     const matched = matchMarketSalesItem(channel, agg.vendorItemId);
-    const baseQty = matched?.baseQty || 1;
 
-    const finalQty = agg.qtySum * baseQty;
-    const unitPrice = finalQty > 0 ? Math.round(agg.saleAmountSum / finalQty) : 0;
-    const supplyAmt = agg.saleAmountSum; // 쿠팡 saleAmount 합계를 공급가액으로 그대로 사용(반올림 오차 없음)
+    const unitPrice = finalQty !== 0 ? Math.round(supplyAmt / finalQty) : 0;
     const vatAmt = Math.round(supplyAmt * 0.1);
     const totalAmt = supplyAmt + vatAmt;
 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
-    const externalId = `${agg.saleDate}:${agg.vendorItemId}`;
 
     const upsertResult = await upsertIncrement(
-      externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus
+      externalIdBase, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType
     );
 
-    let targetExternalId = externalId;
+    let targetExternalId = externalIdBase;
     if (upsertResult.rowCount === 0) {
       // ✅ 기존 건이 이미 전송완료라 위 업데이트가 막혔다 — 이번에 새로 들어온 분만 별도 건으로 추가.
-      const deltaExternalId = `${externalId}+${date}`; // date(조회일=recognitionDate)는 하루에 한 번만 처리되므로 유일함 보장.
+      const deltaExternalId = `${externalIdBase}+${date}`; // date(조회일=recognitionDate)는 하루에 한 번만 처리되므로 유일함 보장.
       await upsertIncrement(
-        deltaExternalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus
+        deltaExternalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType
       );
       targetExternalId = deltaExternalId;
     }
@@ -166,10 +198,11 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
       [channel, targetExternalId, itemCode, itemName, ecountStatus]
     );
     insertedOrUpdated++;
+    if (salesType === "반품") refundProcessedCount++;
 
     if (!matched || !cust) {
       autoSkippedCount++;
-      continue;
+      return;
     }
 
     // ✅ 수집 직후 바로 이카운트 자동전송 시도(이미 전송완료된 건은 건드리지 않음).
@@ -179,7 +212,8 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
       [channel, targetExternalId]
     );
     const row = existing.rows?.[0];
-    if (!row || row.ecount_status === "전송완료") continue;
+    if (!row || row.ecount_status === "전송완료") return;
+    if (Number(row.qty) === 0) return; // 수량 0 건은 보낼 게 없음.
 
     // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
     //    실사용 로그로 확인됨 — 품목 사이에 짧은 간격을 둬서 완화한다(첫 건은 대기 없이 바로 전송).
@@ -195,7 +229,7 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     if (!result.ok || !result.slipNos.length) {
       console.error(`market-sales 자동수집 이카운트 전송 실패(channel=${channel}, externalId=${targetExternalId}):`, !result.ok ? result.reason : "슬립번호 없음");
       autoSkippedCount++;
-      continue;
+      return;
     }
 
     await query(
@@ -205,5 +239,25 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     autoSentCount++;
   }
 
-  return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount, refundCount };
+  for (const agg of aggByKey.values()) {
+    const matched = matchMarketSalesItem(channel, agg.vendorItemId);
+    const baseQty = matched?.baseQty || 1;
+    const finalQty = agg.qtySum * baseQty;
+    const supplyAmt = agg.saleAmountSum; // 쿠팡 saleAmount 합계를 공급가액으로 그대로 사용(반올림 오차 없음)
+    const externalId = `${agg.saleDate}:${agg.vendorItemId}`;
+    await processAggregate(agg, externalId, finalQty, supplyAmt, "매출");
+  }
+
+  // ✅ 반품 — external_id에 "R:" 접두사를 붙여 매출 건(같은 날짜+vendorItemId)과 절대 안 겹치게 하고,
+  //    수량/금액은 마이너스로 뒤집어서 저장한다(단가는 마이너스/마이너스라 자동으로 양수가 됨).
+  for (const agg of refundAggByKey.values()) {
+    const matched = matchMarketSalesItem(channel, agg.vendorItemId);
+    const baseQty = matched?.baseQty || 1;
+    const finalQty = -(agg.qtySum * baseQty);
+    const supplyAmt = -agg.saleAmountSum;
+    const externalId = `R:${agg.saleDate}:${agg.vendorItemId}`;
+    await processAggregate(agg, externalId, finalQty, supplyAmt, "반품");
+  }
+
+  return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount, refundCount, refundProcessedCount };
 }

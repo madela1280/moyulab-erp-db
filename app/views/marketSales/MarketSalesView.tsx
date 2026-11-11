@@ -143,10 +143,10 @@ export default function MarketSalesView({ channel, title }: { channel: MarketSal
     }
   }
 
-  // ✅ 수량 0 행은 전송 대상에서 제외.
+  // ✅ 수량 0 행은 전송 대상에서 제외(반품은 수량이 마이너스라 0만 걸러야 함).
   const unsentEcountSelectedCount = Array.from(selectedIds).filter((id) => {
     const row = rows.find((r) => r.id === id);
-    return row && row.이카운트전송상태 !== "전송완료" && row.수량 > 0;
+    return row && row.이카운트전송상태 !== "전송완료" && row.수량 !== 0;
   }).length;
 
   return (
