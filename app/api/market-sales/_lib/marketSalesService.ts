@@ -102,7 +102,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
            supply_amt, vat_amt, total_amt, ecount_status
     FROM market_sales_data
     WHERE channel = $1
-    ORDER BY sale_date DESC NULLS LAST, id DESC
+    ORDER BY sale_date DESC NULLS LAST, CASE WHEN sales_type = '매출' THEN 0 ELSE 1 END, id DESC
     `,
     [channel]
   );
