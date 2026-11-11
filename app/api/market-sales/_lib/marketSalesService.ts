@@ -194,7 +194,11 @@ export async function sendMarketSalesToEcount(
 
   let sentCount = 0;
   let skippedCount = 0;
-  let isFirstSend = true;
+
+  // ✅ 2026-11-11: 선택한 건들을 날짜별로 모아뒀다가(같은 날짜끼리) 한 번에 한 전표로 묶어서 보낸다
+  //    (쿠팡/스마트스토어 자동수집 ingest와 동일한 구조 — groupAsOneSlip 사용).
+  type PendingLine = { id: number; prodCd: string; prodName: string; qty: number; price: number };
+  const pendingByDate = new Map<string, PendingLine[]>();
 
   for (const row of r.rows || []) {
     if (row.ecount_status === "전송완료") continue;
@@ -220,32 +224,40 @@ export async function sendMarketSalesToEcount(
       prodName = matched.NAME;
     }
 
-    const qty = Number(row.qty) || 0;
-    const price = Number(row.unit_price) || 0;
+    const list = pendingByDate.get(row.sale_date) || [];
+    list.push({ id: row.id, prodCd, prodName, qty: Number(row.qty) || 0, price: Number(row.unit_price) || 0 });
+    pendingByDate.set(row.sale_date, list);
+  }
 
+  let isFirstSend = true;
+  for (const [saleDate, lines] of pendingByDate.entries()) {
     // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
-    //    실사용 로그로 확인됨 — 여러 건을 한 번에 보낼 때 건 사이에 짧은 간격을 둔다.
+    //    실사용 로그로 확인됨 — 날짜 묶음 사이에 짧은 간격을 둔다.
     if (!isFirstSend) await sleep(3000);
     isFirstSend = false;
 
     const result = await registerEcountSale({
       cust,
       whCd,
-      lines: [{ PROD_CD: prodCd, QTY: qty, PRICE: price }],
-      ioDate: toEcountIoDate(row.sale_date),
+      lines: lines.map((l) => ({ PROD_CD: l.prodCd, QTY: l.qty, PRICE: l.price })),
+      ioDate: toEcountIoDate(saleDate),
+      groupAsOneSlip: true,
     });
 
     if (!result.ok || !result.slipNos.length) {
-      console.error(`market-sales 이카운트 전송 실패(id=${row.id}, channel=${channel}):`, !result.ok ? result.reason : "슬립번호 없음");
-      skippedCount++;
+      console.error(`market-sales 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`, !result.ok ? result.reason : "슬립번호 없음");
+      skippedCount += lines.length;
       continue;
     }
 
-    await query(
-      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $2, item_code = $3, item_name = $4 WHERE id = $1`,
-      [row.id, result.slipNos.join(","), prodCd, prodName]
-    );
-    sentCount++;
+    const slipNo = result.slipNos.join(",");
+    for (const l of lines) {
+      await query(
+        `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $2, item_code = $3, item_name = $4 WHERE id = $1`,
+        [l.id, slipNo, l.prodCd, l.prodName]
+      );
+      sentCount++;
+    }
   }
 
   return { sentCount, skippedCount };
