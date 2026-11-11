@@ -79,7 +79,11 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
   let insertedOrUpdated = 0;
   let autoSentCount = 0;
   let autoSkippedCount = 0;
-  let isFirstSend = true;
+
+  // ✅ 2026-11-11: 건마다 전표를 따로 끊지 않고, 같은 날짜(saleDate) 안의 매출을 모아뒀다가
+  //    날짜별로 한 전표(여러 줄)로 묶어서 전송한다(쿠팡 ingest와 동일한 구조).
+  type PendingLine = { targetExternalId: string; itemCode: string; qty: number; unitPrice: number };
+  const pendingSaleByDate = new Map<string, PendingLine[]>();
 
   // ✅ 쿠팡 ingest와 동일한 증분 upsert — 이미 전송완료 상태면 아무것도 바뀌지 않는다(WHERE 조건).
   async function upsertIncrement(
@@ -150,33 +154,46 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
       continue;
     }
 
+    // ✅ 즉시 전송하지 않고 큐에 쌓아둔다 — 날짜별로 묶어서 한 번에 전송(아래 flush에서).
     const existing = await query(
       `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
       [channel, targetExternalId]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") continue;
+    if (Number(row.qty) === 0) continue;
 
+    const list = pendingSaleByDate.get(agg.saleDate) || [];
+    list.push({ targetExternalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    pendingSaleByDate.set(agg.saleDate, list);
+  }
+
+  // ✅ 날짜별로 큐에 쌓인 라인들을 한 번에(전표 1개, 여러 줄) 전송한다.
+  let isFirstSend = true;
+  for (const [saleDate, lines] of pendingSaleByDate.entries()) {
     if (!isFirstSend) await sleep(3000);
     isFirstSend = false;
 
     const result = await registerEcountSale({
       cust,
       whCd,
-      lines: [{ PROD_CD: itemCode, QTY: Number(row.qty), PRICE: Number(row.unit_price) }],
-      ioDate: toEcountIoDate(agg.saleDate),
+      lines: lines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
+      ioDate: toEcountIoDate(saleDate),
     });
     if (!result.ok || !result.slipNos.length) {
-      console.error(`market-sales(스마트스토어) 자동수집 이카운트 전송 실패(channel=${channel}, externalId=${targetExternalId}):`, !result.ok ? result.reason : "슬립번호 없음");
-      autoSkippedCount++;
+      console.error(`market-sales(스마트스토어) 자동수집 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`, !result.ok ? result.reason : "슬립번호 없음");
+      autoSkippedCount += lines.length;
       continue;
     }
 
-    await query(
-      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
-      [channel, targetExternalId, result.slipNos.join(",")]
-    );
-    autoSentCount++;
+    const slipNo = result.slipNos.join(",");
+    for (const l of lines) {
+      await query(
+        `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
+        [channel, l.targetExternalId, slipNo]
+      );
+      autoSentCount++;
+    }
   }
 
   return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount };

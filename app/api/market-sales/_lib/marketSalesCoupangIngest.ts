@@ -120,7 +120,12 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
   let autoSentCount = 0;
   let autoSkippedCount = 0;
   let refundProcessedCount = 0;
-  let isFirstSend = true;
+
+  // ✅ 2026-11-11: 건마다 전표를 따로 끊지 않고, 같은 날짜(saleDate) 안의 매출/반품을 각각 모아뒀다가
+  //    날짜별로 한 전표(여러 줄)로 묶어서 전송한다(매출/반품은 섞지 않고 따로 묶음).
+  type PendingLine = { targetExternalId: string; itemCode: string; qty: number; unitPrice: number };
+  const pendingSaleByDate = new Map<string, PendingLine[]>();
+  const pendingRefundByDate = new Map<string, PendingLine[]>();
 
   // ✅ (channel, external_id) 행에 이번 배치분을 "더한다"(증분). 이미 전송완료 상태면 WHERE에 걸려서
   //    아무것도 바뀌지 않는다 — 그 경우(rowCount=0)에만 호출부에서 별도 델타 건을 만든다.
@@ -205,8 +210,8 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
       return;
     }
 
-    // ✅ 수집 직후 바로 이카운트 자동전송 시도(이미 전송완료된 건은 건드리지 않음).
-    //    증분 합산 후의 실제 누적 수량/단가를 다시 읽어서 그 값으로 보낸다.
+    // ✅ 즉시 전송하지 않고 큐에 쌓아둔다 — 이번 날짜 처리가 끝난 뒤 한 번에(날짜별로 묶어서) 보낸다.
+    //    증분 합산 후의 실제 누적 수량/단가를 다시 읽어서 그 값을 큐에 넣는다.
     const existing = await query(
       `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
       [channel, targetExternalId]
@@ -215,28 +220,41 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     if (!row || row.ecount_status === "전송완료") return;
     if (Number(row.qty) === 0) return; // 수량 0 건은 보낼 게 없음.
 
-    // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
-    //    실사용 로그로 확인됨 — 품목 사이에 짧은 간격을 둬서 완화한다(첫 건은 대기 없이 바로 전송).
-    if (!isFirstSend) await sleep(3000);
-    isFirstSend = false;
+    const byDate = salesType === "반품" ? pendingRefundByDate : pendingSaleByDate;
+    const list = byDate.get(agg.saleDate) || [];
+    list.push({ targetExternalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    byDate.set(agg.saleDate, list);
+  }
 
-    const result = await registerEcountSale({
-      cust,
-      whCd,
-      lines: [{ PROD_CD: itemCode, QTY: Number(row.qty), PRICE: Number(row.unit_price) }],
-      ioDate: toEcountIoDate(agg.saleDate),
-    });
-    if (!result.ok || !result.slipNos.length) {
-      console.error(`market-sales 자동수집 이카운트 전송 실패(channel=${channel}, externalId=${targetExternalId}):`, !result.ok ? result.reason : "슬립번호 없음");
-      autoSkippedCount++;
-      return;
+  // ✅ 날짜별로 큐에 쌓인 라인들을 한 번에(전표 1개, 여러 줄) 전송한다. 전표 하나가 실패하면 그 안의
+  //    건들은 전부 '미전송'으로 남고(다음날 retry-pending이 재시도), 다른 날짜/묶음은 계속 진행한다.
+  async function flushPendingByDate(byDate: Map<string, PendingLine[]>, label: string) {
+    let isFirstSend = true;
+    for (const [saleDate, lines] of byDate.entries()) {
+      if (!isFirstSend) await sleep(3000);
+      isFirstSend = false;
+
+      const result = await registerEcountSale({
+        cust,
+        whCd,
+        lines: lines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
+        ioDate: toEcountIoDate(saleDate),
+      });
+      if (!result.ok || !result.slipNos.length) {
+        console.error(`market-sales 자동수집(${label}) 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`, !result.ok ? result.reason : "슬립번호 없음");
+        autoSkippedCount += lines.length;
+        continue;
+      }
+
+      const slipNo = result.slipNos.join(",");
+      for (const l of lines) {
+        await query(
+          `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
+          [channel, l.targetExternalId, slipNo]
+        );
+        autoSentCount++;
+      }
     }
-
-    await query(
-      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
-      [channel, targetExternalId, result.slipNos.join(",")]
-    );
-    autoSentCount++;
   }
 
   for (const agg of aggByKey.values()) {
@@ -258,6 +276,9 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     const externalId = `R:${agg.saleDate}:${agg.vendorItemId}`;
     await processAggregate(agg, externalId, finalQty, supplyAmt, "반품");
   }
+
+  await flushPendingByDate(pendingSaleByDate, "매출");
+  await flushPendingByDate(pendingRefundByDate, "반품");
 
   return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount, refundCount, refundProcessedCount };
 }
