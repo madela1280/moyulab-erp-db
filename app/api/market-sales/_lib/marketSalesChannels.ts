@@ -23,12 +23,17 @@ export const CHANNEL_LABEL: Record<MarketSalesChannel, string> = {
 
 // ✅ 2026-10-28 사용자 확인: 쿠팡(윙)-제이컴퍼니 = CUST 00053.
 // ✅ 2026-10-29 사용자 확인: 쿠팡(윙)-한모정 = CUST 00002.
-// 스마트스토어는 아직 확인 안 됨 — 비워두고, 전송 시도 시 CUST_NOT_CONFIGURED로 막는다.
+// ✅ 2026-11-11 사용자 확인: 스마트스토어 = CUST 00001.
 export const CHANNEL_CUST: Record<MarketSalesChannel, string> = {
   coupang_jcompany: "00053",
   coupang_hanmojeong: "00002",
-  smartstore: "",
+  smartstore: "00001",
 };
+
+// ✅ 2026-11-11 사용자 확인: 스마트스토어 배송비/제주도서 추가배송비는 별도 품목코드로 이카운트에
+//    등록한다(ERP market_sales_data에는 표시 안 함, 이카운트 전송 시 보조 라인으로만 추가).
+export const SMARTSTORE_DELIVERY_FEE_PROD_CD = "P0017"; // 배송비
+export const SMARTSTORE_REMOTE_DELIVERY_FEE_PROD_CD = "P0018"; // 추가 배송비(제주,도선료)
 
 // ⚠️ 창고코드는 기존 이카운트 연동(아모에나, WH_CD "100")과 동일하게 가정해둔 값 — 확인 필요.
 export const CHANNEL_WH_CD: Record<MarketSalesChannel, string> = {

@@ -6,8 +6,10 @@
 //
 // ⚠️ 매출액은 productOrder.totalProductAmount(상품금액, 배송비 제외) 기준 — 실제 테스트 전송
 //    후 꼭 재확인 필요(쿠팡 때와 동일하게 추측 아님, 공식 문서 필드지만 실데이터 검증은 아직 못함).
-// ⚠️ 집계 키는 productId(네이버 상품ID, 옵션별로 발급) 기준 — optionManageCode는 스토어에서
-//    별도 설정 안 하면 비어있어서 사용 안 함.
+// ✅ 2026-11-11: 집계/매칭 키는 productId 단독이 아니라 "productId|productOption" 조합 — 같은
+//    productId라도 옵션(productOption)별로 완전히 다른 물리 품목으로 매핑되는 경우가 실제
+//    매핑자료(스마트스토어_일반상품매핑xlsx.xlsx, 175건)에서 다수 확인됨. 옵션이 없는 단품은
+//    productId만 키로 쓴다. 네이버상품명(마켓상품명) 표시도 "상품명/옵션정보" 조합으로 저장.
 
 import { query } from "@/lib/db";
 import { getNaverCredentials, fetchNaverProductOrders } from "@/api/market-sales/_lib/naverApiClient";
@@ -23,8 +25,8 @@ export type IngestResult =
 
 type Aggregated = {
   saleDate: string;
-  productId: string;
-  productName: string;
+  matchKey: string; // "productId|productOption"(옵션 없으면 productId만) — 매칭/external_id 공용 키
+  displayName: string; // "상품명/옵션정보"(옵션 없으면 상품명만) — market_item_name 표시용
   qtySum: number;
   amountSum: number;
 };
@@ -51,7 +53,11 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     //    문제가 없다(요청 자체가 결제일시 범위 기준이라 어긋날 수 없음). 방어적으로 KST 날짜만 추출.
     const saleDate = entry.paymentDate ? epochMsToKstDateString(Date.parse(entry.paymentDate)) : date;
 
-    const key = `${saleDate}|${entry.productId}`;
+    const option = (entry.productOption || "").trim();
+    const matchKey = option ? `${entry.productId}|${option}` : entry.productId;
+    const displayName = option ? `${entry.productName}/${option}` : entry.productName;
+
+    const key = `${saleDate}|${matchKey}`;
     const prev = aggByKey.get(key);
     if (prev) {
       prev.qtySum += entry.quantity;
@@ -59,8 +65,8 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     } else {
       aggByKey.set(key, {
         saleDate,
-        productId: entry.productId,
-        productName: entry.productName,
+        matchKey,
+        displayName,
         qtySum: entry.quantity,
         amountSum: entry.totalProductAmount,
       });
@@ -104,12 +110,12 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
       WHERE market_sales_data.ecount_status != '전송완료'
       RETURNING id
       `,
-      [channel, externalId, saleDate, agg.productName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
+      [channel, externalId, saleDate, agg.displayName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
     );
   }
 
   for (const agg of aggByKey.values()) {
-    const matched = matchMarketSalesItem(channel, agg.productId);
+    const matched = matchMarketSalesItem(channel, agg.matchKey);
     const baseQty = matched?.baseQty || 1;
 
     const finalQty = agg.qtySum * baseQty;
@@ -121,7 +127,7 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
-    const externalId = `${agg.saleDate}:${agg.productId}`;
+    const externalId = `${agg.saleDate}:${agg.matchKey}`;
 
     const upsertResult = await upsertIncrement(externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
 
