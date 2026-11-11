@@ -29,6 +29,7 @@ export type MarketSalesRow = {
   id: number;
   channel: MarketSalesChannel;
   일자: string | null;
+  구분: "매출" | "반품"; // 반품/환불 건은 수량/금액이 전부 마이너스로 저장된다
   마켓상품명: string; // 채널 원본 상품명(쿠팡/네이버에서 그대로 가져온 값, 매칭 입력값)
   품목: string; // 이카운트 PROD_CD (매칭 전에는 빈 값)
   품목명: string; // 매칭된 이카운트 공식 품목명(매칭 전에는 빈 값)
@@ -70,6 +71,8 @@ export async function ensureMarketSalesTables() {
   `);
   // ✅ 2026-10-28 추가: 채널 원본 상품명(마켓상품명)을 품목/품목명과 분리 보관.
   await query(`ALTER TABLE market_sales_data ADD COLUMN IF NOT EXISTS market_item_name TEXT NOT NULL DEFAULT '';`);
+  // ✅ 2026-11-11 추가: 매출/반품 구분(반품 건은 별도 행으로 분리 집계, 수량/금액 전부 마이너스).
+  await query(`ALTER TABLE market_sales_data ADD COLUMN IF NOT EXISTS sales_type TEXT NOT NULL DEFAULT '매출';`);
   ensured = true;
 }
 
@@ -78,6 +81,7 @@ function toRow(r: any): MarketSalesRow {
     id: Number(r.id),
     channel: r.channel,
     일자: r.sale_date ? String(r.sale_date) : null,
+    구분: r.sales_type === "반품" ? "반품" : "매출",
     마켓상품명: normalizeString(r.market_item_name),
     품목: normalizeString(r.item_code),
     품목명: normalizeString(r.item_name),
@@ -94,7 +98,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
   await ensureMarketSalesTables();
   const r = await query(
     `
-    SELECT id, channel, sale_date::text AS sale_date, market_item_name, item_code, item_name, qty, unit_price,
+    SELECT id, channel, sale_date::text AS sale_date, sales_type, market_item_name, item_code, item_name, qty, unit_price,
            supply_amt, vat_amt, total_amt, ecount_status
     FROM market_sales_data
     WHERE channel = $1

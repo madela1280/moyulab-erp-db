@@ -22,6 +22,7 @@ export type MarketSalesColumn = {
 
 export const DEFAULT_MARKET_SALES_COLUMNS: MarketSalesColumn[] = [
   { key: "일자", label: "일자", width: 100 },
+  { key: "구분", label: "구분", width: 70 },
   { key: "마켓상품명", label: "마켓상품명", width: 280 },
   { key: "품목", label: "품목", width: 110 },
   { key: "품목명", label: "품목명", width: 280 },
@@ -312,7 +313,11 @@ export default function MarketSalesGrid({
                         : undefined
                     }
                   >
-                    {col.key === "이카운트전송상태" ? (
+                    {col.key === "구분" ? (
+                      <span className={row.구분 === "반품" ? "text-red-600 font-semibold" : "text-slate-700"}>
+                        {row.구분}
+                      </span>
+                    ) : col.key === "이카운트전송상태" ? (
                       <span
                         className={
                           row.이카운트전송상태 === "전송완료"
