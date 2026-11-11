@@ -70,10 +70,11 @@ const PRODUCT_TABLE: Record<MarketSalesChannel, ProductEntry[]> = {
     { vendorItemId: "86472850045", PROD_CD: "E0026", NAME: "스펙트라 / 아벤트 와이드캡", baseQty: 1 },
     { vendorItemId: "86479397866", PROD_CD: "M0155", NAME: "메델라 퀵클린 5매", baseQty: 1 },
   ],
-  // ✅ 2026-11-11 "스마트스토어_일반상품매핑xlsx.xlsx" 175건 반영(유축기 대여 품목 제외 — 별도 처리 예정).
+  // ✅ 2026-11-11 "스마트스토어_일반상품매핑xlsx.xlsx" 176건 반영(유축기 대여 품목 제외 — 별도 처리 예정).
   //    매칭 키는 "productId|productOption"(옵션 없는 단품은 productId만) — 같은 상품번호라도 옵션별로
   //    다른 품목으로 매핑되는 경우가 많아 상품번호 하나만으로는 구분이 안 됨(실데이터로 확인됨).
   smartstore: [
+    { vendorItemId: "4937186526|100원 체험단리뷰 이벤트: 모유랩 다이렉트저장팩 세트(20매+스탠다드커넥터)", PROD_CD: "MO00003", NAME: "모유랩 모유저장팩 -A세트[ 스탠다드형 커텍터]", baseQty: 1 },
     { vendorItemId: "4937186526|100원 체험단리뷰 이벤트: 벨벳 커버 가슴찜질팩(2P)", PROD_CD: "MO00001", NAME: "모유랩 가슴찜질팩", baseQty: 1 },
     { vendorItemId: "9669162164|5.연결캡: 5. 연결캡 (젖꼭지 미포함)", PROD_CD: "M0266", NAME: "메델라 젖병 뚜껑 (젖꼭지 덮개)", baseQty: 1 },
     { vendorItemId: "4873318308|MOULAB 가슴마사지팩2P 벨벳커버: MOULAB 가슴마사지팩 벨벳커버 2P", PROD_CD: "MO00001", NAME: "모유랩 가슴찜질팩", baseQty: 1 },
