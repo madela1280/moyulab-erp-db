@@ -92,18 +92,23 @@ function isSessionExpiredError(reason: string): boolean {
 }
 
 async function attemptSaveSale(
-  args: { cust: string; whCd: string; lines: EcountSaleLine[]; ioDate?: string },
+  args: { cust: string; whCd: string; lines: EcountSaleLine[]; ioDate?: string; groupAsOneSlip?: boolean },
   session: Session
 ): Promise<EcountSaveSaleResult> {
   const ioDate = args.ioDate || todayYYYYMMDD();
   const url = `https://oapi${session.zone}.ecount.com/OAPI/V2/Sale/SaveSale?SESSION_ID=${encodeURIComponent(session.sessionId)}`;
 
+  // ✅ 2026-11-11 확인(이카운트 공식 SaveSale API 문서): UPLOAD_SER_NO에 "동일한 전표로 묶고자
+  //    하는 경우 동일 순번을 부여"라고 명시되어 있음 — 지금까지 줄마다 다른 번호(idx+1)를 줘서
+  //    여러 줄을 한 호출로 보내도 매번 별도 전표로 쪼개지고 있었다(실데이터로 확인됨).
+  //    groupAsOneSlip=true일 때만 전부 "1"로 통일해서 한 전표로 묶는다 — 기본값은 기존 그대로
+  //    유지(롯데택배/아모에나 등 기존 호출부 동작 변경 없음).
   const SaleList = args.lines.map((line, idx) => {
     const supplyAmt = Math.round(line.QTY * line.PRICE);
     const vatAmt = Math.round(supplyAmt * 0.1); // 전부 부가세 과세대상(2026-10-22 사용자 확인)
     return {
       BulkDatas: {
-        UPLOAD_SER_NO: String(idx + 1),
+        UPLOAD_SER_NO: args.groupAsOneSlip ? "1" : String(idx + 1),
         IO_DATE: ioDate,
         CUST: args.cust,
         WH_CD: args.whCd,
@@ -157,6 +162,8 @@ export async function registerEcountSale(args: {
   // ✅ YYYYMMDD. 안 주면 기존 그대로 오늘 날짜(롯데택배 스캔 전송 등 기존 호출부는 영향 없음).
   //    마켓매출(쿠팡 등)처럼 실제 판매일과 전송 시점이 다를 수 있는 경우에만 명시적으로 넘긴다.
   ioDate?: string;
+  // ✅ true면 lines를 전부 한 전표로 묶는다(UPLOAD_SER_NO 공용화). 안 주면 기존 그대로(줄마다 별도 전표).
+  groupAsOneSlip?: boolean;
 }): Promise<EcountSaveSaleResult> {
   if (!args.lines.length) return { ok: false, reason: "NO_LINES" };
 

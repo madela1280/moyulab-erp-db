@@ -179,6 +179,7 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
       whCd,
       lines: lines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
       ioDate: toEcountIoDate(saleDate),
+      groupAsOneSlip: true,
     });
     if (!result.ok || !result.slipNos.length) {
       console.error(`market-sales(스마트스토어) 자동수집 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`, !result.ok ? result.reason : "슬립번호 없음");
