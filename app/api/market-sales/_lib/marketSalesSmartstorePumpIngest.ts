@@ -12,17 +12,23 @@
 // - 연장여부(isExtension): 기본줄 productOption에 "연장 신청"이 포함되거나, 다른 줄 중 productOption에
 //   "재구매"가 포함되어 있고 그 줄의 productName이 "선택안함"으로 시작하지 않으면(=실제로 연장기간을
 //   선택한 것) true. "재구매 - 연장기간 선택: 선택안함(2주)"처럼 선택 안 하고 넘어간 경우는 연장 아님.
-// - 대여기간(durationKey): 기본줄을 제외한 나머지 줄 중 금액(totalProductAmount)이 0이 아닌 줄이
-//   정확히 1개면 그 줄의 productName에서 기간을 뽑는다(심포니/락티나는 "N주", 스윙 계열은 "N개월").
-//   0개면 기본값(심포니/락티나=2주, 스윙 계열=1개월). 2개 이상이면 판별 불가(특이케이스) → 미매핑.
-// - 수량은 기본줄의 quantity, 금액은 그룹 내 모든 줄의 totalProductAmount 합산.
-//
-// ⚠️ orderId로 그룹을 묶는 방식은 아직 실제 라이브 데이터로 검증 전이다(진단 조회가 전에 서버
-//    분류기에 막힌 적 있어서 raw 응답을 직접 못 봄) — 실제 전송 전에 한 번 결과를 확인해야 한다.
+// - 대여기간(durationKey): 기본줄을 제외한 "대여기간 선택" 줄 중 금액(totalProductAmount)이 0이
+//   아닌 줄이 정확히 1개면 그 줄의 productName에서 기간을 뽑는다(심포니/락티나는 "N주", 스윙 계열은
+//   "N개월"). 0개면 기본값(심포니/락티나=2주, 스윙 계열=1개월). 2개 이상이면 판별 불가 → 미매핑.
+// - 유축기 매출 금액은 기본줄 + 대여기간선택 줄(들)만 합산한다. 나머지(퍼스널핏 세트/부품/사은품/
+//   추천상품 등, productOption이 "필수 - 대여기간 선택"/"재구매 - 연장기간 선택"이 아닌 줄)는 진짜
+//   별개의 "상품"이라서 유축기 매출에 섞지 않는다 — 2026-11-12 사용자 확인("유축기는 유축기/상품은
+//   상품으로 구분해야지"). 이 줄들은 일반상품 매칭(marketSalesProductMatcher.ts, productId|옵션
+//   조합키)으로 각자 따로 매칭해서 별도 라인으로 저장/전송한다. 같은 productId라도 일반상품 매칭표에
+//   코드가 없으면 기존 일반상품과 동일하게 "미매핑"으로 쌓여서 나중에 매핑표에 추가하면 된다.
+// - 일반 스마트스토어 ingest(marketSalesSmartstoreIngest.ts)는 유축기 productId를 건너뛰도록
+//   수정해뒀다 — 안 그러면 같은 원본 줄이 여기(유축기 ingest)와 거기(일반상품 ingest) 양쪽에서
+//   중복으로 집계된다.
 
 import { query } from "@/lib/db";
 import { getNaverCredentials, fetchNaverProductOrders, type NaverProductOrderEntry } from "@/api/market-sales/_lib/naverApiClient";
 import { PUMP_PRODUCT_IDS, matchPumpItem } from "@/api/market-sales/_lib/marketSalesPumpMapping";
+import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProductMatcher";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 import { toEcountIoDate, toKstIsoDayRange, epochMsToKstDateString } from "@/api/market-sales/_lib/marketSalesDate";
@@ -49,6 +55,16 @@ function isRealSelection(productName: string): boolean {
   return !productName.trim().startsWith("선택안함");
 }
 
+// ✅ 2026-11-12 추가: 같은 주문에 퍼스널핏 세트/부품/사은품/추천상품 같은 "진짜 다른 상품"이 섞여
+//    들어오는 걸 실데이터로 확인함(예: "필수 - 퍼스널핏 세트: ...", "추천 상품 6종 (할인): ...").
+//    대여기간 판별에는 "필수 - 대여기간 선택"/"재구매 - 연장기간 선택" 옵션 줄만 써야 한다 — 그 외
+//    (퍼스널핏/부품 세트, 추천/보조 상품, 체험단리뷰 이벤트, 단품 등)는 금액은 합산하되 기간판별
+//    후보에서는 제외한다.
+function isDurationOptionRow(productOption: string): boolean {
+  const t = productOption.trim();
+  return /^필수\s*-\s*대여기간\s*선택/.test(t) || /^재구매\s*-\s*연장기간\s*선택/.test(t);
+}
+
 function extractDurationFromText(productName: string, isSwing: boolean): string | null {
   const m = isSwing ? productName.match(/(\d+)개월/) : productName.match(/(\d+)주/);
   if (!m) return null;
@@ -56,30 +72,32 @@ function extractDurationFromText(productName: string, isSwing: boolean): string 
 }
 
 type GroupResolveResult =
-  | { ok: true; device: string | null; durationKey: string; isExtension: boolean }
-  | { ok: false; reason: string };
+  | { ok: true; device: string | null; durationKey: string; isExtension: boolean; durationRows: NaverProductOrderEntry[] }
+  | { ok: false; reason: string; durationRows: NaverProductOrderEntry[] };
 
 function resolveGroup(productId: string, baseRow: NaverProductOrderEntry, otherRows: NaverProductOrderEntry[]): GroupResolveResult {
   const isSwing = productId === "4941912837";
   const device = isSwing ? extractDevice(baseRow) : null;
 
+  const durationRows = otherRows.filter((r) => isDurationOptionRow(r.productOption));
+
   const extensionByBase = baseRow.productOption.includes("연장 신청");
-  const extensionByOther = otherRows.some((r) => r.productOption.includes("재구매") && isRealSelection(r.productName));
+  const extensionByOther = durationRows.some((r) => r.productOption.includes("재구매") && isRealSelection(r.productName));
   const isExtension = extensionByBase || extensionByOther;
 
-  const nonZeroRows = otherRows.filter((r) => Number(r.totalProductAmount) !== 0);
+  const nonZeroRows = durationRows.filter((r) => Number(r.totalProductAmount) !== 0);
   let durationKey: string;
   if (nonZeroRows.length === 0) {
     durationKey = isSwing ? "1개월" : "2주";
   } else if (nonZeroRows.length === 1) {
     const parsed = extractDurationFromText(nonZeroRows[0].productName, isSwing);
-    if (!parsed) return { ok: false, reason: "DURATION_PARSE_FAILED" };
+    if (!parsed) return { ok: false, reason: "DURATION_PARSE_FAILED", durationRows };
     durationKey = parsed;
   } else {
-    return { ok: false, reason: "AMBIGUOUS_DURATION" };
+    return { ok: false, reason: "AMBIGUOUS_DURATION", durationRows };
   }
 
-  return { ok: true, device, durationKey, isExtension };
+  return { ok: true, device, durationKey, isExtension, durationRows };
 }
 
 export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChannel, date: string): Promise<PumpIngestResult> {
@@ -117,29 +135,20 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
   type PendingLine = { externalId: string; itemCode: string; qty: number; unitPrice: number };
   const pendingSaleByDate = new Map<string, PendingLine[]>();
 
-  for (const [groupKey, entries] of groups.entries()) {
-    const baseRow = entries.find(isBaseRow) || entries[0];
-    const otherRows = entries.filter((e) => e !== baseRow);
-
-    const saleDate = baseRow.paymentDate ? epochMsToKstDateString(Date.parse(baseRow.paymentDate)) : date;
-    const totalAmount = entries.reduce((sum, e) => sum + Number(e.totalProductAmount || 0), 0);
-    const qty = Number(baseRow.quantity) || 1;
-
-    const resolved = resolveGroup(baseRow.productId, baseRow, otherRows);
-    const matched = resolved.ok ? matchPumpItem(baseRow.productId, resolved.device, resolved.durationKey, resolved.isExtension) : null;
-    if (!resolved.ok) {
-      console.error(`market-sales(유축기) 그룹 판별 실패(groupKey=${groupKey}): ${resolved.reason}`);
-    }
-
-    const unitPrice = qty !== 0 ? Math.round(totalAmount / qty) : 0;
-    const vatAmt = Math.round(totalAmount * 0.1);
-    const totalAmt = totalAmount + vatAmt;
-
-    const itemCode = matched?.PROD_CD || "";
-    const itemName = matched?.NAME || "";
-    const ecountStatus = matched ? "미전송" : "미매핑";
-    const externalId = `PUMP:${groupKey}`;
-
+  // ✅ 한 곳에만 쓰는 upsert 패턴이라 공용 헬퍼로 뽑음(유축기 라인/상품 라인 둘 다 사용).
+  async function upsertLine(
+    externalId: string,
+    saleDate: string,
+    displayName: string,
+    itemCode: string,
+    itemName: string,
+    qty: number,
+    unitPrice: number,
+    supplyAmt: number,
+    ecountStatus: string
+  ) {
+    const vatAmt = Math.round(supplyAmt * 0.1);
+    const totalAmt = supplyAmt + vatAmt;
     await query(
       `
       INSERT INTO market_sales_data
@@ -157,22 +166,77 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
         ecount_status = EXCLUDED.ecount_status
       WHERE market_sales_data.ecount_status != '전송완료'
       `,
-      [channel, externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, totalAmount, vatAmt, totalAmt, ecountStatus]
+      [channel, externalId, saleDate, displayName, itemCode, itemName, qty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
     );
     insertedOrUpdated++;
+  }
 
+  async function queueIfSendable(externalId: string, itemCode: string, qty: number, unitPrice: number, saleDate: string, matched: boolean) {
     if (!matched || !cust) {
       autoSkippedCount++;
-      continue;
+      return;
     }
-
     const existing = await query(`SELECT ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`, [channel, externalId]);
-    if (existing.rows?.[0]?.ecount_status === "전송완료") continue;
-    if (qty === 0) continue;
+    if (existing.rows?.[0]?.ecount_status === "전송완료") return;
+    if (qty === 0) return;
 
     const list = pendingSaleByDate.get(saleDate) || [];
     list.push({ externalId, itemCode, qty, unitPrice });
     pendingSaleByDate.set(saleDate, list);
+  }
+
+  for (const [groupKey, entries] of groups.entries()) {
+    const baseRow = entries.find(isBaseRow) || entries[0];
+    const otherRows = entries.filter((e) => e !== baseRow);
+
+    const saleDate = baseRow.paymentDate ? epochMsToKstDateString(Date.parse(baseRow.paymentDate)) : date;
+    const qty = Number(baseRow.quantity) || 1;
+
+    const resolved = resolveGroup(baseRow.productId, baseRow, otherRows);
+    const matched = resolved.ok ? matchPumpItem(baseRow.productId, resolved.device, resolved.durationKey, resolved.isExtension) : null;
+    if (!resolved.ok) {
+      console.error(`market-sales(유축기) 그룹 판별 실패(groupKey=${groupKey}): ${resolved.reason}`);
+    }
+
+    // ✅ 유축기 매출 금액 = 기본줄 + 대여기간선택 줄(들)만. 퍼스널핏 세트/부품/사은품 등은 제외.
+    const pumpAmount = baseRow.totalProductAmount + resolved.durationRows.reduce((sum, r) => sum + Number(r.totalProductAmount || 0), 0);
+    const unitPrice = qty !== 0 ? Math.round(pumpAmount / qty) : 0;
+    const itemCode = matched?.PROD_CD || "";
+    const itemName = matched?.NAME || "";
+    const ecountStatus = matched ? "미전송" : "미매핑";
+    const externalId = `PUMP:${groupKey}`;
+
+    await upsertLine(externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
+    await queueIfSendable(externalId, itemCode, qty, unitPrice, saleDate, !!matched);
+
+    // ✅ 대여기간 선택 줄이 아닌 나머지(퍼스널핏 세트/부품/사은품/추천상품 등)는 진짜 별개 상품이라
+    //    일반상품 매칭표(productId|옵션 조합키)로 각자 매칭해서 별도 라인으로 처리한다.
+    const durationRowSet = new Set(resolved.durationRows);
+    const addonRows = otherRows.filter((r) => !durationRowSet.has(r));
+    for (const addon of addonRows) {
+      const option = (addon.productOption || "").trim();
+      const matchKey = option ? `${addon.productId}|${option}` : addon.productId;
+      const addonMatched = matchMarketSalesItem(channel, matchKey);
+      const addonBaseQty = addonMatched?.baseQty || 1;
+      const addonQty = (Number(addon.quantity) || 1) * addonBaseQty;
+      const addonUnitPrice = addonQty !== 0 ? Math.round(addon.totalProductAmount / addonQty) : 0;
+      const addonDisplayName = option ? `${addon.productName}/${option}` : addon.productName;
+      const addonExternalId = `${saleDate}:${matchKey}`;
+      const addonEcountStatus = addonMatched ? "미전송" : "미매핑";
+
+      await upsertLine(
+        addonExternalId,
+        saleDate,
+        addonDisplayName,
+        addonMatched?.PROD_CD || "",
+        addonMatched?.NAME || "",
+        addonQty,
+        addonUnitPrice,
+        addon.totalProductAmount,
+        addonEcountStatus
+      );
+      await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, saleDate, !!addonMatched);
+    }
   }
 
   let isFirstSend = true;

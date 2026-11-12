@@ -14,6 +14,7 @@
 import { query } from "@/lib/db";
 import { getNaverCredentials, fetchNaverProductOrders } from "@/api/market-sales/_lib/naverApiClient";
 import { matchMarketSalesItem } from "@/api/market-sales/_lib/marketSalesProductMatcher";
+import { PUMP_PRODUCT_IDS } from "@/api/market-sales/_lib/marketSalesPumpMapping";
 import { registerEcountSale } from "@/api/lotte-shipment/_lib/ecountSaveSale";
 import { CHANNEL_CUST, CHANNEL_WH_CD, type MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChannels";
 import { toEcountIoDate, toKstIsoDayRange, epochMsToKstDateString } from "@/api/market-sales/_lib/marketSalesDate";
@@ -49,6 +50,9 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
 
   for (const entry of fetchResult.data) {
     if (!entry.productId) continue;
+    // ✅ 2026-11-12 추가: 유축기(대여) productId는 marketSalesSmartstorePumpIngest.ts가 전담 처리.
+    //    여기서 같이 집계하면 같은 원본 줄이 양쪽에 중복으로 쌓인다.
+    if (PUMP_PRODUCT_IDS.has(entry.productId)) continue;
     // ✅ 결제일시(paymentDate)를 실제 매출일로 사용 — 쿠팡처럼 조회일과 실제 판매일이 어긋나는
     //    문제가 없다(요청 자체가 결제일시 범위 기준이라 어긋날 수 없음). 방어적으로 KST 날짜만 추출.
     const saleDate = entry.paymentDate ? epochMsToKstDateString(Date.parse(entry.paymentDate)) : date;
