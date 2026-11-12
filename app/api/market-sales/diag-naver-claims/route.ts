@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
 
   const statusCounts: Record<string, number> = {};
   const claimSamples: any[] = [];
+  const rawSamples: any[] = [];
+  const wantRawFor = new Set(["RETURNED", "CANCELED", "EXCHANGED"]);
 
   for (const item of list) {
     const content = item?.content || item || {};
@@ -65,7 +67,19 @@ export async function POST(req: NextRequest) {
         beforeClaim: po.beforeClaim,
       });
     }
+
+    // ✅ claim 관련 필드가 productOrder에 안 보이면 구조 자체를 모르는 것 — 전체 content를 통째로
+    //    몇 건만 덤프해서 실제 구조를 직접 눈으로 확인한다(문서 접근 불가라서 이 방법밖에 없음).
+    if (wantRawFor.has(status) && rawSamples.length < 5) {
+      rawSamples.push(content);
+    }
   }
 
-  return NextResponse.json({ totalCount: list.length, statusCounts, claimSampleCount: claimSamples.length, claimSamples });
+  return NextResponse.json({
+    totalCount: list.length,
+    statusCounts,
+    claimSampleCount: claimSamples.length,
+    claimSamples,
+    rawSamples,
+  });
 }
