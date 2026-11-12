@@ -234,20 +234,23 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     await upsertLine(externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
     await queueIfSendable(externalId, itemCode, qty, unitPrice, saleDate, !!matched);
 
-    // ✅ 반품(실데이터 확인: 반품되면 기본줄+기간줄 전부 productOrderStatus="RETURNED"로 같이 바뀜).
+    // ✅ 반품/취소(실데이터 확인: 반품/취소되면 기본줄+기간줄 전부 productOrderStatus가 같이 바뀜).
     //    매출행은 그대로 두고(위에서 이미 원래 금액으로 적재함), 반품분만 별도 '반품' 행으로 추가한다.
+    // ⚠️ 2026-11-12 수정: 반품/취소 행의 날짜는 결제일이 아니라 "처리완료일"(claimCompletedDate)을
+    //    쓴다 — 결제일과 처리완료일이 며칠씩 차이나는 경우가 실데이터로 확인됨(사용자 확인).
     if (baseRow.productOrderStatus === "RETURNED" || baseRow.productOrderStatus === "CANCELED") {
       const returnedQty = Math.max(0, baseRow.quantity - baseRow.remainQuantity);
       const returnedPumpAmount =
         Math.max(0, baseRow.totalProductAmount - baseRow.remainProductAmount) +
         resolved.durationRows.reduce((sum, r) => sum + Math.max(0, r.totalProductAmount - r.remainProductAmount), 0);
       if (returnedQty > 0 || returnedPumpAmount > 0) {
+        const refundDate = baseRow.claimCompletedDate ? epochMsToKstDateString(Date.parse(baseRow.claimCompletedDate)) : saleDate;
         const refundExternalId = `PUMP_RETURN:${groupKey}`;
         const refundQty = -returnedQty;
         const refundSupply = -returnedPumpAmount;
         const refundUnitPrice = refundQty !== 0 ? Math.round(refundSupply / refundQty) : 0;
-        await upsertLine(refundExternalId, saleDate, baseRow.productName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
-        await queueIfSendable(refundExternalId, itemCode, refundQty, refundUnitPrice, saleDate, !!matched, pendingRefundByDate);
+        await upsertLine(refundExternalId, refundDate, baseRow.productName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
+        await queueIfSendable(refundExternalId, itemCode, refundQty, refundUnitPrice, refundDate, !!matched, pendingRefundByDate);
       }
     }
 
@@ -279,13 +282,16 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
         const addonReturnedQty = Math.max(0, addon.quantity - addon.remainQuantity);
         const addonReturnedAmount = Math.max(0, addon.totalProductAmount - addon.remainProductAmount);
         if (addonReturnedQty > 0 || addonReturnedAmount > 0) {
-          const prevRef = addonRefundAgg.get(aggKey);
+          // ✅ 반품/취소 처리완료일 기준(결제일과 다를 수 있음).
+          const addonRefundDate = addon.claimCompletedDate ? epochMsToKstDateString(Date.parse(addon.claimCompletedDate)) : saleDate;
+          const refundAggKey = `${addonRefundDate}|${matchKey}`;
+          const prevRef = addonRefundAgg.get(refundAggKey);
           if (prevRef) {
             prevRef.qty += addonReturnedQty;
             prevRef.amount += addonReturnedAmount;
           } else {
-            addonRefundAgg.set(aggKey, {
-              saleDate,
+            addonRefundAgg.set(refundAggKey, {
+              saleDate: addonRefundDate,
               matchKey,
               productId: addon.productId,
               option,

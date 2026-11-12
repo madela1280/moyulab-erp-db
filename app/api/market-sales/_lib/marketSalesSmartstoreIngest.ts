@@ -77,16 +77,21 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     // ✅ 반품/취소여도 원래 매출 자체는 그대로 독립 행으로 남긴다(아래에서 계속 진행해서 매출 집계도
     //    같이 함) — 반품행을 따로 추가로 쌓는 것뿐, 매출에서 빼거나 건너뛰지 않는다. CANCELED(결제 후
     //    취소)도 RETURNED와 동일하게 처리한다(2026-11-12: CANCELED_BY_NOPAYMENT만 애초에 제외됨).
+    // ⚠️ 2026-11-12 수정: 반품/취소 행은 결제일이 아니라 "처리완료일"(claimCompletedDate) 기준으로
+    //    집계한다(사용자 확인) — 접수일/결제일과 처리완료일이 며칠씩 차이나는 경우가 실데이터로
+    //    확인됨(11/07 결제건이 11/08에 취소완료된 사례). 처리완료일이 없으면(이례적) 결제일로 대체.
     if (entry.productOrderStatus === "RETURNED" || entry.productOrderStatus === "CANCELED") {
       const returnedQty = Math.max(0, entry.quantity - entry.remainQuantity);
       const returnedAmount = Math.max(0, entry.totalProductAmount - entry.remainProductAmount);
       if (returnedQty > 0 || returnedAmount > 0) {
-        const prevR = refundAggByKey.get(key);
+        const refundDate = entry.claimCompletedDate ? epochMsToKstDateString(Date.parse(entry.claimCompletedDate)) : saleDate;
+        const refundKey = `${refundDate}|${matchKey}`;
+        const prevR = refundAggByKey.get(refundKey);
         if (prevR) {
           prevR.qtySum += returnedQty;
           prevR.amountSum += returnedAmount;
         } else {
-          refundAggByKey.set(key, { saleDate, matchKey, displayName, qtySum: returnedQty, amountSum: returnedAmount });
+          refundAggByKey.set(refundKey, { saleDate: refundDate, matchKey, displayName, qtySum: returnedQty, amountSum: returnedAmount });
         }
       }
     }

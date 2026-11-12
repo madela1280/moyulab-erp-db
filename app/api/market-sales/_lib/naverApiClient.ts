@@ -84,6 +84,10 @@ export type NaverProductOrderEntry = {
   //    반품된 만큼 줄어든다(전체반품이면 0). "원래값 - remain값" = 실제 반품 처리된 수량/금액.
   remainQuantity: number;
   remainProductAmount: number;
+  // ✅ 2026-11-12 추가 — 반품/취소는 "결제일"이 아니라 "처리완료일" 기준으로 집계해야 한다는 사용자
+  //    확인. completedClaims[0].claimCompleteOperationDate가 RETURN/CANCEL 공통으로 존재하는
+  //    실제 처리완료 일시(반품: returnCompletedDate, 취소: cancelCompletedDate와 동일값).
+  claimCompletedDate: string;
 };
 
 // ✅ 2026-11-12: CANCELED_BY_NOPAYMENT(미결제취소, 결제 자체가 안 된 건)만 제외한다. 일반 CANCELED
@@ -140,10 +144,14 @@ export async function fetchNaverProductOrders(
       if (!po?.productOrderId) continue;
       if (CANCELED_STATUSES.has(String(po.productOrderStatus))) continue;
 
+      const completedClaims: any[] = Array.isArray(content?.completedClaims) ? content.completedClaims : [];
+      const claimCompletedDate = String(completedClaims[0]?.claimCompleteOperationDate || "");
+
       entries.push({
         productOrderId: String(po.productOrderId),
         productOrderStatus: String(po.productOrderStatus || ""),
         paymentDate: String(order.paymentDate || ""),
+        claimCompletedDate,
         orderId: String(order.orderId || ""),
         productId: String(po.productId || ""),
         productName: String(po.productName || ""),
