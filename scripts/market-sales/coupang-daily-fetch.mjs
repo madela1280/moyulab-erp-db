@@ -5,6 +5,14 @@
 // 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨. (2026-11-09: 로켓재고 기능 삭제)
 // 2026-11-12: 스마트스토어(일반+유축기)도 여기서 같이 돈다 — 그동안 수동 호출로만 돌아가던 걸
 //   자동화함. 파일명은 그대로 두지만(크론탭 경로 변경 불필요) 쿠팡 전용이 아님에 유의.
+// ⚠️ 스마트스토어는 "어제" 하루만 보면 안 된다 — 네이버 상품주문 조회는 결제일 기준으로만 조회되고,
+//   반품/취소 처리완료일은 결제일보다 며칠 뒤일 수 있다(실데이터로 확인: 결제 다음날 취소완료된
+//   사례 있음). 그래서 스마트스토어는 최근 SMARTSTORE_LOOKBACK_DAYS일을 매일 다시 훑어서, 그 사이에
+//   새로 반품/취소 처리된 게 있으면 자동으로 잡아낸다. 이미 전송완료된 행은 재집계돼도 금액이 바뀌지
+//   않고(WHERE ecount_status != '전송완료'), 새로 생긴 반품/취소 행만 새 external_id로 추가되어
+//   전송되므로 중복 전송 위험 없음. 쿠팡은 반품을 settlement 데이터 자체에서 바로 잡기 때문에(원래
+//   주문일을 다시 조회할 필요 없음) 이 문제가 없어서 "어제"만 본다.
+const SMARTSTORE_LOOKBACK_DAYS = 14;
 // 채널의 API 키가 아직 없으면 CREDENTIALS_NOT_CONFIGURED로 조용히 건너뛴다(에러 아님).
 // ⚠️ 단계 하나가 실패해도(네트워크 오류 포함) 나머지 단계/채널은 계속 진행된다(safeCall로 격리).
 // ⚠️ 마지막 "미전송재시도" 단계는 오늘 가져온 건뿐 아니라 과거에 전송만 실패하고 남아있던 건까지
@@ -70,9 +78,12 @@ async function main() {
     await safeCall("미전송재시도", "/api/market-sales/retry-pending", { channel });
   }
 
-  console.log(`\n--- ${SMARTSTORE_CHANNEL} ---`);
-  await safeCall("일반매출", "/api/market-sales/smartstore-fetch", { channel: SMARTSTORE_CHANNEL, date: yesterday });
-  await safeCall("유축기매출", "/api/market-sales/smartstore-pump-fetch", { channel: SMARTSTORE_CHANNEL, date: yesterday });
+  console.log(`\n--- ${SMARTSTORE_CHANNEL} (최근 ${SMARTSTORE_LOOKBACK_DAYS}일 재조회 — 반품/취소 처리완료일이 결제일보다 늦을 수 있어서) ---`);
+  for (let i = 1; i <= SMARTSTORE_LOOKBACK_DAYS; i++) {
+    const targetDate = kstDateString(new Date(now.getTime() - i * 24 * 60 * 60 * 1000));
+    await safeCall(`일반매출(${targetDate})`, "/api/market-sales/smartstore-fetch", { channel: SMARTSTORE_CHANNEL, date: targetDate });
+    await safeCall(`유축기매출(${targetDate})`, "/api/market-sales/smartstore-pump-fetch", { channel: SMARTSTORE_CHANNEL, date: targetDate });
+  }
   await safeCall("미전송재시도", "/api/market-sales/retry-pending", { channel: SMARTSTORE_CHANNEL });
 
   console.log(`\n[${new Date().toISOString()}] 완료${anyFailure ? " (일부 실패 있음 — 위 로그 확인 필요)" : " (전부 정상)"}`);
