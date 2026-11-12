@@ -20,10 +20,6 @@ export type RocketGrowthIngestResult =
 
 type Aggregated = { vendorItemId: string; productName: string; qtySum: number; saleAmountSum: number };
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // date: "YYYY-MM-DD" (결제일 기준 하루치)
 export async function ingestCoupangRocketGrowthSalesForDate(
   channel: MarketSalesChannel,
@@ -72,7 +68,11 @@ export async function ingestCoupangRocketGrowthSalesForDate(
   let insertedOrUpdated = 0;
   let autoSentCount = 0;
   let autoSkippedCount = 0;
-  let isFirstSend = true;
+
+  // ✅ 2026-11-12 추가: 이 날짜의 로켓그로스 건들을 건별로 바로 전송하지 않고 모아뒀다가
+  //    한 번에(한 전표로 묶어서) 전송한다 — 일반매출 ingest와 동일한 구조.
+  type PendingLine = { externalId: string; itemCode: string; qty: number; unitPrice: number };
+  const pendingLines: PendingLine[] = [];
 
   for (const agg of aggByVendorItem.values()) {
     const matched = matchMarketSalesItem(channel, agg.vendorItemId);
@@ -117,29 +117,33 @@ export async function ingestCoupangRocketGrowthSalesForDate(
       [channel, externalId]
     );
     if (existing.rows?.[0]?.ecount_status === "전송완료") continue;
+    if (finalQty === 0) continue;
 
-    // ✅ 이카운트에 연달아 너무 빠르게 요청하면 가끔 JSON 대신 에러 페이지를 돌려받는 문제가
-    //    실사용 로그로 확인됨 — 품목 사이에 짧은 간격을 둬서 완화한다(첫 건은 대기 없이 바로 전송).
-    if (!isFirstSend) await sleep(3000);
-    isFirstSend = false;
+    pendingLines.push({ externalId, itemCode, qty: finalQty, unitPrice });
+  }
 
+  // ✅ 모아둔 라인을 한 번에(전표 1개, 여러 줄) 전송한다.
+  if (pendingLines.length) {
     const result = await registerEcountSale({
       cust,
       whCd,
-      lines: [{ PROD_CD: itemCode, QTY: finalQty, PRICE: unitPrice }],
+      lines: pendingLines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
       ioDate: paidDate,
+      groupAsOneSlip: true,
     });
     if (!result.ok || !result.slipNos.length) {
-      console.error(`market-sales 로켓그로스 자동전송 실패(channel=${channel}, externalId=${externalId}):`, !result.ok ? result.reason : "슬립번호 없음");
-      autoSkippedCount++;
-      continue;
+      console.error(`market-sales 로켓그로스 자동전송 실패(channel=${channel}, date=${date}):`, !result.ok ? result.reason : "슬립번호 없음");
+      autoSkippedCount += pendingLines.length;
+    } else {
+      const slipNo = result.slipNos.join(",");
+      for (const l of pendingLines) {
+        await query(
+          `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
+          [channel, l.externalId, slipNo]
+        );
+        autoSentCount++;
+      }
     }
-
-    await query(
-      `UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`,
-      [channel, externalId, result.slipNos.join(",")]
-    );
-    autoSentCount++;
   }
 
   return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount };
