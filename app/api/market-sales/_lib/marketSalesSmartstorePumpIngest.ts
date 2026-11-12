@@ -185,6 +185,12 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     pendingSaleByDate.set(saleDate, list);
   }
 
+  // ✅ 같은 부품/사은품(예: "100원 체험단리뷰 이벤트: 모유랩 다이렉트저장팩 세트")이 그날 여러 주문에
+  //    반복해서 나올 수 있다(실데이터로 확인됨) — external_id가 같은 키로 겹치므로, 그룹 루프 중엔
+  //    바로 저장하지 않고 먼저 합산한 다음 한 번에 저장한다(일반상품 ingest와 동일하게 "합산" 방식).
+  type AddonAgg = { saleDate: string; matchKey: string; productId: string; option: string; productName: string; qty: number; amount: number };
+  const addonAgg = new Map<string, AddonAgg>();
+
   for (const [groupKey, entries] of groups.entries()) {
     const baseRow = entries.find(isBaseRow) || entries[0];
     const otherRows = entries.filter((e) => e !== baseRow);
@@ -210,33 +216,52 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     await queueIfSendable(externalId, itemCode, qty, unitPrice, saleDate, !!matched);
 
     // ✅ 대여기간 선택 줄이 아닌 나머지(퍼스널핏 세트/부품/사은품/추천상품 등)는 진짜 별개 상품이라
-    //    일반상품 매칭표(productId|옵션 조합키)로 각자 매칭해서 별도 라인으로 처리한다.
+    //    일반상품 매칭표(productId|옵션 조합키)로 합산해서 매칭한다.
     const durationRowSet = new Set(resolved.durationRows);
     const addonRows = otherRows.filter((r) => !durationRowSet.has(r));
     for (const addon of addonRows) {
       const option = (addon.productOption || "").trim();
       const matchKey = option ? `${addon.productId}|${option}` : addon.productId;
-      const addonMatched = matchMarketSalesItem(channel, matchKey);
-      const addonBaseQty = addonMatched?.baseQty || 1;
-      const addonQty = (Number(addon.quantity) || 1) * addonBaseQty;
-      const addonUnitPrice = addonQty !== 0 ? Math.round(addon.totalProductAmount / addonQty) : 0;
-      const addonDisplayName = option ? `${addon.productName}/${option}` : addon.productName;
-      const addonExternalId = `${saleDate}:${matchKey}`;
-      const addonEcountStatus = addonMatched ? "미전송" : "미매핑";
-
-      await upsertLine(
-        addonExternalId,
-        saleDate,
-        addonDisplayName,
-        addonMatched?.PROD_CD || "",
-        addonMatched?.NAME || "",
-        addonQty,
-        addonUnitPrice,
-        addon.totalProductAmount,
-        addonEcountStatus
-      );
-      await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, saleDate, !!addonMatched);
+      const aggKey = `${saleDate}|${matchKey}`;
+      const prev = addonAgg.get(aggKey);
+      if (prev) {
+        prev.qty += Number(addon.quantity) || 1;
+        prev.amount += Number(addon.totalProductAmount || 0);
+      } else {
+        addonAgg.set(aggKey, {
+          saleDate,
+          matchKey,
+          productId: addon.productId,
+          option,
+          productName: addon.productName,
+          qty: Number(addon.quantity) || 1,
+          amount: Number(addon.totalProductAmount || 0),
+        });
+      }
     }
+  }
+
+  for (const agg of addonAgg.values()) {
+    const addonMatched = matchMarketSalesItem(channel, agg.matchKey);
+    const addonBaseQty = addonMatched?.baseQty || 1;
+    const addonQty = agg.qty * addonBaseQty;
+    const addonUnitPrice = addonQty !== 0 ? Math.round(agg.amount / addonQty) : 0;
+    const addonDisplayName = agg.option ? `${agg.productName}/${agg.option}` : agg.productName;
+    const addonExternalId = `${agg.saleDate}:${agg.matchKey}`;
+    const addonEcountStatus = addonMatched ? "미전송" : "미매핑";
+
+    await upsertLine(
+      addonExternalId,
+      agg.saleDate,
+      addonDisplayName,
+      addonMatched?.PROD_CD || "",
+      addonMatched?.NAME || "",
+      addonQty,
+      addonUnitPrice,
+      agg.amount,
+      addonEcountStatus
+    );
+    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, agg.saleDate, !!addonMatched);
   }
 
   let isFirstSend = true;
