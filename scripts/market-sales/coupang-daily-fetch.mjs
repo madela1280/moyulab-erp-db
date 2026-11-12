@@ -86,6 +86,11 @@ async function main() {
   }
   await safeCall("미전송재시도", "/api/market-sales/retry-pending", { channel: SMARTSTORE_CHANNEL });
 
+  // ✅ 2026-11-12 추가: 전송완료된 지 30일 지난 건은 ERP 작업용 표에서 정리한다(무한 누적 방지,
+  //    사용자 확인) — 아직 미매핑/미전송인 건은 날짜와 무관하게 절대 안 지워진다.
+  console.log(`\n--- 오래된 전송완료 건 정리 ---`);
+  await safeCall("정리", "/api/market-sales/cleanup-old", { retentionDays: 30 });
+
   console.log(`\n[${new Date().toISOString()}] 완료${anyFailure ? " (일부 실패 있음 — 위 로그 확인 필요)" : " (전부 정상)"}`);
 }
 

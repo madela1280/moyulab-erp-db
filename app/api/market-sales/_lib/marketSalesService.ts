@@ -121,6 +121,21 @@ export async function deleteMarketSales(channel: MarketSalesChannel, ids: number
   return { deletedCount: r.rowCount || 0 };
 }
 
+// ✅ 2026-11-12 추가: market_sales_data는 무한 누적될 필요가 없다(사용자 확인) — 이카운트에 실제
+//    반영된(전송완료) 오래된 건은 ERP 쪽 작업용 표에서 지워도 된다. 아직 미매핑/미전송인 건은
+//    날짜가 오래됐어도 작업이 안 끝난 거라 절대 지우지 않는다(처리 안 끝난 데이터 유실 방지).
+export async function deleteOldSentMarketSales(retentionDays = 30): Promise<{ deletedCount: number }> {
+  await ensureMarketSalesTables();
+  const r = await query(
+    `DELETE FROM market_sales_data
+     WHERE ecount_status = '전송완료'
+       AND sale_date IS NOT NULL
+       AND sale_date < (CURRENT_DATE - $1::int)`,
+    [retentionDays]
+  );
+  return { deletedCount: r.rowCount || 0 };
+}
+
 export type UpdateLineField = "품목" | "품목명" | "수량" | "단가";
 const FIELD_TO_COLUMN: Record<UpdateLineField, string> = {
   품목: "item_code",
