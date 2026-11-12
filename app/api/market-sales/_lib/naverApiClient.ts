@@ -79,9 +79,18 @@ export type NaverProductOrderEntry = {
   optionManageCode: string;
   quantity: number;
   totalProductAmount: number;
+  // ✅ 2026-11-12 추가(반품 처리용) — 실데이터로 확인: productOrderStatus="RETURNED"가 되어도
+  //    totalProductAmount/quantity는 원래값 그대로 남고, remainQuantity/remainProductAmount가
+  //    반품된 만큼 줄어든다(전체반품이면 0). "원래값 - remain값" = 실제 반품 처리된 수량/금액.
+  remainQuantity: number;
+  remainProductAmount: number;
 };
 
-const CANCELED_STATUSES = new Set(["CANCELED", "CANCELED_BY_NOPAYMENT"]);
+// ✅ 2026-11-12: CANCELED_BY_NOPAYMENT(미결제취소, 결제 자체가 안 된 건)만 제외한다. 일반 CANCELED
+//    (결제 후 취소)는 더 이상 걸러내지 않는다 — RETURNED와 동일하게 매출/반품(취소) 독립 행으로
+//    처리해야 ERP에서 취소 이력이 보인다(ingest 쪽 marketSalesSmartstoreIngest.ts /
+//    marketSalesSmartstorePumpIngest.ts 참고).
+const CANCELED_STATUSES = new Set(["CANCELED_BY_NOPAYMENT"]);
 
 // ✅ fromISO~toISO(결제일시 기준, KST) 범위의 상품주문 상세를 페이지네이션 돌며 전부 모은다.
 //    (최대 300건/페이지 — 공식 문서 기준) 취소/미결제취소 건은 매출이 아니므로 여기서 제외한다.
@@ -143,6 +152,8 @@ export async function fetchNaverProductOrders(
         optionManageCode: String(po.optionManageCode || ""),
         quantity: Number(po.quantity) || 0,
         totalProductAmount: Number(po.totalProductAmount) || 0,
+        remainQuantity: Number(po.remainQuantity ?? po.quantity) || 0,
+        remainProductAmount: Number(po.remainProductAmount ?? po.totalProductAmount) || 0,
       });
     }
 

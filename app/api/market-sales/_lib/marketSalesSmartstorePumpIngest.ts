@@ -24,6 +24,13 @@
 // - 일반 스마트스토어 ingest(marketSalesSmartstoreIngest.ts)는 유축기 productId를 건너뛰도록
 //   수정해뒀다 — 안 그러면 같은 원본 줄이 여기(유축기 ingest)와 거기(일반상품 ingest) 양쪽에서
 //   중복으로 집계된다.
+// - 반품/취소(2026-11-12 추가): 실데이터로 확인 — 한 주문이 반품/취소되면 그 묶음의 모든 줄
+//   (기본줄/기간줄/부품줄)이 전부 productOrderStatus="RETURNED"(반품) 또는 "CANCELED"(취소)로
+//   같이 바뀐다. 기본줄 상태로 그룹 전체의 반품/취소 여부를 판단한다. 매출 행은 그대로 두고(원래
+//   금액 그대로 독립 유지), 반품/취소 금액(원래값-remain값)만 별도의 '반품' 행으로 추가한다 —
+//   일반상품 ingest와 동일한 설계.
+
+
 
 import { query } from "@/lib/db";
 import { getNaverCredentials, fetchNaverProductOrders, type NaverProductOrderEntry } from "@/api/market-sales/_lib/naverApiClient";
@@ -134,6 +141,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
 
   type PendingLine = { externalId: string; itemCode: string; qty: number; unitPrice: number };
   const pendingSaleByDate = new Map<string, PendingLine[]>();
+  const pendingRefundByDate = new Map<string, PendingLine[]>();
 
   // ✅ 한 곳에만 쓰는 upsert 패턴이라 공용 헬퍼로 뽑음(유축기 라인/상품 라인 둘 다 사용).
   async function upsertLine(
@@ -145,15 +153,16 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     qty: number,
     unitPrice: number,
     supplyAmt: number,
-    ecountStatus: string
+    ecountStatus: string,
+    salesType: "매출" | "반품" = "매출"
   ) {
     const vatAmt = Math.round(supplyAmt * 0.1);
     const totalAmt = supplyAmt + vatAmt;
     await query(
       `
       INSERT INTO market_sales_data
-        (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status, sales_type)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT (channel, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
         market_item_name = EXCLUDED.market_item_name,
         item_code = EXCLUDED.item_code,
@@ -163,15 +172,24 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
         supply_amt = EXCLUDED.supply_amt,
         vat_amt = EXCLUDED.vat_amt,
         total_amt = EXCLUDED.total_amt,
-        ecount_status = EXCLUDED.ecount_status
+        ecount_status = EXCLUDED.ecount_status,
+        sales_type = EXCLUDED.sales_type
       WHERE market_sales_data.ecount_status != '전송완료'
       `,
-      [channel, externalId, saleDate, displayName, itemCode, itemName, qty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
+      [channel, externalId, saleDate, displayName, itemCode, itemName, qty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType]
     );
     insertedOrUpdated++;
   }
 
-  async function queueIfSendable(externalId: string, itemCode: string, qty: number, unitPrice: number, saleDate: string, matched: boolean) {
+  async function queueIfSendable(
+    externalId: string,
+    itemCode: string,
+    qty: number,
+    unitPrice: number,
+    saleDate: string,
+    matched: boolean,
+    targetMap: Map<string, PendingLine[]> = pendingSaleByDate
+  ) {
     if (!matched || !cust) {
       autoSkippedCount++;
       return;
@@ -180,9 +198,9 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     if (existing.rows?.[0]?.ecount_status === "전송완료") return;
     if (qty === 0) return;
 
-    const list = pendingSaleByDate.get(saleDate) || [];
+    const list = targetMap.get(saleDate) || [];
     list.push({ externalId, itemCode, qty, unitPrice });
-    pendingSaleByDate.set(saleDate, list);
+    targetMap.set(saleDate, list);
   }
 
   // ✅ 같은 부품/사은품(예: "100원 체험단리뷰 이벤트: 모유랩 다이렉트저장팩 세트")이 그날 여러 주문에
@@ -190,6 +208,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
   //    바로 저장하지 않고 먼저 합산한 다음 한 번에 저장한다(일반상품 ingest와 동일하게 "합산" 방식).
   type AddonAgg = { saleDate: string; matchKey: string; productId: string; option: string; productName: string; qty: number; amount: number };
   const addonAgg = new Map<string, AddonAgg>();
+  const addonRefundAgg = new Map<string, AddonAgg>();
 
   for (const [groupKey, entries] of groups.entries()) {
     const baseRow = entries.find(isBaseRow) || entries[0];
@@ -215,6 +234,23 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     await upsertLine(externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
     await queueIfSendable(externalId, itemCode, qty, unitPrice, saleDate, !!matched);
 
+    // ✅ 반품(실데이터 확인: 반품되면 기본줄+기간줄 전부 productOrderStatus="RETURNED"로 같이 바뀜).
+    //    매출행은 그대로 두고(위에서 이미 원래 금액으로 적재함), 반품분만 별도 '반품' 행으로 추가한다.
+    if (baseRow.productOrderStatus === "RETURNED" || baseRow.productOrderStatus === "CANCELED") {
+      const returnedQty = Math.max(0, baseRow.quantity - baseRow.remainQuantity);
+      const returnedPumpAmount =
+        Math.max(0, baseRow.totalProductAmount - baseRow.remainProductAmount) +
+        resolved.durationRows.reduce((sum, r) => sum + Math.max(0, r.totalProductAmount - r.remainProductAmount), 0);
+      if (returnedQty > 0 || returnedPumpAmount > 0) {
+        const refundExternalId = `PUMP_RETURN:${groupKey}`;
+        const refundQty = -returnedQty;
+        const refundSupply = -returnedPumpAmount;
+        const refundUnitPrice = refundQty !== 0 ? Math.round(refundSupply / refundQty) : 0;
+        await upsertLine(refundExternalId, saleDate, baseRow.productName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
+        await queueIfSendable(refundExternalId, itemCode, refundQty, refundUnitPrice, saleDate, !!matched, pendingRefundByDate);
+      }
+    }
+
     // ✅ 대여기간 선택 줄이 아닌 나머지(퍼스널핏 세트/부품/사은품/추천상품 등)는 진짜 별개 상품이라
     //    일반상품 매칭표(productId|옵션 조합키)로 합산해서 매칭한다.
     const durationRowSet = new Set(resolved.durationRows);
@@ -237,6 +273,28 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
           qty: Number(addon.quantity) || 1,
           amount: Number(addon.totalProductAmount || 0),
         });
+      }
+
+      if (addon.productOrderStatus === "RETURNED" || addon.productOrderStatus === "CANCELED") {
+        const addonReturnedQty = Math.max(0, addon.quantity - addon.remainQuantity);
+        const addonReturnedAmount = Math.max(0, addon.totalProductAmount - addon.remainProductAmount);
+        if (addonReturnedQty > 0 || addonReturnedAmount > 0) {
+          const prevRef = addonRefundAgg.get(aggKey);
+          if (prevRef) {
+            prevRef.qty += addonReturnedQty;
+            prevRef.amount += addonReturnedAmount;
+          } else {
+            addonRefundAgg.set(aggKey, {
+              saleDate,
+              matchKey,
+              productId: addon.productId,
+              option,
+              productName: addon.productName,
+              qty: addonReturnedQty,
+              amount: addonReturnedAmount,
+            });
+          }
+        }
       }
     }
   }
@@ -264,34 +322,68 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, agg.saleDate, !!addonMatched);
   }
 
+  // ✅ 부품/사은품 반품분도 매출과 동일하게 합산 매칭해서 별도 '반품' 행으로 적재한다.
+  for (const agg of addonRefundAgg.values()) {
+    const addonMatched = matchMarketSalesItem(channel, agg.matchKey);
+    const addonBaseQty = addonMatched?.baseQty || 1;
+    const addonQty = -(agg.qty * addonBaseQty);
+    const addonSupply = -agg.amount;
+    const addonUnitPrice = addonQty !== 0 ? Math.round(addonSupply / addonQty) : 0;
+    const addonDisplayName = agg.option ? `${agg.productName}/${agg.option}` : agg.productName;
+    const addonExternalId = `RETURN:${agg.saleDate}:${agg.matchKey}`;
+    const addonEcountStatus = addonMatched ? "미전송" : "미매핑";
+
+    await upsertLine(
+      addonExternalId,
+      agg.saleDate,
+      addonDisplayName,
+      addonMatched?.PROD_CD || "",
+      addonMatched?.NAME || "",
+      addonQty,
+      addonUnitPrice,
+      addonSupply,
+      addonEcountStatus,
+      "반품"
+    );
+    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, agg.saleDate, !!addonMatched, pendingRefundByDate);
+  }
+
   let isFirstSend = true;
-  for (const [saleDate, lines] of pendingSaleByDate.entries()) {
-    if (!isFirstSend) await sleep(3000);
-    isFirstSend = false;
+  async function flushByDate(byDate: Map<string, PendingLine[]>, label: string) {
+    for (const [saleDate, lines] of byDate.entries()) {
+      if (!isFirstSend) await sleep(3000);
+      isFirstSend = false;
 
-    const result = await registerEcountSale({
-      cust,
-      whCd,
-      lines: lines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
-      ioDate: toEcountIoDate(saleDate),
-      groupAsOneSlip: true,
-    });
-    if (!result.ok || !result.slipNos.length) {
-      console.error(`market-sales(유축기) 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`, !result.ok ? result.reason : "슬립번호 없음");
-      autoSkippedCount += lines.length;
-      continue;
-    }
+      const result = await registerEcountSale({
+        cust,
+        whCd,
+        lines: lines.map((l) => ({ PROD_CD: l.itemCode, QTY: l.qty, PRICE: l.unitPrice })),
+        ioDate: toEcountIoDate(saleDate),
+        groupAsOneSlip: true,
+      });
+      if (!result.ok || !result.slipNos.length) {
+        console.error(
+          `market-sales(유축기${label}) 이카운트 전송 실패(channel=${channel}, saleDate=${saleDate}):`,
+          !result.ok ? result.reason : "슬립번호 없음"
+        );
+        autoSkippedCount += lines.length;
+        continue;
+      }
 
-    const slipNo = result.slipNos.join(",");
-    for (const l of lines) {
-      await query(`UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`, [
-        channel,
-        l.externalId,
-        slipNo,
-      ]);
-      autoSentCount++;
+      const slipNo = result.slipNos.join(",");
+      for (const l of lines) {
+        await query(`UPDATE market_sales_data SET ecount_status = '전송완료', ecount_slip_no = $3 WHERE channel = $1 AND external_id = $2`, [
+          channel,
+          l.externalId,
+          slipNo,
+        ]);
+        autoSentCount++;
+      }
     }
   }
+
+  await flushByDate(pendingSaleByDate, "");
+  await flushByDate(pendingRefundByDate, " 반품");
 
   return { ok: true, date, insertedOrUpdated, autoSentCount, autoSkippedCount };
 }
