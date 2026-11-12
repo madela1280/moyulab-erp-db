@@ -71,6 +71,7 @@ export type NaverProductOrderEntry = {
   productOrderId: string;
   productOrderStatus: string;
   paymentDate: string;
+  orderId: string; // ✅ 2026-11-12 추가: 유축기처럼 한 주문이 여러 productOrderId로 쪼개질 때 묶는 키.
   productId: string;
   productName: string;
   productOption: string;
@@ -134,6 +135,7 @@ export async function fetchNaverProductOrders(
         productOrderId: String(po.productOrderId),
         productOrderStatus: String(po.productOrderStatus || ""),
         paymentDate: String(order.paymentDate || ""),
+        orderId: String(order.orderId || ""),
         productId: String(po.productId || ""),
         productName: String(po.productName || ""),
         productOption: String(po.productOption || ""),
