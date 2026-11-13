@@ -39,6 +39,8 @@ export type MarketSalesRow = {
   부가세: number;
   합계: number;
   이카운트전송상태: "전송완료" | "미전송" | "미매핑";
+  // ✅ 2026-11-13 추가: 미매핑 건의 실제 productId|옵션 매칭키를 디버깅용으로 확인하기 위함(그리드에선 안 씀).
+  외부키?: string;
 };
 
 let ensured = false;
@@ -91,6 +93,7 @@ function toRow(r: any): MarketSalesRow {
     부가세: Number(r.vat_amt) || 0,
     합계: Number(r.total_amt) || 0,
     이카운트전송상태: r.ecount_status,
+    외부키: r.external_id ? String(r.external_id) : undefined,
   };
 }
 
@@ -99,7 +102,7 @@ export async function listMarketSales(channel: MarketSalesChannel): Promise<Mark
   const r = await query(
     `
     SELECT id, channel, sale_date::text AS sale_date, sales_type, market_item_name, item_code, item_name, qty, unit_price,
-           supply_amt, vat_amt, total_amt, ecount_status
+           supply_amt, vat_amt, total_amt, ecount_status, external_id
     FROM market_sales_data
     WHERE channel = $1
     ORDER BY sale_date DESC NULLS LAST, CASE WHEN sales_type = '매출' THEN 0 ELSE 1 END, id DESC
