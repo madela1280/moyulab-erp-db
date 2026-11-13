@@ -4,8 +4,10 @@
 // 자동전송까지 한 번에 수행. 쿠팡 ingest(marketSalesCoupangIngest.ts)와 동일한 "증분 upsert +
 // 전송완료 건은 델타로만 추가" 구조를 그대로 따른다(중복전송 방지 설계도 동일).
 //
-// ⚠️ 매출액은 productOrder.totalProductAmount(상품금액, 배송비 제외) 기준 — 실제 테스트 전송
-//    후 꼭 재확인 필요(쿠팡 때와 동일하게 추측 아님, 공식 문서 필드지만 실데이터 검증은 아직 못함).
+// ⚠️ 2026-11-13 확정: 매출액은 productOrder.totalPaymentAmount(실결제액, 배송비 제외) 기준이다.
+//    totalProductAmount는 "할인 적용 전" 금액이라 할인된 주문에서 매출이 부풀려지는 심각한
+//    과대집계 버그가 있었다(실데이터로 확인: 정가 28000원/할인 8000원인데 totalProductAmount=28000,
+//    실제 결제액 totalPaymentAmount=20000). 반드시 totalPaymentAmount/remainPaymentAmount를 써야 한다.
 // ✅ 2026-11-11: 집계/매칭 키는 productId 단독이 아니라 "productId|productOption" 조합 — 같은
 //    productId라도 옵션(productOption)별로 완전히 다른 물리 품목으로 매핑되는 경우가 실제
 //    매핑자료(스마트스토어_일반상품매핑xlsx.xlsx, 175건)에서 다수 확인됨. 옵션이 없는 단품은
@@ -82,7 +84,7 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     //    확인됨(11/07 결제건이 11/08에 취소완료된 사례). 처리완료일이 없으면(이례적) 결제일로 대체.
     if (entry.productOrderStatus === "RETURNED" || entry.productOrderStatus === "CANCELED") {
       const returnedQty = Math.max(0, entry.quantity - entry.remainQuantity);
-      const returnedAmount = Math.max(0, entry.totalProductAmount - entry.remainProductAmount);
+      const returnedAmount = Math.max(0, entry.totalPaymentAmount - entry.remainPaymentAmount);
       if (returnedQty > 0 || returnedAmount > 0) {
         const refundDate = entry.claimCompletedDate ? epochMsToKstDateString(Date.parse(entry.claimCompletedDate)) : saleDate;
         const refundKey = `${refundDate}|${matchKey}`;
@@ -99,14 +101,14 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const prev = aggByKey.get(key);
     if (prev) {
       prev.qtySum += entry.quantity;
-      prev.amountSum += entry.totalProductAmount;
+      prev.amountSum += entry.totalPaymentAmount;
     } else {
       aggByKey.set(key, {
         saleDate,
         matchKey,
         displayName,
         qtySum: entry.quantity,
-        amountSum: entry.totalProductAmount,
+        amountSum: entry.totalPaymentAmount,
       });
     }
   }

@@ -78,12 +78,18 @@ export type NaverProductOrderEntry = {
   sellerProductCode: string;
   optionManageCode: string;
   quantity: number;
-  totalProductAmount: number;
+  // ⚠️ 2026-11-13 확인(실데이터): totalProductAmount는 "할인 적용 전" 금액이다(예: 정가 28000원,
+  //    할인 8000원이면 totalProductAmount=28000, 실제 고객 결제액은 totalPaymentAmount=20000).
+  //    매출은 반드시 totalPaymentAmount(실결제액, 배송비 제외) 기준으로 써야 한다 — totalProductAmount를
+  //    쓰면 할인분만큼 매출이 부풀려진다(실데이터로 확인된 심각한 과대집계 원인, 2026-11-13).
+  totalProductAmount: number; // 참고용으로만 남김(할인 전 금액) — 매출 계산에 쓰지 않는다.
+  totalPaymentAmount: number; // ✅ 실제 매출로 써야 하는 필드(할인 반영된 실결제액, 배송비 제외).
   // ✅ 2026-11-12 추가(반품 처리용) — 실데이터로 확인: productOrderStatus="RETURNED"가 되어도
-  //    totalProductAmount/quantity는 원래값 그대로 남고, remainQuantity/remainProductAmount가
+  //    totalPaymentAmount/quantity는 원래값 그대로 남고, remainQuantity/remainPaymentAmount가
   //    반품된 만큼 줄어든다(전체반품이면 0). "원래값 - remain값" = 실제 반품 처리된 수량/금액.
   remainQuantity: number;
-  remainProductAmount: number;
+  remainProductAmount: number; // 참고용(할인 전 기준 remain) — 쓰지 않는다.
+  remainPaymentAmount: number; // ✅ 반품/취소 금액 계산에 써야 하는 필드(실결제액 기준 remain).
   // ✅ 2026-11-12 추가 — 반품/취소는 "결제일"이 아니라 "처리완료일" 기준으로 집계해야 한다는 사용자
   //    확인. completedClaims[0].claimCompleteOperationDate가 RETURN/CANCEL 공통으로 존재하는
   //    실제 처리완료 일시(반품: returnCompletedDate, 취소: cancelCompletedDate와 동일값).
@@ -160,8 +166,10 @@ export async function fetchNaverProductOrders(
         optionManageCode: String(po.optionManageCode || ""),
         quantity: Number(po.quantity) || 0,
         totalProductAmount: Number(po.totalProductAmount) || 0,
+        totalPaymentAmount: Number(po.totalPaymentAmount) || 0,
         remainQuantity: Number(po.remainQuantity ?? po.quantity) || 0,
         remainProductAmount: Number(po.remainProductAmount ?? po.totalProductAmount) || 0,
+        remainPaymentAmount: Number(po.remainPaymentAmount ?? po.totalPaymentAmount) || 0,
       });
     }
 

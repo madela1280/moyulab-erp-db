@@ -12,7 +12,7 @@
 // - 연장여부(isExtension): 기본줄 productOption에 "연장 신청"이 포함되거나, 다른 줄 중 productOption에
 //   "재구매"가 포함되어 있고 그 줄의 productName이 "선택안함"으로 시작하지 않으면(=실제로 연장기간을
 //   선택한 것) true. "재구매 - 연장기간 선택: 선택안함(2주)"처럼 선택 안 하고 넘어간 경우는 연장 아님.
-// - 대여기간(durationKey): 기본줄을 제외한 "대여기간 선택" 줄 중 금액(totalProductAmount)이 0이
+// - 대여기간(durationKey): 기본줄을 제외한 "대여기간 선택" 줄 중 금액(totalPaymentAmount, 실결제액 기준)이 0이
 //   아닌 줄이 정확히 1개면 그 줄의 productName에서 기간을 뽑는다(심포니/락티나는 "N주", 스윙 계열은
 //   "N개월"). 0개면 기본값(심포니/락티나=2주, 스윙 계열=1개월). 2개 이상이면 판별 불가 → 미매핑.
 // - 유축기 매출 금액은 기본줄 + 대여기간선택 줄(들)만 합산한다. 나머지(퍼스널핏 세트/부품/사은품/
@@ -92,7 +92,7 @@ function resolveGroup(productId: string, baseRow: NaverProductOrderEntry, otherR
   const extensionByOther = durationRows.some((r) => r.productOption.includes("재구매") && isRealSelection(r.productName));
   const isExtension = extensionByBase || extensionByOther;
 
-  const nonZeroRows = durationRows.filter((r) => Number(r.totalProductAmount) !== 0);
+  const nonZeroRows = durationRows.filter((r) => Number(r.totalPaymentAmount) !== 0);
   let durationKey: string;
   if (nonZeroRows.length === 0) {
     durationKey = isSwing ? "1개월" : "2주";
@@ -236,7 +236,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     }
 
     // ✅ 유축기 매출 금액 = 기본줄 + 대여기간선택 줄(들)만. 퍼스널핏 세트/부품/사은품 등은 제외.
-    const pumpAmount = baseRow.totalProductAmount + resolved.durationRows.reduce((sum, r) => sum + Number(r.totalProductAmount || 0), 0);
+    const pumpAmount = baseRow.totalPaymentAmount + resolved.durationRows.reduce((sum, r) => sum + Number(r.totalPaymentAmount || 0), 0);
     const unitPrice = qty !== 0 ? Math.round(pumpAmount / qty) : 0;
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
@@ -253,8 +253,8 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     if (baseRow.productOrderStatus === "RETURNED" || baseRow.productOrderStatus === "CANCELED") {
       const returnedQty = Math.max(0, baseRow.quantity - baseRow.remainQuantity);
       const returnedPumpAmount =
-        Math.max(0, baseRow.totalProductAmount - baseRow.remainProductAmount) +
-        resolved.durationRows.reduce((sum, r) => sum + Math.max(0, r.totalProductAmount - r.remainProductAmount), 0);
+        Math.max(0, baseRow.totalPaymentAmount - baseRow.remainPaymentAmount) +
+        resolved.durationRows.reduce((sum, r) => sum + Math.max(0, r.totalPaymentAmount - r.remainPaymentAmount), 0);
       if (returnedQty > 0 || returnedPumpAmount > 0) {
         const refundDate = baseRow.claimCompletedDate ? epochMsToKstDateString(Date.parse(baseRow.claimCompletedDate)) : saleDate;
         const refundExternalId = `PUMP_RETURN:${groupKey}`;
@@ -277,7 +277,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
       const prev = addonAgg.get(aggKey);
       if (prev) {
         prev.qty += Number(addon.quantity) || 1;
-        prev.amount += Number(addon.totalProductAmount || 0);
+        prev.amount += Number(addon.totalPaymentAmount || 0);
       } else {
         addonAgg.set(aggKey, {
           saleDate,
@@ -286,13 +286,13 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
           option,
           productName: addon.productName,
           qty: Number(addon.quantity) || 1,
-          amount: Number(addon.totalProductAmount || 0),
+          amount: Number(addon.totalPaymentAmount || 0),
         });
       }
 
       if (addon.productOrderStatus === "RETURNED" || addon.productOrderStatus === "CANCELED") {
         const addonReturnedQty = Math.max(0, addon.quantity - addon.remainQuantity);
-        const addonReturnedAmount = Math.max(0, addon.totalProductAmount - addon.remainProductAmount);
+        const addonReturnedAmount = Math.max(0, addon.totalPaymentAmount - addon.remainPaymentAmount);
         if (addonReturnedQty > 0 || addonReturnedAmount > 0) {
           // ✅ 반품/취소 처리완료일 기준(결제일과 다를 수 있음).
           const addonRefundDate = addon.claimCompletedDate ? epochMsToKstDateString(Date.parse(addon.claimCompletedDate)) : saleDate;
