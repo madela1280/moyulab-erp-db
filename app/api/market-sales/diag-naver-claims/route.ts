@@ -15,6 +15,7 @@ const PRODUCT_ORDERS_PATH = "/v1/pay-order/seller/product-orders";
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const date = body?.date;
+  const search = typeof body?.search === "string" ? body.search.trim() : "";
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "INVALID_DATE" }, { status: 400 });
   }
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
   const statusCounts: Record<string, number> = {};
   const claimSamples: any[] = [];
   const rawSamples: any[] = [];
+  const searchMatches: any[] = [];
   const wantRawFor = new Set(["RETURNED", "CANCELED", "EXCHANGED"]);
 
   for (const item of list) {
@@ -51,6 +53,18 @@ export async function POST(req: NextRequest) {
     const po = content?.productOrder || {};
     const status = String(po.productOrderStatus || "UNKNOWN");
     statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+    if (search && (String(po.productName || "").includes(search) || String(po.productOption || "").includes(search))) {
+      searchMatches.push({
+        productOrderId: po.productOrderId,
+        productOrderStatus: po.productOrderStatus,
+        productId: po.productId,
+        productName: po.productName,
+        productOption: po.productOption,
+        quantity: po.quantity,
+        totalProductAmount: po.totalProductAmount,
+      });
+    }
 
     const hasClaim = po.cancel || po.return || po.exchange || po.currentClaim || po.beforeClaim;
     if (hasClaim && claimSamples.length < 30) {
@@ -81,5 +95,6 @@ export async function POST(req: NextRequest) {
     claimSampleCount: claimSamples.length,
     claimSamples,
     rawSamples,
+    searchMatches,
   });
 }
