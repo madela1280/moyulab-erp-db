@@ -100,6 +100,18 @@ function resolveGroup(productId: string, baseRow: NaverProductOrderEntry, otherR
     const parsed = extractDurationFromText(nonZeroRows[0].productName, isSwing);
     if (!parsed) return { ok: false, reason: "DURATION_PARSE_FAILED", durationRows };
     durationKey = parsed;
+  } else if (nonZeroRows.length === 2) {
+    // ✅ 2026-11-13 추가: "필수 - 대여기간 선택: 3주"(33,000)와 "재구매 - 연장기간 선택: 3주"(28,000)가
+    //    같은 그룹에 둘 다 금액 있는 채로 들어오는 실제 케이스 확인(2026-07-07, 심포니). 두 줄이 같은
+    //    기간값(예: "3주"+"3주")이면 합산(6주)이 아니라 그 값 그대로("3주")로 처리한다 — 사용자 확인.
+    //    기간값이 서로 다르면(진짜 판별 불가) 기존대로 미매핑 처리한다.
+    const parsedA = extractDurationFromText(nonZeroRows[0].productName, isSwing);
+    const parsedB = extractDurationFromText(nonZeroRows[1].productName, isSwing);
+    if (parsedA && parsedA === parsedB) {
+      durationKey = parsedA;
+    } else {
+      return { ok: false, reason: "AMBIGUOUS_DURATION", durationRows };
+    }
   } else {
     return { ok: false, reason: "AMBIGUOUS_DURATION", durationRows };
   }
