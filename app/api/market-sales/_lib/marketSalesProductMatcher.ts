@@ -250,6 +250,10 @@ const PRODUCT_TABLE: Record<MarketSalesChannel, ProductEntry[]> = {
     { vendorItemId: "4904746472", PROD_CD: "M0146", NAME: "쭈쭈베이비 모유훈련 젖꼭지", baseQty: 3 },
     { vendorItemId: "4904742264", PROD_CD: "M0146", NAME: "쭈쭈베이비 모유훈련 젖꼭지", baseQty: 1 },
     { vendorItemId: "6670285788", PROD_CD: "E0040", NAME: "퍼펙션 변온모유저장팩 30매", baseQty: 1 },
+    // ✅ 2026-11-13 추가(유축기 부품/추천상품 미매핑 정리, 사용자 확인):
+    { vendorItemId: "4941912837|추천 상품 6종 (할인): 더블하트형 와이드캡", PROD_CD: "E0028", NAME: "더블하트 와이드캡", baseQty: 1 },
+    { vendorItemId: "8719710109|모유수유 케어상품 할인: 메델라 유두보호기 M사이즈[20mm] 1개 + 본품케이스", PROD_CD: "SET0017", NAME: "메델라 유두보호기 낱개 M 1p + 본품케이스", baseQty: 1 },
+    { vendorItemId: "5088117971|상품선택: 30mm 프리스타일 한쪽 유축 세트", PROD_CD: "M0119", NAME: "메델라 프리스타일 부품 세트_한쪽세트 30mm", baseQty: 1 },
   ],
 };
 
