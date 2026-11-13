@@ -78,11 +78,13 @@ export async function ingestCoupangRocketGrowthSalesForDate(
     const matched = matchMarketSalesItem(channel, agg.vendorItemId);
     const baseQty = matched?.baseQty || 1;
 
+    // ⚠️ 2026-11-13 확인(사용자): 쿠팡 saleAmount는 부가세 포함 금액이다 — 공급가 기준으로 +10%가
+    //    아니라, 부가세포함액에서 공급가/부가세를 역산해야 한다(네이버/일반 쿠팡과 동일한 수정).
     const finalQty = agg.qtySum * baseQty;
-    const unitPrice = finalQty > 0 ? Math.round(agg.saleAmountSum / finalQty) : 0;
-    const supplyAmt = agg.saleAmountSum;
-    const vatAmt = Math.round(supplyAmt * 0.1);
-    const totalAmt = supplyAmt + vatAmt;
+    const totalAmt = agg.saleAmountSum; // 부가세 포함 총액
+    const unitPrice = finalQty !== 0 ? Math.round(totalAmt / finalQty) : 0;
+    const supplyAmt = Math.round(totalAmt / 1.1);
+    const vatAmt = totalAmt - supplyAmt;
 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
@@ -119,7 +121,10 @@ export async function ingestCoupangRocketGrowthSalesForDate(
     if (existing.rows?.[0]?.ecount_status === "전송완료") continue;
     if (finalQty === 0) continue;
 
-    pendingLines.push({ externalId, itemCode, qty: finalQty, unitPrice });
+    // ⚠️ 이카운트 SaveSale API는 PRICE를 공급가로 보고 자체적으로 +10% 부가세를 계산한다 — 그래서
+    //    전송용 단가는 화면표시용(부가세포함) unitPrice가 아니라 공급가 기준으로 따로 계산한다.
+    const ecountUnitPrice = finalQty !== 0 ? Math.round(supplyAmt / finalQty) : 0;
+    pendingLines.push({ externalId, itemCode, qty: finalQty, unitPrice: ecountUnitPrice });
   }
 
   // ✅ 모아둔 라인을 한 번에(전표 1개, 여러 줄) 전송한다.

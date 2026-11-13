@@ -156,6 +156,9 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
   const pendingRefundByDate = new Map<string, PendingLine[]>();
 
   // ✅ 한 곳에만 쓰는 upsert 패턴이라 공용 헬퍼로 뽑음(유축기 라인/상품 라인 둘 다 사용).
+  // ⚠️ 2026-11-13 확인(사용자): 네이버가 주는 결제금액은 "부가세 포함" 금액이다 — 단가 100원이면
+  //    공급가액 91원/부가세 9원이 맞다(공급가 기준으로 +10%가 아니라, 부가세포함액에서 역산해야 함).
+  //    그래서 여기 들어오는 amt 인자는 "부가세 포함 총액"으로 받아서 공급가/부가세를 역산한다.
   async function upsertLine(
     externalId: string,
     saleDate: string,
@@ -164,12 +167,13 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     itemName: string,
     qty: number,
     unitPrice: number,
-    supplyAmt: number,
+    amt: number, // 부가세 포함 총액(이전엔 공급가액으로 잘못 취급했음)
     ecountStatus: string,
     salesType: "매출" | "반품" = "매출"
   ) {
-    const vatAmt = Math.round(supplyAmt * 0.1);
-    const totalAmt = supplyAmt + vatAmt;
+    const totalAmt = amt;
+    const supplyAmt = Math.round(totalAmt / 1.1);
+    const vatAmt = totalAmt - supplyAmt;
     await query(
       `
       INSERT INTO market_sales_data
@@ -244,7 +248,10 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     const externalId = `PUMP:${groupKey}`;
 
     await upsertLine(externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
-    await queueIfSendable(externalId, itemCode, qty, unitPrice, saleDate, !!matched);
+    // ⚠️ 이카운트 SaveSale API는 PRICE를 공급가로 보고 자체적으로 +10% 부가세를 또 계산한다 —
+    //    그래서 이카운트로 보낼 땐 부가세포함 단가가 아니라 공급가 기준 단가를 써야 한다.
+    const ecountUnitPrice = qty !== 0 ? Math.round(Math.round(pumpAmount / 1.1) / qty) : 0;
+    await queueIfSendable(externalId, itemCode, qty, ecountUnitPrice, saleDate, !!matched);
 
     // ✅ 반품/취소(실데이터 확인: 반품/취소되면 기본줄+기간줄 전부 productOrderStatus가 같이 바뀜).
     //    매출행은 그대로 두고(위에서 이미 원래 금액으로 적재함), 반품분만 별도 '반품' 행으로 추가한다.
@@ -262,7 +269,8 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
         const refundSupply = -returnedPumpAmount;
         const refundUnitPrice = refundQty !== 0 ? Math.round(refundSupply / refundQty) : 0;
         await upsertLine(refundExternalId, refundDate, baseRow.productName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
-        await queueIfSendable(refundExternalId, itemCode, refundQty, refundUnitPrice, refundDate, !!matched, pendingRefundByDate);
+        const refundEcountUnitPrice = refundQty !== 0 ? Math.round(Math.round(refundSupply / 1.1) / refundQty) : 0;
+        await queueIfSendable(refundExternalId, itemCode, refundQty, refundEcountUnitPrice, refundDate, !!matched, pendingRefundByDate);
       }
     }
 
@@ -337,7 +345,8 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
       agg.amount,
       addonEcountStatus
     );
-    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, agg.saleDate, !!addonMatched);
+    const addonEcountUnitPrice = addonQty !== 0 ? Math.round(Math.round(agg.amount / 1.1) / addonQty) : 0;
+    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonEcountUnitPrice, agg.saleDate, !!addonMatched);
   }
 
   // ✅ 부품/사은품 반품분도 매출과 동일하게 합산 매칭해서 별도 '반품' 행으로 적재한다.
@@ -366,7 +375,8 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
       addonEcountStatus,
       "반품"
     );
-    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonUnitPrice, agg.saleDate, !!addonMatched, pendingRefundByDate);
+    const addonRefundEcountUnitPrice = addonQty !== 0 ? Math.round(Math.round(addonSupply / 1.1) / addonQty) : 0;
+    await queueIfSendable(addonExternalId, addonMatched?.PROD_CD || "", addonQty, addonRefundEcountUnitPrice, agg.saleDate, !!addonMatched, pendingRefundByDate);
   }
 
   let isFirstSend = true;

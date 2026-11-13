@@ -167,11 +167,13 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const matched = matchMarketSalesItem(channel, agg.matchKey);
     const baseQty = matched?.baseQty || 1;
 
+    // ⚠️ 2026-11-13 확인(사용자): 네이버 결제금액(agg.amountSum)은 부가세 포함 금액이다 — 공급가
+    //    기준으로 +10%가 아니라, 부가세포함액에서 공급가/부가세를 역산해야 한다(단가100원→공급가91/부가세9).
     const finalQty = agg.qtySum * baseQty;
-    const unitPrice = finalQty > 0 ? Math.round(agg.amountSum / finalQty) : 0;
-    const supplyAmt = agg.amountSum;
-    const vatAmt = Math.round(supplyAmt * 0.1);
-    const totalAmt = supplyAmt + vatAmt;
+    const totalAmt = agg.amountSum; // 부가세 포함 총액
+    const unitPrice = finalQty !== 0 ? Math.round(totalAmt / finalQty) : 0;
+    const supplyAmt = Math.round(totalAmt / 1.1);
+    const vatAmt = totalAmt - supplyAmt;
 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
@@ -196,15 +198,18 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
 
     // ✅ 즉시 전송하지 않고 큐에 쌓아둔다 — 날짜별로 묶어서 한 번에 전송(아래 flush에서).
     const existing = await query(
-      `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
+      `SELECT qty, supply_amt, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
       [channel, externalId]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") continue;
     if (Number(row.qty) === 0) continue;
 
+    // ⚠️ 이카운트 SaveSale API는 PRICE를 공급가로 보고 자체적으로 +10% 부가세를 계산한다 — 그래서
+    //    전송용 단가는 화면표시용(부가세포함) unit_price가 아니라 공급가 기준으로 따로 계산한다.
+    const ecountUnitPrice = Number(row.qty) !== 0 ? Math.round(Number(row.supply_amt) / Number(row.qty)) : 0;
     const list = pendingSaleByDate.get(agg.saleDate) || [];
-    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: ecountUnitPrice });
     pendingSaleByDate.set(agg.saleDate, list);
   }
 
@@ -223,10 +228,10 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const baseQty = matched?.baseQty || 1;
 
     const finalQty = -(agg.qtySum * baseQty);
-    const supplyAmt = -agg.amountSum;
-    const unitPrice = finalQty !== 0 ? Math.round(supplyAmt / finalQty) : 0;
-    const vatAmt = Math.round(supplyAmt * 0.1);
-    const totalAmt = supplyAmt + vatAmt;
+    const totalAmt = -agg.amountSum; // 부가세 포함 총액(음수)
+    const unitPrice = finalQty !== 0 ? Math.round(totalAmt / finalQty) : 0;
+    const supplyAmt = Math.round(totalAmt / 1.1);
+    const vatAmt = totalAmt - supplyAmt;
 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
@@ -248,15 +253,16 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     }
 
     const existing = await query(
-      `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
+      `SELECT qty, supply_amt, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
       [channel, externalId]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") continue;
     if (Number(row.qty) === 0) continue;
 
+    const ecountUnitPrice = Number(row.qty) !== 0 ? Math.round(Number(row.supply_amt) / Number(row.qty)) : 0;
     const list = pendingRefundByDate.get(agg.saleDate) || [];
-    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: ecountUnitPrice });
     pendingRefundByDate.set(agg.saleDate, list);
   }
 
