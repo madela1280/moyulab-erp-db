@@ -348,7 +348,10 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     const addonSupply = -agg.amount;
     const addonUnitPrice = addonQty !== 0 ? Math.round(addonSupply / addonQty) : 0;
     const addonDisplayName = agg.option ? `${agg.productName}/${agg.option}` : agg.productName;
-    const addonExternalId = `RETURN:${agg.saleDate}:${agg.matchKey}`;
+    // ⚠️ 2026-11-13: 반품 완료일(agg.saleDate=claimCompletedDate)이 이 호출의 조회일(date)과 다를 수
+    //    있고, 서로 다른 조회일이 같은 반품완료일+matchKey 조합에 동시에 기여할 수 있다 — 조회일을
+    //    키에 포함해서 서로 다른 호출끼리 덮어쓰지 않게 한다(일반상품 ingest와 동일한 수정).
+    const addonExternalId = `RETURN:${agg.saleDate}:${agg.matchKey}:FROM${date}`;
     const addonEcountStatus = addonMatched ? "미전송" : "미매핑";
 
     await upsertLine(

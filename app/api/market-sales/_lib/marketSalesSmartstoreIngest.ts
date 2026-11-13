@@ -124,8 +124,15 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
   const pendingSaleByDate = new Map<string, PendingLine[]>();
   const pendingRefundByDate = new Map<string, PendingLine[]>();
 
-  // ✅ 쿠팡 ingest와 동일한 증분 upsert — 이미 전송완료 상태면 아무것도 바뀌지 않는다(WHERE 조건).
-  async function upsertIncrement(
+  // ⚠️ 2026-11-13 수정(실데이터 중복전송 버그 수정): 이 함수는 호출될 때마다 그 날짜의 네이버
+  //    주문을 처음부터 통째로 재집계한다(새로 들어온 분만 보는 게 아님) — 그래서 "증분 합산"이
+  //    아니라 "그 키의 당일 전체 금액으로 덮어쓰기"가 맞다. 예전엔 합산(+=) 방식이라, 이미
+  //    전송완료된 날짜를 다시 조회하면 "수량이 늘었다"고 착각하고 당일 전체 금액을 또 다른
+  //    external_id(델타행)로 만들어서 또 전송해버리는 중복전송 버그가 있었다(실데이터로 확인,
+  //    2026-11-13). 유축기 ingest(marketSalesSmartstorePumpIngest.ts)는 처음부터 이 방식(덮어쓰기)
+  //    이라 버그가 없었음 — 그 패턴을 그대로 따른다. 이미 전송완료 상태면 WHERE 조건 때문에
+  //    아예 손대지 않는다(재전송 없음, 안전).
+  async function upsertReplace(
     externalId: string,
     saleDate: string,
     agg: Aggregated,
@@ -136,22 +143,19 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     totalAmt: number,
     ecountStatus: string
   ) {
-    return query(
+    await query(
       `
       INSERT INTO market_sales_data
         (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       ON CONFLICT (channel, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
         market_item_name = EXCLUDED.market_item_name,
-        qty = market_sales_data.qty + EXCLUDED.qty,
-        supply_amt = market_sales_data.supply_amt + EXCLUDED.supply_amt,
-        vat_amt = market_sales_data.vat_amt + EXCLUDED.vat_amt,
-        total_amt = market_sales_data.total_amt + EXCLUDED.total_amt,
-        unit_price = CASE WHEN (market_sales_data.qty + EXCLUDED.qty) > 0
-                      THEN ROUND((market_sales_data.supply_amt + EXCLUDED.supply_amt) / (market_sales_data.qty + EXCLUDED.qty))
-                      ELSE 0 END
+        qty = EXCLUDED.qty,
+        unit_price = EXCLUDED.unit_price,
+        supply_amt = EXCLUDED.supply_amt,
+        vat_amt = EXCLUDED.vat_amt,
+        total_amt = EXCLUDED.total_amt
       WHERE market_sales_data.ecount_status != '전송완료'
-      RETURNING id
       `,
       [channel, externalId, saleDate, agg.displayName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus]
     );
@@ -170,21 +174,16 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
+    // ✅ saleDate는 이 함수 호출의 date 파라미터와 항상 같다(결제일시 범위 조회라 어긋날 수 없음) —
+    //    그래서 이 키는 재호출돼도 항상 같은 값이고, 덮어쓰기(REPLACE) 방식이 안전하다.
     const externalId = `${agg.saleDate}:${agg.matchKey}`;
 
-    const upsertResult = await upsertIncrement(externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
-
-    let targetExternalId = externalId;
-    if (upsertResult.rowCount === 0) {
-      const deltaExternalId = `${externalId}+${date}`;
-      await upsertIncrement(deltaExternalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
-      targetExternalId = deltaExternalId;
-    }
+    await upsertReplace(externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
 
     await query(
       `UPDATE market_sales_data SET item_code = $3, item_name = $4, ecount_status = $5
        WHERE channel = $1 AND external_id = $2 AND item_code = ''`,
-      [channel, targetExternalId, itemCode, itemName, ecountStatus]
+      [channel, externalId, itemCode, itemName, ecountStatus]
     );
     insertedOrUpdated++;
 
@@ -196,19 +195,27 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     // ✅ 즉시 전송하지 않고 큐에 쌓아둔다 — 날짜별로 묶어서 한 번에 전송(아래 flush에서).
     const existing = await query(
       `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
-      [channel, targetExternalId]
+      [channel, externalId]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") continue;
     if (Number(row.qty) === 0) continue;
 
     const list = pendingSaleByDate.get(agg.saleDate) || [];
-    list.push({ targetExternalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
     pendingSaleByDate.set(agg.saleDate, list);
   }
 
   // ✅ 반품은 매출과 완전히 독립된 행으로 저장(수량/금액 음수, sales_type='반품') — 쿠팡 반품과 동일한
   //    설계. external_id는 "RETURN:" 접두어로 매출 행과 절대 충돌하지 않게 한다.
+  // ⚠️ 2026-11-13 수정: 반품 완료일(refundDate=claimCompletedDate)은 이 호출의 조회일(date, 결제일
+  //    기준)과 다를 수 있고, 서로 다른 날짜를 조회하는 여러 호출이 같은 refundDate+matchKey 조합을
+  //    동시에 만들어낼 수 있다(예: 7/5 결제건과 7/6 결제건이 둘 다 7/16에 반품 처리완료). 이 경우
+  //    external_id에 조회일(date)을 포함하지 않으면, REPLACE 방식에서 나중 호출이 먼저 호출이
+  //    저장한 반품행을 덮어써서 먼저 것이 통째로 사라지는(과소집계) 문제가 생긴다. 그래서 반품
+  //    external_id에는 항상 "조회일(date)"을 포함시켜 호출마다 고유한 키를 보장한다 — 같은 조회일을
+  //    반복 호출하면 그대로 멱등(안전), 다른 조회일이 같은 refundDate에 기여하면 별도 행으로 공존
+  //    (전표가 여러 개로 나뉘는 건 이미 합의된 설계 — 금액은 중복/누락 없음).
   for (const agg of refundAggByKey.values()) {
     const matched = matchMarketSalesItem(channel, agg.matchKey);
     const baseQty = matched?.baseQty || 1;
@@ -222,21 +229,14 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
     const itemCode = matched?.PROD_CD || "";
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
-    const externalId = `RETURN:${agg.saleDate}:${agg.matchKey}`;
+    const externalId = `RETURN:${agg.saleDate}:${agg.matchKey}:FROM${date}`;
 
-    const upsertResult = await upsertIncrement(externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
-
-    let targetExternalId = externalId;
-    if (upsertResult.rowCount === 0) {
-      const deltaExternalId = `${externalId}+${date}`;
-      await upsertIncrement(deltaExternalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
-      targetExternalId = deltaExternalId;
-    }
+    await upsertReplace(externalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus);
 
     await query(
       `UPDATE market_sales_data SET item_code = $3, item_name = $4, ecount_status = $5, sales_type = '반품'
        WHERE channel = $1 AND external_id = $2 AND item_code = ''`,
-      [channel, targetExternalId, itemCode, itemName, ecountStatus]
+      [channel, externalId, itemCode, itemName, ecountStatus]
     );
     insertedOrUpdated++;
 
@@ -247,14 +247,14 @@ export async function ingestSmartstoreSalesForDate(channel: MarketSalesChannel, 
 
     const existing = await query(
       `SELECT qty, unit_price, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
-      [channel, targetExternalId]
+      [channel, externalId]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") continue;
     if (Number(row.qty) === 0) continue;
 
     const list = pendingRefundByDate.get(agg.saleDate) || [];
-    list.push({ targetExternalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
+    list.push({ targetExternalId: externalId, itemCode, qty: Number(row.qty), unitPrice: Number(row.unit_price) });
     pendingRefundByDate.set(agg.saleDate, list);
   }
 
