@@ -4,6 +4,12 @@
 // 수집해서 이카운트 자동전송까지 한다.
 // 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨. (2026-11-09: 로켓재고 기능 삭제)
 // (2026-11-16: 로켓그로스 취소 추정용 순판매수량 스냅샷 시도했다가 삭제 — 엑셀 수동보정이 더 정확해서 폐기)
+// 2026-11-16: 쿠팡 일반매출(coupang-fetch)도 "어제"만 보지 않고 최근 COUPANG_GENERAL_LOOKBACK_DAYS일을
+//   재조회하도록 수정 — 일반매출은 매출인식일(배송완료+7일 또는 구매확정일) 기준으로만 조회되는데,
+//   "어제"는 아직 매출인식일이 안 지난 최근 주문이 많아 누락되고, 기존 구조는 그 날짜를 다시는 안 봐서
+//   매출인식일이 늦게 돌아오는 건이 영구 누락될 수 있었다(실데이터로 확인: 11월 일반매출 12배 과소집계).
+//   로켓그로스(coupang-rocket-fetch)는 결제일(paidAt) 기준이라 한번 집계되면 절대 안 바뀌므로 그대로
+//   "어제"만 본다(재조회 불필요 — 실데이터로 재확인시 완전히 동일한 값 나옴을 확인함).
 // 2026-11-12: 스마트스토어(일반+유축기)도 여기서 같이 돈다 — 그동안 수동 호출로만 돌아가던 걸
 //   자동화함. 파일명은 그대로 두지만(크론탭 경로 변경 불필요) 쿠팡 전용이 아님에 유의.
 // ⚠️ 스마트스토어는 "어제" 하루만 보면 안 된다 — 네이버 상품주문 조회는 결제일 기준으로만 조회되고,
@@ -14,6 +20,7 @@
 //   전송되므로 중복 전송 위험 없음. 쿠팡은 반품을 settlement 데이터 자체에서 바로 잡기 때문에(원래
 //   주문일을 다시 조회할 필요 없음) 이 문제가 없어서 "어제"만 본다.
 const SMARTSTORE_LOOKBACK_DAYS = 14;
+const COUPANG_GENERAL_LOOKBACK_DAYS = 14;
 // 채널의 API 키가 아직 없으면 CREDENTIALS_NOT_CONFIGURED로 조용히 건너뛴다(에러 아님).
 // ⚠️ 단계 하나가 실패해도(네트워크 오류 포함) 나머지 단계/채널은 계속 진행된다(safeCall로 격리).
 // ⚠️ 마지막 "미전송재시도" 단계는 오늘 가져온 건뿐 아니라 과거에 전송만 실패하고 남아있던 건까지
@@ -71,7 +78,10 @@ async function main() {
   for (const channel of COUPANG_CHANNELS) {
     console.log(`\n--- ${channel} ---`);
 
-    await safeCall("일반매출", "/api/market-sales/coupang-fetch", { channel, date: yesterday });
+    for (let i = 1; i <= COUPANG_GENERAL_LOOKBACK_DAYS; i++) {
+      const targetDate = kstDateString(new Date(now.getTime() - i * 24 * 60 * 60 * 1000));
+      await safeCall(`일반매출(${targetDate})`, "/api/market-sales/coupang-fetch", { channel, date: targetDate });
+    }
     await safeCall("로켓그로스매출", "/api/market-sales/coupang-rocket-fetch", { channel, date: yesterday });
 
     // ✅ 위 단계에서 이카운트 전송이 실패해 '미전송'으로 남은 과거 건까지 포함해서 매일 재시도한다
