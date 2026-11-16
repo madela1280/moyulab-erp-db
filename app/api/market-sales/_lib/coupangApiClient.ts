@@ -10,7 +10,6 @@ import type { MarketSalesChannel } from "@/api/market-sales/_lib/marketSalesChan
 const BASE_URL = "https://api-gateway.coupang.com";
 const REVENUE_HISTORY_PATH = "/v2/providers/openapi/apis/api/v1/revenue-history";
 const ROCKET_GROWTH_ORDERS_PATH_TMPL = "/v2/providers/rg_open_api/apis/api/v1/vendors/{vendorId}/rg/orders";
-const ROCKET_GROWTH_INVENTORY_SUMMARIES_PATH_TMPL = "/v2/providers/rg_open_api/apis/api/v1/vendors/{vendorId}/rg/inventory/summaries";
 
 export type CoupangCredentials = { vendorId: string; accessKey: string; secretKey: string };
 
@@ -334,66 +333,6 @@ export async function fetchCoupangReturnRequestsRaw(
   }
 
   return { ok: true, raw, firstPageRaw };
-}
-
-export type RgInventorySummaryItem = {
-  vendorItemId: string;
-  salesCountLast30Days: number;
-  totalOrderableQuantity: number;
-};
-
-export type RgInventorySummariesResult =
-  | { ok: true; items: RgInventorySummaryItem[] }
-  | { ok: false; reason: string };
-
-// ✅ 2026-11-16 추가 — 로켓그로스 취소/반품을 셀러가 직접 조회할 공식 API가 없어서(rg/orders에
-//    상태값 없음, rg/returns·rg/cancels 404, 일반 반품API는 로켓그로스 미포함, 전부 실확인됨),
-//    대신 "최근 30일 순판매수량"(salesCountMap.SALES_COUNT_LAST_THIRTY_DAYS)을 매일 스냅샷으로
-//    쌓아서 날짜별 증감을 역산해 취소량을 추정하는 용도로 쓴다(marketSalesRocketGrowthCancelSnapshot.ts).
-//    이 값 자체가 취소 반영된 순수량으로 보인다는 건 실데이터 대조로 확인됨(2026-11-16).
-export async function fetchCoupangRgInventorySummaries(creds: CoupangCredentials): Promise<RgInventorySummariesResult> {
-  const path = ROCKET_GROWTH_INVENTORY_SUMMARIES_PATH_TMPL.replace("{vendorId}", creds.vendorId);
-  const items: RgInventorySummaryItem[] = [];
-  let nextToken = "";
-  let guard = 0;
-
-  while (guard < 500) {
-    guard++;
-    const queryObj: Record<string, string> = {};
-    if (nextToken) queryObj.nextToken = nextToken;
-    const queryStr = new URLSearchParams(queryObj).toString();
-
-    const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
-
-    let res: Response;
-    try {
-      res = await fetch(`${BASE_URL}${path}${queryStr ? `?${queryStr}` : ""}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json;charset=UTF-8", Authorization: authorization },
-      });
-    } catch (e: any) {
-      return { ok: false, reason: `NETWORK_ERROR: ${e?.message || e}` };
-    }
-
-    const json: any = await res.json().catch(() => null);
-    if (!res.ok || !json || Number(json.code) !== 200) {
-      return { ok: false, reason: `API_ERROR(${res.status}): ${JSON.stringify(json)}` };
-    }
-
-    const data: any[] = Array.isArray(json.data) ? json.data : [];
-    for (const row of data) {
-      items.push({
-        vendorItemId: String(row.vendorItemId),
-        salesCountLast30Days: Number(row.salesCountMap?.SALES_COUNT_LAST_THIRTY_DAYS) || 0,
-        totalOrderableQuantity: Number(row.inventoryDetails?.totalOrderableQuantity) || 0,
-      });
-    }
-
-    if (!json.nextToken) break;
-    nextToken = json.nextToken;
-  }
-
-  return { ok: true, items };
 }
 
 // ✅ 진단 전용 — 로켓그로스 취소금액을 자동으로(API로) 가져올 방법을 찾기 위한 범용 조회기.

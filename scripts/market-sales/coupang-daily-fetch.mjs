@@ -3,7 +3,7 @@
 // 매일 아침 7시 cron 전용 — 어제 쿠팡 매출(일반+로켓그로스)+스마트스토어 매출(일반+유축기)을
 // 수집해서 이카운트 자동전송까지 한다.
 // 2026-10-29부터 제이컴퍼니/한모정 둘 다 키 설정됨. (2026-11-09: 로켓재고 기능 삭제)
-// 2026-11-16: 로켓그로스 취소 추정용 "순판매수량" 스냅샷 적재 1단계 추가(이카운트 전송과 무관, 데이터만 쌓음).
+// (2026-11-16: 로켓그로스 취소 추정용 순판매수량 스냅샷 시도했다가 삭제 — 엑셀 수동보정이 더 정확해서 폐기)
 // 2026-11-12: 스마트스토어(일반+유축기)도 여기서 같이 돈다 — 그동안 수동 호출로만 돌아가던 걸
 //   자동화함. 파일명은 그대로 두지만(크론탭 경로 변경 불필요) 쿠팡 전용이 아님에 유의.
 // ⚠️ 스마트스토어는 "어제" 하루만 보면 안 된다 — 네이버 상품주문 조회는 결제일 기준으로만 조회되고,
@@ -34,7 +34,6 @@ function kstDateString(d) {
 
 const now = new Date();
 const yesterday = kstDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-const today = kstDateString(now);
 
 async function post(path, body) {
   const res = await fetch(`${SERVER_ORIGIN}${path}`, {
@@ -74,9 +73,6 @@ async function main() {
 
     await safeCall("일반매출", "/api/market-sales/coupang-fetch", { channel, date: yesterday });
     await safeCall("로켓그로스매출", "/api/market-sales/coupang-rocket-fetch", { channel, date: yesterday });
-    // ✅ 2026-11-16 추가(1단계) — 로켓그로스 취소 추정용 "최근30일 순판매수량" 스냅샷 적재만 한다.
-    //    이카운트 전송에는 전혀 관여하지 않음(2단계 검증 후 연결 예정).
-    await safeCall("로켓그로스순판매스냅샷", "/api/market-sales/coupang-rg-snapshot", { channel, date: today });
 
     // ✅ 위 단계에서 이카운트 전송이 실패해 '미전송'으로 남은 과거 건까지 포함해서 매일 재시도한다
     //    (2026-11-02: 전송 실패 건이 다음날로 안 넘어가고 그냥 쌓이던 문제 때문에 추가됨).
