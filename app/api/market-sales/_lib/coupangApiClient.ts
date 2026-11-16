@@ -281,14 +281,18 @@ const RETURN_REQUESTS_PATH_TMPL = "/v2/providers/openapi/apis/api/v6/vendors/{ve
 //    code 불일치여도(파싱 가능하면) raw json을 그대로 돌려줘서 실제 필드를 눈으로 확인한다.
 export async function fetchCoupangReturnRequestsRaw(
   creds: CoupangCredentials,
-  createdAtFrom: string, // YYYY-MM-DD
-  createdAtTo: string
+  fromDateYYYYMMDD: string, // YYYY-MM-DD
+  toDateYYYYMMDD: string
 ): Promise<{ ok: true; raw: any[]; firstPageRaw: any } | { ok: false; reason: string; firstPageRaw?: any }> {
   const path = RETURN_REQUESTS_PATH_TMPL.replace("{vendorId}", creds.vendorId);
   const raw: any[] = [];
   let nextToken = "";
   let guard = 0;
   let firstPageRaw: any = null;
+
+  // ⚠️ 2026-11-16 확인: createdAtFrom/To는 "yyyy-MM-ddTHH:mm" 형식이 아니면 400 에러.
+  const createdAtFrom = `${fromDateYYYYMMDD}T00:00`;
+  const createdAtTo = `${toDateYYYYMMDD}T23:59`;
 
   while (guard < 50) {
     guard++;
