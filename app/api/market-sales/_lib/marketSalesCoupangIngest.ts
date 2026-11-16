@@ -127,10 +127,13 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
   const pendingSaleByDate = new Map<string, PendingLine[]>();
   const pendingRefundByDate = new Map<string, PendingLine[]>();
 
-  // ✅ (channel, external_id) 행에 이번 배치분을 "더한다"(증분). 이미 전송완료 상태면 WHERE에 걸려서
-  //    아무것도 바뀌지 않는다 — 그 경우(rowCount=0)에만 호출부에서 별도 델타 건을 만든다.
-  //    기존 전송완료 전표의 수량/금액은 절대 건드리지 않는다(중복전송 방지).
-  async function upsertIncrement(
+  // ⚠️ 2026-11-16 수정(네이버에서 먼저 발견/수정된 중복전송 버그, 쿠팡도 동일 구조라 같이 수정):
+  //    이 함수는 호출될 때마다 그 recognitionDate(date)의 쿠팡 매출을 처음부터 통째로 재집계한다
+  //    (새로 들어온 분만 보는 게 아님) — 그래서 "증분 합산"이 아니라 "그 키의 전체 금액으로 덮어쓰기"가
+  //    맞다. 예전 방식(합산 + 이미 전송완료면 델타행 생성)은 이미 전송완료된 날짜를 다시 조회하면
+  //    전체 금액을 통째로 또 전송해버리는 중복전송 버그가 있었다(2026-11-13 네이버에서 실데이터로
+  //    확인, 쿠팡도 동일 패턴). 이미 전송완료 상태면 WHERE 조건 때문에 아예 손대지 않는다(재전송 없음).
+  async function upsertReplace(
     externalId: string,
     saleDate: string,
     agg: Aggregated,
@@ -142,22 +145,19 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     ecountStatus: string,
     salesType: "매출" | "반품"
   ) {
-    return query(
+    await query(
       `
       INSERT INTO market_sales_data
         (channel, external_id, sale_date, market_item_name, item_code, item_name, qty, unit_price, supply_amt, vat_amt, total_amt, ecount_status, sales_type)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT (channel, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
         market_item_name = EXCLUDED.market_item_name,
-        qty = market_sales_data.qty + EXCLUDED.qty,
-        supply_amt = market_sales_data.supply_amt + EXCLUDED.supply_amt,
-        vat_amt = market_sales_data.vat_amt + EXCLUDED.vat_amt,
-        total_amt = market_sales_data.total_amt + EXCLUDED.total_amt,
-        unit_price = CASE WHEN (market_sales_data.qty + EXCLUDED.qty) != 0
-                      THEN ROUND((market_sales_data.supply_amt + EXCLUDED.supply_amt) / (market_sales_data.qty + EXCLUDED.qty))
-                      ELSE 0 END
+        qty = EXCLUDED.qty,
+        unit_price = EXCLUDED.unit_price,
+        supply_amt = EXCLUDED.supply_amt,
+        vat_amt = EXCLUDED.vat_amt,
+        total_amt = EXCLUDED.total_amt
       WHERE market_sales_data.ecount_status != '전송완료'
-      RETURNING id
       `,
       [channel, externalId, saleDate, agg.vendorItemName, "", "", finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType]
     );
@@ -186,25 +186,15 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
 
-    const upsertResult = await upsertIncrement(
+    await upsertReplace(
       externalIdBase, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType
     );
-
-    let targetExternalId = externalIdBase;
-    if (upsertResult.rowCount === 0) {
-      // ✅ 기존 건이 이미 전송완료라 위 업데이트가 막혔다 — 이번에 새로 들어온 분만 별도 건으로 추가.
-      const deltaExternalId = `${externalIdBase}+${date}`; // date(조회일=recognitionDate)는 하루에 한 번만 처리되므로 유일함 보장.
-      await upsertIncrement(
-        deltaExternalId, agg.saleDate, agg, finalQty, unitPrice, supplyAmt, vatAmt, totalAmt, ecountStatus, salesType
-      );
-      targetExternalId = deltaExternalId;
-    }
 
     // 품목코드/품목명은 신규 insert일 때만 채운다(기존 행 수정 시 사용자가 수동으로 고친 매핑을 덮어쓰지 않음).
     await query(
       `UPDATE market_sales_data SET item_code = $3, item_name = $4, ecount_status = $5
        WHERE channel = $1 AND external_id = $2 AND item_code = ''`,
-      [channel, targetExternalId, itemCode, itemName, ecountStatus]
+      [channel, externalIdBase, itemCode, itemName, ecountStatus]
     );
     insertedOrUpdated++;
     if (salesType === "반품") refundProcessedCount++;
@@ -215,10 +205,9 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     }
 
     // ✅ 즉시 전송하지 않고 큐에 쌓아둔다 — 이번 날짜 처리가 끝난 뒤 한 번에(날짜별로 묶어서) 보낸다.
-    //    증분 합산 후의 실제 누적 수량/단가를 다시 읽어서 그 값을 큐에 넣는다.
     const existing = await query(
       `SELECT qty, supply_amt, ecount_status FROM market_sales_data WHERE channel = $1 AND external_id = $2`,
-      [channel, targetExternalId]
+      [channel, externalIdBase]
     );
     const row = existing.rows?.[0];
     if (!row || row.ecount_status === "전송완료") return;
@@ -229,7 +218,7 @@ export async function ingestCoupangSalesForDate(channel: MarketSalesChannel, dat
     const ecountUnitPrice = Number(row.qty) !== 0 ? Math.round(Number(row.supply_amt) / Number(row.qty)) : 0;
     const byDate = salesType === "반품" ? pendingRefundByDate : pendingSaleByDate;
     const list = byDate.get(agg.saleDate) || [];
-    list.push({ targetExternalId, itemCode, qty: Number(row.qty), unitPrice: ecountUnitPrice });
+    list.push({ targetExternalId: externalIdBase, itemCode, qty: Number(row.qty), unitPrice: ecountUnitPrice });
     byDate.set(agg.saleDate, list);
   }
 
