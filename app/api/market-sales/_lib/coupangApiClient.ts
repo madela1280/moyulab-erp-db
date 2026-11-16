@@ -273,3 +273,59 @@ export async function fetchCoupangRocketGrowthOrders(
   return { ok: true, entries };
 }
 
+const RETURN_REQUESTS_PATH_TMPL = "/v2/providers/openapi/apis/api/v6/vendors/{vendorId}/returnRequests";
+
+// ✅ 진단 전용 — 로켓그로스 매출에서 반품/취소가 전혀 빠지지 않는 문제의 원인 확인용.
+//    공식 "반품/취소 요청 목록 조회" API(v6) 원본 응답을 그대로 반환한다(필드 가공 없음).
+//    실제 요청/응답 스펙(파라미터명, 응답 envelope)이 문서로 확실히 확인되지 않아서,
+//    code 불일치여도(파싱 가능하면) raw json을 그대로 돌려줘서 실제 필드를 눈으로 확인한다.
+export async function fetchCoupangReturnRequestsRaw(
+  creds: CoupangCredentials,
+  createdAtFrom: string, // YYYY-MM-DD
+  createdAtTo: string
+): Promise<{ ok: true; raw: any[]; firstPageRaw: any } | { ok: false; reason: string; firstPageRaw?: any }> {
+  const path = RETURN_REQUESTS_PATH_TMPL.replace("{vendorId}", creds.vendorId);
+  const raw: any[] = [];
+  let nextToken = "";
+  let guard = 0;
+  let firstPageRaw: any = null;
+
+  while (guard < 50) {
+    guard++;
+    const queryObj: Record<string, string> = {
+      searchType: "timeFrame",
+      createdAtFrom,
+      createdAtTo,
+    };
+    if (nextToken) queryObj.nextToken = nextToken;
+    const queryStr = new URLSearchParams(queryObj).toString();
+    const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
+
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}${path}?${queryStr}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json;charset=UTF-8", Authorization: authorization },
+      });
+    } catch (e: any) {
+      return { ok: false, reason: `NETWORK_ERROR: ${e?.message || e}`, firstPageRaw };
+    }
+
+    const json: any = await res.json().catch(() => null);
+    if (guard === 1) firstPageRaw = json;
+
+    if (!res.ok || !json) {
+      return { ok: false, reason: `API_ERROR(${res.status}): ${JSON.stringify(json)}`, firstPageRaw };
+    }
+
+    const data: any[] = Array.isArray(json.data) ? json.data : Array.isArray(json.content) ? json.content : [];
+    raw.push(...data);
+
+    const next = json.nextToken;
+    if (!next) break;
+    nextToken = next;
+  }
+
+  return { ok: true, raw, firstPageRaw };
+}
+
