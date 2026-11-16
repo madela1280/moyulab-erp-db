@@ -335,3 +335,28 @@ export async function fetchCoupangReturnRequestsRaw(
   return { ok: true, raw, firstPageRaw };
 }
 
+// ✅ 진단 전용 — 로켓그로스 취소금액을 자동으로(API로) 가져올 방법을 찾기 위한 범용 조회기.
+//    아무 GET 엔드포인트나 경로/쿼리를 그대로 호출해서 원본 응답을 돌려준다(가공 없음).
+//    실제 데이터 흐름(ingest)에는 전혀 연결되지 않는다 — 조사용으로만 쓰고 끝낼 것.
+export async function fetchCoupangRawProbe(
+  creds: CoupangCredentials,
+  path: string,
+  queryObj: Record<string, string>
+): Promise<{ ok: boolean; status: number; json: any }> {
+  const queryStr = new URLSearchParams(queryObj).toString();
+  const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}?${queryStr}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json;charset=UTF-8", Authorization: authorization },
+    });
+  } catch (e: any) {
+    return { ok: false, status: 0, json: { networkError: e?.message || String(e) } };
+  }
+
+  const json: any = await res.json().catch(async () => ({ nonJson: (await res.text?.()) || null }));
+  return { ok: res.ok, status: res.status, json };
+}
+
