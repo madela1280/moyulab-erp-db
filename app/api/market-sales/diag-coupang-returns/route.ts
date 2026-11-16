@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
   const channel = body?.channel;
   const from = body?.from;
   const to = body?.to;
+  const cancelType = body?.cancelType === "CANCEL" ? "CANCEL" : undefined;
 
   if (!isMarketSalesChannel(channel)) return NextResponse.json({ error: "INVALID_CHANNEL" }, { status: 400 });
   if (typeof from !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return NextResponse.json({ error: "INVALID_FROM" }, { status: 400 });
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   const creds = getCoupangCredentials(channel);
   if (!creds) return NextResponse.json({ error: "CREDENTIALS_NOT_CONFIGURED" }, { status: 400 });
 
-  const result = await fetchCoupangReturnRequestsRaw(creds, from, to);
+  const result = await fetchCoupangReturnRequestsRaw(creds, from, to, cancelType);
 
   if (!result.ok) {
     return NextResponse.json({ ok: false, reason: result.reason, firstPageRaw: result.firstPageRaw }, { status: 200 });

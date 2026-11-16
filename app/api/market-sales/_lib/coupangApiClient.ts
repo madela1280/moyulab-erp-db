@@ -282,7 +282,8 @@ const RETURN_REQUESTS_PATH_TMPL = "/v2/providers/openapi/apis/api/v6/vendors/{ve
 export async function fetchCoupangReturnRequestsRaw(
   creds: CoupangCredentials,
   fromDateYYYYMMDD: string, // YYYY-MM-DD
-  toDateYYYYMMDD: string
+  toDateYYYYMMDD: string,
+  cancelType?: "CANCEL"
 ): Promise<{ ok: true; raw: any[]; firstPageRaw: any } | { ok: false; reason: string; firstPageRaw?: any }> {
   const path = RETURN_REQUESTS_PATH_TMPL.replace("{vendorId}", creds.vendorId);
   const raw: any[] = [];
@@ -301,6 +302,7 @@ export async function fetchCoupangReturnRequestsRaw(
       createdAtFrom,
       createdAtTo,
     };
+    if (cancelType) queryObj.cancelType = cancelType;
     if (nextToken) queryObj.nextToken = nextToken;
     const queryStr = new URLSearchParams(queryObj).toString();
     const authorization = buildAuthorizationHeader("GET", path, queryStr, creds);
