@@ -267,6 +267,7 @@ const PRODUCT_TABLE: Record<MarketSalesChannel, ProductEntry[]> = {
     { vendorItemId: "7821749064", PROD_CD: "M0149", NAME: "메델라 구순구개열 특수 젖병 150ml", baseQty: 1 },
     { vendorItemId: "4904746472", PROD_CD: "M0146", NAME: "쭈쭈베이비 모유훈련 젖꼭지", baseQty: 3 },
     { vendorItemId: "4904742264", PROD_CD: "M0146", NAME: "쭈쭈베이비 모유훈련 젖꼭지", baseQty: 1 },
+    { vendorItemId: "5093031958|쭈쭈베이비 모유훈련 젖꼭지: 1p", PROD_CD: "M0146", NAME: "쭈쭈베이비 모유훈련 젖꼭지", baseQty: 1 },
     { vendorItemId: "6670285788", PROD_CD: "E0040", NAME: "퍼펙션 변온모유저장팩 30매", baseQty: 1 },
     // ✅ 2026-11-13 추가(유축기 부품/추천상품 미매핑 정리, 사용자 확인):
     { vendorItemId: "4941912837|추천 상품 6종 (할인): 더블하트형 와이드캡", PROD_CD: "E0028", NAME: "더블하트 와이드캡", baseQty: 1 },

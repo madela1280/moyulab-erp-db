@@ -78,6 +78,33 @@ function extractDurationFromText(productName: string, isSwing: boolean): string 
   return isSwing ? `${m[1]}개월` : `${m[1]}주`;
 }
 
+// ✅ 2026-11-16 추가: 한 주문(orderId)에 같은 기기 2대 이상을 같이 대여하면, "당일출고" 포함 기본줄이
+//    그룹 안에 여러 개 생긴다(실데이터 확인: 2026-07-04, 락티나 2대 동시 주문). 기존엔 첫 기본줄만
+//    인식하고 두 번째 이후 기본줄을 "부품/사은품"으로 오인해서 미매핑으로 빠지는 버그가 있었다.
+//    기본줄이 2개 이상이면, 각 기본줄을 기준으로 "그 다음 기본줄 직전까지"를 한 대(서브그룹)로 쪼갠다 —
+//    네이버가 같은 장바구니에 담긴 순서대로 productOrderId를 순차 발급하므로, 기간선택/부품줄은 바로
+//    다음 기본줄 전까지는 그 기기에 딸린 것으로 본다(완벽한 보장은 아니지만 현재 얻을 수 있는 정보로는
+//    가장 합리적인 가정 — 실데이터로 확인된 유일한 사례에서는 정확히 들어맞았다).
+function splitByBaseRow(entries: NaverProductOrderEntry[]): NaverProductOrderEntry[][] {
+  const baseIdxs: number[] = [];
+  entries.forEach((e, i) => {
+    if (isBaseRow(e)) baseIdxs.push(i);
+  });
+  if (baseIdxs.length <= 1) return [entries];
+
+  const subGroups: NaverProductOrderEntry[][] = [];
+  for (let i = 0; i < baseIdxs.length; i++) {
+    const start = baseIdxs[i];
+    const end = i + 1 < baseIdxs.length ? baseIdxs[i + 1] : entries.length;
+    subGroups.push(entries.slice(start, end));
+  }
+  // 첫 기본줄 앞에 줄이 있으면(이례적 경우) 유실 방지를 위해 첫 서브그룹에 끼워넣는다.
+  if (baseIdxs[0] > 0) {
+    subGroups[0] = [...entries.slice(0, baseIdxs[0]), ...subGroups[0]];
+  }
+  return subGroups;
+}
+
 type GroupResolveResult =
   | { ok: true; device: string | null; durationKey: string; isExtension: boolean; durationRows: NaverProductOrderEntry[] }
   | { ok: false; reason: string; durationRows: NaverProductOrderEntry[] };
@@ -142,6 +169,20 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     const list = groups.get(key) || [];
     list.push(e);
     groups.set(key, list);
+  }
+
+  // ✅ 2026-11-16 추가: 기본줄이 2개 이상인 그룹(한 주문에 기기 2대 이상)을 서브그룹으로 쪼갠다.
+  const expandedGroups = new Map<string, NaverProductOrderEntry[]>();
+  for (const [key, entries] of groups.entries()) {
+    const subGroups = splitByBaseRow(entries);
+    if (subGroups.length === 1) {
+      expandedGroups.set(key, subGroups[0]);
+    } else {
+      console.warn(`market-sales(유축기) 한 주문에 기본줄 ${subGroups.length}개 발견 — ${subGroups.length}대로 분리 처리(groupKey=${key})`);
+      subGroups.forEach((sub, idx) => {
+        expandedGroups.set(`${key}#${idx + 1}`, sub);
+      });
+    }
   }
 
   const cust = CHANNEL_CUST[channel];
@@ -226,7 +267,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
   const addonAgg = new Map<string, AddonAgg>();
   const addonRefundAgg = new Map<string, AddonAgg>();
 
-  for (const [groupKey, entries] of groups.entries()) {
+  for (const [groupKey, entries] of expandedGroups.entries()) {
     const baseRow = entries.find(isBaseRow) || entries[0];
     const otherRows = entries.filter((e) => e !== baseRow);
 
