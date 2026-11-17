@@ -321,8 +321,11 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
 
     // ✅ 대여기간 선택 줄이 아닌 나머지(퍼스널핏 세트/부품/사은품/추천상품 등)는 진짜 별개 상품이라
     //    일반상품 매칭표(productId|옵션 조합키)로 합산해서 매칭한다.
+    // ⚠️ 2026-11-17 수정: "선택안함(세트 보유중)" 같은 금액 0원 미선택 옵션줄은 실제 상품이 아니므로
+    //    (고객이 이미 보유 중이라 아무것도 안 보내는 줄) addon 매칭 대상에서 제외 — 안 그러면 미매핑으로
+    //    쌓여서 ERP 작업표가 더러워짐(사용자 지적).
     const durationRowSet = new Set(resolved.durationRows);
-    const addonRows = otherRows.filter((r) => !durationRowSet.has(r));
+    const addonRows = otherRows.filter((r) => !durationRowSet.has(r) && isRealSelection(r.productName));
     for (const addon of addonRows) {
       const option = (addon.productOption || "").trim();
       const matchKey = option ? `${addon.productId}|${option}` : addon.productId;
