@@ -289,6 +289,19 @@ const PRODUCT_TABLE: Record<MarketSalesChannel, ProductEntry[]> = {
     { vendorItemId: "5948967075|유축보조 상품 할인: 닥터브라운 와이드캡", PROD_CD: "E0027", NAME: "닥터브라운 와이드캡", baseQty: 1 },
     { vendorItemId: "5948967075|단품 추가구매: 실리콘깔대기 단품(사이즈 변경용) 21mm", PROD_CD: "M0071", NAME: "메델라 21mm 실리콘 깔대기", baseQty: 1 },
     { vendorItemId: "4941912837|추천 상품 6종 (할인): 헤겐 와이드캡", PROD_CD: "E0030", NAME: "헤겐 와이드캡", baseQty: 1 },
+    // ✅ 2026-11-17 추가: 미매핑 12건 매핑(사용자 제공)
+    { vendorItemId: "4941912837|추천 상품 6종 (할인): 닥터브라운형 와이드캡", PROD_CD: "E0027", NAME: "닥터브라운 와이드캡", baseQty: 1 },
+    { vendorItemId: "4937201859|추천 상품 6종 (할인): 더블하트형 와이드캡", PROD_CD: "E0028", NAME: "더블하트 와이드캡", baseQty: 1 },
+    { vendorItemId: "5088116748|유축보조 상품 할인: 메델라 65cm 이지 튜브 세척솔", PROD_CD: "M0153", NAME: "튜브 세척솔", baseQty: 1 },
+    { vendorItemId: "9669199437|모유수유 케어상품 할인: 메델라 유두보호기 M 2p+케이스", PROD_CD: "M0002", NAME: "메델라 유두보호기 M", baseQty: 1 },
+    { vendorItemId: "9669199437|모유수유 케어상품 할인: 메델라 유두보호기 M사이즈 1개 + 본품케이스[20mm]", PROD_CD: "SET0017", NAME: "메델라 유두보호기 낱개 M 1p + 본품케이스", baseQty: 1 },
+    { vendorItemId: "5088219936|모유수유 훈련용 젖꼭지 (호환가능): 칼마 모유훈련 젖꼭지(free size)", PROD_CD: "M0144", NAME: "메델라 칼마 젖꼭지", baseQty: 1 },
+    { vendorItemId: "6690198190|저장&수유상품 할인: 메델라 젖병 1개", PROD_CD: "M0147", NAME: "메델라 젖병", baseQty: 1 },
+    { vendorItemId: "4879921013|[모유수유 케어상품] 할인: 벨벳커버 냉온 가슴마사지팩 2P", PROD_CD: "MO00001", NAME: "모유랩 가슴찜질팩", baseQty: 1 },
+    { vendorItemId: "6690198190|저장&수유상품 할인: 모유랩 다이렉트저장팩 세트(20매+스탠다드커넥터)", PROD_CD: "MO00003", NAME: "모유랩 모유저장팩 -A세트[ 스탠다드형 커텍터]", baseQty: 1 },
+    { vendorItemId: "6690198190|저장&수유상품 할인: 모유랩 다이렉트저장팩 리필팩(20매)", PROD_CD: "MO00002", NAME: "모유랩 모유저장팩[리필팩 20매]", baseQty: 1 },
+    { vendorItemId: "6690198190|저장&수유상품 할인: 모유랩 다이렉트저장팩 스탠다드 커넥터", PROD_CD: "MO00006", NAME: "모유랩 스탠다드형 커넥터(메델라,각시밀)", baseQty: 1 },
+    { vendorItemId: "4941912837|추천 상품 6종 (할인): 메델라 퀵클린 이지살균&소독팩 1매 (다회용)", PROD_CD: "M0154", NAME: "메델라 퀵클린 1매", baseQty: 1 },
   ],
 };
 
