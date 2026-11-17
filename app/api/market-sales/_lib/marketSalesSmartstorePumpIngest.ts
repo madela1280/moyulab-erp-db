@@ -287,8 +287,12 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
     const itemName = matched?.NAME || "";
     const ecountStatus = matched ? "미전송" : "미매핑";
     const externalId = `PUMP:${groupKey}`;
+    // ✅ 2026-11-17: 부품/사은품(addon) 줄처럼 기본줄도 "상품명/옵션정보" 형식으로 저장 — 기존엔
+    //    기본줄만 옵션정보 없이 원본 상품명만 저장돼서 addon 줄과 포맷이 달랐음(사용자 지적).
+    const baseOption = (baseRow.productOption || "").trim();
+    const baseDisplayName = baseOption ? `${baseRow.productName}/${baseOption}` : baseRow.productName;
 
-    await upsertLine(externalId, saleDate, baseRow.productName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
+    await upsertLine(externalId, saleDate, baseDisplayName, itemCode, itemName, qty, unitPrice, pumpAmount, ecountStatus);
     // ⚠️ 이카운트 SaveSale API는 PRICE를 공급가로 보고 자체적으로 +10% 부가세를 또 계산한다 —
     //    그래서 이카운트로 보낼 땐 부가세포함 단가가 아니라 공급가 기준 단가를 써야 한다.
     const ecountUnitPrice = qty !== 0 ? Math.round(Math.round(pumpAmount / 1.1) / qty) : 0;
@@ -309,7 +313,7 @@ export async function ingestSmartstorePumpSalesForDate(channel: MarketSalesChann
         const refundQty = -returnedQty;
         const refundSupply = -returnedPumpAmount;
         const refundUnitPrice = refundQty !== 0 ? Math.round(refundSupply / refundQty) : 0;
-        await upsertLine(refundExternalId, refundDate, baseRow.productName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
+        await upsertLine(refundExternalId, refundDate, baseDisplayName, itemCode, itemName, refundQty, refundUnitPrice, refundSupply, ecountStatus, "반품");
         const refundEcountUnitPrice = refundQty !== 0 ? Math.round(Math.round(refundSupply / 1.1) / refundQty) : 0;
         await queueIfSendable(refundExternalId, itemCode, refundQty, refundEcountUnitPrice, refundDate, !!matched, pendingRefundByDate);
       }
