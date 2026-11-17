@@ -19,7 +19,8 @@
 //   않고(WHERE ecount_status != '전송완료'), 새로 생긴 반품/취소 행만 새 external_id로 추가되어
 //   전송되므로 중복 전송 위험 없음. 쿠팡은 반품을 settlement 데이터 자체에서 바로 잡기 때문에(원래
 //   주문일을 다시 조회할 필요 없음) 이 문제가 없어서 "어제"만 본다.
-const SMARTSTORE_LOOKBACK_DAYS = 14;
+// 2026-11-17: 네이버 시간당 호출한도 때문에 14일→7일로 축소(호출수 절반, 사용자 확인).
+const SMARTSTORE_LOOKBACK_DAYS = 7;
 const COUPANG_GENERAL_LOOKBACK_DAYS = 14;
 // 채널의 API 키가 아직 없으면 CREDENTIALS_NOT_CONFIGURED로 조용히 건너뛴다(에러 아님).
 // ⚠️ 단계 하나가 실패해도(네트워크 오류 포함) 나머지 단계/채널은 계속 진행된다(safeCall로 격리).
