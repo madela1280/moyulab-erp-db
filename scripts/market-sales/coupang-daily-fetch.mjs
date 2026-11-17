@@ -42,6 +42,15 @@ function kstDateString(d) {
 const now = new Date();
 const yesterday = kstDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+// ✅ 2026-11-17 추가 — 재조회 루프(최근 N일)가 날짜마다 외부 API(네이버/쿠팡)를 호출하는데, 호출
+//    사이에 지연이 전혀 없어서 실데이터로 확인됨: 크론이 2초 만에 28번을 연달아 쏴서 그 순간 네이버
+//    "시간당 요청량(GW.QUOTA_LIMIT)"을 한 번에 다 써버리고, 이후 몇 시간 동안 전부 429로 막힘.
+//    호출 사이에 LOOKBACK_CALL_DELAY_MS만큼 쉬어서 순간적으로 몰아치지 않게 한다.
+const LOOKBACK_CALL_DELAY_MS = 1500;
+
 async function post(path, body) {
   const res = await fetch(`${SERVER_ORIGIN}${path}`, {
     method: "POST",
@@ -79,6 +88,7 @@ async function main() {
     console.log(`\n--- ${channel} ---`);
 
     for (let i = 1; i <= COUPANG_GENERAL_LOOKBACK_DAYS; i++) {
+      if (i > 1) await sleep(LOOKBACK_CALL_DELAY_MS);
       const targetDate = kstDateString(new Date(now.getTime() - i * 24 * 60 * 60 * 1000));
       await safeCall(`일반매출(${targetDate})`, "/api/market-sales/coupang-fetch", { channel, date: targetDate });
     }
@@ -91,8 +101,10 @@ async function main() {
 
   console.log(`\n--- ${SMARTSTORE_CHANNEL} (최근 ${SMARTSTORE_LOOKBACK_DAYS}일 재조회 — 반품/취소 처리완료일이 결제일보다 늦을 수 있어서) ---`);
   for (let i = 1; i <= SMARTSTORE_LOOKBACK_DAYS; i++) {
+    if (i > 1) await sleep(LOOKBACK_CALL_DELAY_MS);
     const targetDate = kstDateString(new Date(now.getTime() - i * 24 * 60 * 60 * 1000));
     await safeCall(`일반매출(${targetDate})`, "/api/market-sales/smartstore-fetch", { channel: SMARTSTORE_CHANNEL, date: targetDate });
+    await sleep(LOOKBACK_CALL_DELAY_MS);
     await safeCall(`유축기매출(${targetDate})`, "/api/market-sales/smartstore-pump-fetch", { channel: SMARTSTORE_CHANNEL, date: targetDate });
   }
   await safeCall("미전송재시도", "/api/market-sales/retry-pending", { channel: SMARTSTORE_CHANNEL });
