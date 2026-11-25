@@ -16,6 +16,7 @@ type Props = {
 
 export default function ManualContent({ selection, onContentChanged }: Props) {
   const [editing, setEditing] = useState(false);
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   const { item, loading, reload } = useManualContent(
     selection?.category ?? null,
     selection?.subcategory ?? "",
@@ -52,7 +53,7 @@ export default function ManualContent({ selection, onContentChanged }: Props) {
   const path = [selection.category, selection.subcategory, selection.detail].filter(Boolean).join(" > ");
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6 max-w-5xl">
       <div className="text-xs text-slate-400 mb-1">{path}</div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-slate-800">{item?.title || "(제목 없음)"}</h2>
@@ -66,16 +67,33 @@ export default function ManualContent({ selection, onContentChanged }: Props) {
       </div>
 
       {item?.body ? (
-        <p className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed mb-4">{item.body}</p>
+        <p className="max-w-3xl whitespace-pre-wrap text-sm text-slate-700 leading-relaxed mb-4">{item.body}</p>
       ) : (
         <p className="text-sm text-slate-400 mb-4">작성된 내용이 없습니다.</p>
       )}
 
       {item?.images && item.images.length > 0 && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {item.images.map((url) => (
-            <img key={url} src={url} alt="" className="max-w-full border border-slate-200 rounded" />
+            <button
+              key={url}
+              type="button"
+              onClick={() => setZoomUrl(url)}
+              className="self-start cursor-zoom-in"
+              title="클릭하면 크게 보기"
+            >
+              <img src={url} alt="" className="max-w-2xl w-full h-auto border border-slate-200 rounded" />
+            </button>
           ))}
+        </div>
+      )}
+
+      {zoomUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 cursor-zoom-out"
+          onClick={() => setZoomUrl(null)}
+        >
+          <img src={zoomUrl} alt="" className="max-w-[95vw] max-h-[95vh] object-contain rounded shadow-lg" />
         </div>
       )}
     </div>
