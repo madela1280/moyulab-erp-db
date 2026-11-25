@@ -55,10 +55,6 @@ export const VIEW_MAP: Record<string, any> = {
   "백업복원>변경이력복원": dynamic(() => import("@/views/backupRestore/HistoryRestoreView")),
   "백업복원>엑셀백업": dynamic(() => import("@/views/backupRestore/ExcelBackupView")),
 
-  // 집계
-  "집계>설정": dynamic(() => import("@/views/aggregate/AggregateSettingView")),
-  "집계>집계": dynamic(() => import("@/views/aggregate/AggregateView")),
-
   // 고객접수
   "고객접수>반납접수": dynamic(() => import("@/views/customerReception/ReturnRequestView")),
   "고객접수>연장·연체료": dynamic(() => import("@/views/customerReception/ExtendOrderView")),
