@@ -106,17 +106,19 @@ export async function POST(req: NextRequest) {
     const content = typeof body.body === "string" ? body.body : "";
     const images = Array.isArray(body.images) ? body.images : [];
     const keywords = typeof body.keywords === "string" ? body.keywords : "";
-    const orderIndex = Number.isFinite(body.orderIndex) ? body.orderIndex : 0;
+    // ⚠ orderIndex를 안 보낸 저장(에디터의 "수정" 등)은 기존 순서를 유지해야 한다.
+    //   0으로 기본값을 주면 수정할 때마다 그 노드가 맨 앞으로 밀려 올라가는 버그가 생긴다.
+    const orderIndex = Number.isFinite(body.orderIndex) ? body.orderIndex : null;
 
     const result = await query(
       `INSERT INTO manuals (category, subcategory, detail, title, body, images, keywords, order_index, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, NOW())
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, COALESCE($8::int, 0), NOW())
        ON CONFLICT (category, subcategory, detail) DO UPDATE SET
          title = $4,
          body = $5,
          images = $6::jsonb,
          keywords = $7,
-         order_index = $8,
+         order_index = COALESCE($8::int, manuals.order_index),
          updated_at = NOW()
        RETURNING id`,
       [category, subcategory, detail, title, content, JSON.stringify(images), keywords, orderIndex]
