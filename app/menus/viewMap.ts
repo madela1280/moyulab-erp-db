@@ -15,8 +15,8 @@ function makeSmsWrapper(initialSubCategory: SmsSubCategory) {
 }
 
 export const VIEW_MAP: Record<string, any> = {
-  // 메뉴얼
-  "메뉴얼>설명서": dynamic(() => import("@/views/manual/ManualView")),
+  // 사용설명서
+  "사용설명서>사용설명서": dynamic(() => import("@/views/manual/ManualView")),
 
   // 사용자관리
   "사용자관리>사용자추가": dynamic(() => import("@/views/users/UserAddView")),

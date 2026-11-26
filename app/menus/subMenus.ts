@@ -3,7 +3,7 @@
 import { TopMenu } from "./topMenus";
 
 export const SUB_MENUS: Record<TopMenu, string[]> = {
-  메뉴얼: ["설명서"],
+  사용설명서: ["사용설명서"],
 
   사용자관리: ["사용자추가", "권한설정", "관리자설정"],
 

@@ -2,7 +2,7 @@
 
 // app/views/manual/components/ManualEditor.tsx
 //
-// 메뉴얼 콘텐츠 작성/수정 폼: 제목, 본문, 캡쳐 이미지 업로드.
+// 사용설명서 콘텐츠 작성/수정 폼: 제목, 본문, 캡쳐 이미지 업로드.
 
 import { useRef, useState } from "react";
 import type { ManualContentItem } from "../service/manualApi";

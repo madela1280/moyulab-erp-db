@@ -2,7 +2,7 @@
 
 // app/views/manual/ManualView.tsx
 //
-// 메뉴얼 카테고리 조립 화면: 좌측 검색+트리 네비게이션, 우측 콘텐츠 뷰어.
+// 사용설명서 카테고리 조립 화면: 좌측 검색+트리 네비게이션, 우측 콘텐츠 뷰어.
 
 import { useState } from "react";
 import { useManualTree } from "./hooks/useManualTree";
