@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(path.join(dir, filename), buffer);
 
-    return NextResponse.json({ ok: true, url: `/manual-images/${filename}` });
+    return NextResponse.json({ ok: true, url: `/api/manuals/image/${filename}` });
   } catch (e) {
     console.error("POST /api/manuals/upload-image error:", e);
     return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
